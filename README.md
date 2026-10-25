@@ -89,8 +89,8 @@ This runs on your laptop, not the Jetson. It uses Unitree's official
 [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco) Python
 simulator, which only simulates the low-level topics (`rt/lowcmd`,
 `rt/lowstate`, `rt/sportmodestate`). It has no built-in walking controller, so
-`move_distance.py` doesn't work in it yet. The G1 hangs from a virtual elastic
-band until your own code commands its joints.
+`move_distance.py` doesn't work in it directly (see "Fake sport service" below).
+The G1 hangs from a virtual elastic band until your own code commands its joints.
 
 Setup was done on an Apple Silicon Mac with Python 3.12, with everything cloned
 next to this repo (about 830 MB in total):
@@ -147,3 +147,29 @@ two don't cross-talk.
 
 Sim quirks: state is published at about 140–170 Hz on a Mac (200 Hz target), and
 `imu_state.rpy` and `tick` stay 0. Use `imu_state.quaternion` instead.
+
+### Fake sport service: `sim/fake_sport.py`
+
+Stands in for the robot's built-in walking service so code that uses it
+(`LocoClient`, `move_distance.py`) can run without the robot. It answers
+`SetVelocity` (7105), `SetFsmId` (7101) and `GetFsmId` (7001) on the same
+DDS topics as the robot and publishes odometry on `rt/lf/odommodestate`.
+It doesn't walk: it slides the whole robot, legs fixed, at the commanded
+velocity. Use it to check a script's logic (commands, odometry, stopping),
+not how the real robot moves. It needs the sim venv and the `unitree_mujoco`
+clone (for the G1 model), not `unitree_mujoco.py`:
+
+```bash
+../sim-venv/bin/mjpython sim/fake_sport.py
+```
+
+Add `--headless` to run without a window (plain `python3` works then). It
+uses domain 1 on `lo0` (Mac) or `lo` (Linux); `--domain` and `--interface`
+change that. Then point a client at domain 1, for example `LocoClient` after
+`ChannelFactoryInitialize(1, "lo0")`.
+
+Tested on a Mac with `LocoClient`: walking, turning, the command expiring after
+its `duration`, and error codes. `move_distance.py` itself hasn't been run
+against it, because it needs ROS 2, which the Mac setup doesn't have. On a
+Linux machine with unitree_ros2 it should work with `ROS_DOMAIN_ID=1` and
+CycloneDDS set to the loopback interface (untested).

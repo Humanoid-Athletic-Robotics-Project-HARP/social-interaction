@@ -1,6 +1,6 @@
 ---
 name: feedback-minimal-setup
-description: Keep project setup minimal and goal-driven, using only official Unitree code and ROS 2
+description: Keep project setup minimal and goal-driven; since 2026-10-25 prefer open-source code we can read over Unitree's closed services
 metadata:
   type: feedback
 ---
@@ -10,3 +10,5 @@ Build only what the current concrete goal needs. Don't add architecture ahead of
 **Why:** On 2026-10-24 a teammate pushed back on a full ROS 2 skeleton an agent had built ("you've put a bunch of code"). They narrowed scope to one simple goal (walk a set distance), asked whether we were using official examples or random community libraries, and asked for ROS 2.
 
 **How to apply:** Start from the official example. Add the smallest amount of our own code, and explain what each piece is for. When a goal is reached, ask before expanding the structure. See [[project-overview]].
+
+**Update 2026-10-25 (from the mentors):** avoid Unitree's closed-source services (sport mode/LocoClient and the like) where possible. Use open-source code we can read, such as NVIDIA GR00T as our own walking/balance policy (see [[gr00t-wbc]]), and keep it in the project rather than relying on Unitree's onboard controller. That overrides "official Unitree code only" above. Unitree's open message definitions and unitree_sdk2_python are still fine to use. Whether ROS 2 stays required under this direction is not decided yet.

@@ -18,6 +18,8 @@ Draft goals, all still in the research phase as of 2026-10-24:
 
 **Current concrete goal (2026-10-24):** make the robot walk a specific distance with ROS 2. This is done by `move_distance.py`, which builds on official unitree_ros2. It has not been tested on the real robot yet. See [[feedback-minimal-setup]].
 
+**Direction change (2026-10-25):** the mentors want to move off Unitree's closed sport service and onto an open policy (GR00T, see [[gr00t-wbc]]), so `move_distance.py` and `sim/fake_sport.py` (both built on the sport service) are likely interim.
+
 **Why:** Everything is a draft. Expect the goals to change as research progresses.
 
 **How to apply:** Treat plans as exploratory. Before committing to a design, check the official Unitree resources ([[unitree-resources]]).
