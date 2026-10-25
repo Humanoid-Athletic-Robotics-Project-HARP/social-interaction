@@ -45,6 +45,7 @@ BAND_STIFFNESS, BAND_DAMPING = 200.0, 100.0
 BAND_STEP = 0.1           # m per key press
 STANDING_PELVIS_Z = 0.80  # auto-release: lower the band until the pelvis is this low,
 RELEASE_DELAY = 3.0       # then wait this long (time to start the policy) and release
+MODE_MACHINE = 5          # what a 29-joint G1 rev 1.0 reports in lowstate
 MAX_LAG = 0.1             # s behind real time before giving up on catching up
 
 
@@ -69,7 +70,8 @@ class Band:
             self.length += BAND_STEP
         elif key == ord("9"):
             self.enabled = not self.enabled
-            print("Band", "attached" if self.enabled else "released")
+            print("Band attached." if self.enabled else
+                  "Band released: the robot is on its own (9 re-attaches).")
 
 
 def sensor_slice(model, name):
@@ -121,7 +123,10 @@ def main():
                 viewer.sync()
                 time.sleep(VIEWER_PERIOD)
         threading.Thread(target=draw, daemon=True).start()
-    print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C to quit.")
+    print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C here quits.")
+    if viewer is not None:
+        print("MuJoCo window keys: 8 lowers the robot, 7 raises it, 9 releases or "
+              "re-attaches the band. Controller keys go to the controller's terminal.")
 
     start = time.monotonic()
     next_step = start
@@ -140,7 +145,7 @@ def main():
                     print(f"Feet down at t={data.time:.1f} s; releasing the band in {RELEASE_DELAY:.0f} s")
                 elif data.time > release_at:
                     band.enabled = False
-                    print(f"Band released at t={data.time:.1f} s")
+                    print(f"Band released at t={data.time:.1f} s: the robot is on its own.")
             if band.enabled:
                 data.xfrc_applied[torso, :3] = band.force(data.qpos[:3], data.qvel[:3])
             else:
@@ -178,6 +183,7 @@ def main():
                 math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x)))),
                 math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)),
             ]
+            state.mode_machine = MODE_MACHINE
             state.tick = (state.tick + round(SIM_DT * 1000)) % 2**32  # ms, like the robot
             state_pub.Write(state)
 
@@ -190,7 +196,8 @@ def main():
             next_step += SIM_DT
             lag = time.monotonic() - next_step
             if lag > MAX_LAG:
-                print(f"Sim fell {lag * 1000:.0f} ms behind real time at t={data.time:.1f} s")
+                print(f"Warning: the sim fell {lag * 1000:.0f} ms behind real time at "
+                      f"t={data.time:.1f} s. A controller in sim mode stops if state is over 0.5 s late.")
                 next_step = time.monotonic()   # don't try to catch up in a burst
             else:
                 time.sleep(max(0.0, -lag))

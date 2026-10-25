@@ -57,10 +57,15 @@ Terminal 2, the controller:
 ../sim-venv/bin/python gr00t/walk.py
 ```
 
+Keys for the controller (`]`, `g`, `o`, `w`...) go to terminal 2. Only the
+band keys (`7`, `8`, `9`) go to the MuJoCo window. Click a window before
+typing in it.
+
 1. Wait for "Stand pose reached" (3 s).
 2. In the viewer, press `8` a few times until the feet touch the floor.
-3. In terminal 2, press `]` to start the policy.
-4. In the viewer, press `9` to release the band.
+3. In terminal 2, press `]` to start the policy ("Policy on").
+4. In the viewer, press `9` once to release the band. Terminal 1 prints
+   "Band released"; `9` toggles, so a second press re-attaches it.
 5. In terminal 2, drive it: `w`/`s` forward/back, `a`/`d` left/right,
    `q`/`e` turn, `z` stop moving, `1`/`2` raise/lower. Each press changes
    the speed by 0.2.
@@ -88,8 +93,9 @@ given, with the robot balancing in place for 1.5 s between them. Start-up is
 the same as above (feet on the floor, `]`, release the band), then press `g`
 to start the moves. Give the robot a few seconds to settle after the release:
 it often takes a step and turns a little while catching itself, and "forward"
-is wherever it faces when you press `g`. After each move it prints the estimated distance or
-angle. After the last one the robot keeps balancing until you press `o`.
+is wherever it faces when you press `g`. After each move it prints the
+estimated distance or angle. After the last one the robot keeps balancing
+until you press `o`.
 
 - `--distance`: meters, negative walks backward.
 - `--angle`: degrees, positive turns left (counterclockwise).
@@ -98,7 +104,50 @@ angle. After the last one the robot keeps balancing until you press `o`.
 
 It aborts (and damps) if a move takes much longer than expected, a turn goes
 more than 10° the wrong way, the robot tilts past 60°, or robot state stops
-arriving.
+arriving. That's 0.1 s on the robot and 0.5 s in the sim, which pauses when
+macOS throttles its window. If a walk times out with the robot stepping in
+place, the band was still on.
+
+### Example: walk 2 m, turn left 90°, walk 2 m
+
+Terminal 1:
+
+```bash
+../sim-venv/bin/mjpython sim/run_sim.py
+```
+
+Terminal 2:
+
+```bash
+../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2 --speed 0.3
+```
+
+| Step | Where | Do | You should see |
+|---|---|---|---|
+| 1 | terminal 2 | wait about 3 s | `Stand pose reached. Lower the robot onto its feet ...` |
+| 2 | MuJoCo window | press `8` about five times | the feet touch the floor |
+| 3 | terminal 2 | press `]` | `Policy on: GR00T is balancing. Release the band ...` |
+| 4 | MuJoCo window | press `9` once | terminal 1: `Band released: the robot is on its own` |
+| 5 | | wait a few seconds | the robot steadies itself |
+| 6 | terminal 2 | press `g` | the three moves, one after another |
+| 7 | terminal 2 | press `o` when it says `All moves done` | `Stopped: all joints damped, so the robot sinks.` |
+
+Terminal 2 after step 6 (from a sim run on 2026-10-25):
+
+```
+[1/3] Walking +2.00 m at 0.30 m/s
+  Target 2.00 m, estimated displacement 2.02 m
+[2/3] Turning +90.0 deg at 20.0 deg/s
+  Target +90.0 deg, estimated turn +91.4 deg
+[3/3] Walking +2.00 m at 0.30 m/s
+  Target 2.00 m, estimated displacement 2.01 m
+All moves done. GR00T keeps balancing; support the robot, then press o to stop (it will sink).
+```
+
+In that run the robot really ended about 2.0 m forward and 2.3 m to the left
+of where it started (the sim's true position, from `--log`). To run it again,
+restart both terminals: after `o` the robot lies on the floor, and the band is
+anchored above where it started.
 
 Without Unitree's controller there is no built-in odometry, so the script
 estimates its own:

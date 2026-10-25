@@ -17,7 +17,7 @@ Run against the sim (start sim/run_sim.py first, see README):
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
   python3 move_distance.py --real --interface eth0 --distance 0.5
 
-Keys: ] start the policy (balance in place), g start the moves once the robot
+Keys, typed in this terminal: ] start the policy (balance in place), g start the moves once the robot
 stands on its own, o stop (damp) and quit. After the last move the robot
 keeps balancing until o.
 """
@@ -116,7 +116,7 @@ class Moves:
         key = read()
         if key == "g" and self.phase == "waiting":
             if not self.walker.policy_on:
-                print("Press ] first to start the policy.")
+                print("Not yet: press ] first to start the policy, then g.")
             else:
                 self.begin()
             return None
@@ -133,7 +133,8 @@ class Moves:
         else:
             target, rate = abs(value), self.speed
             print(f"{step} Walking {value:+.2f} m at {self.speed:.2f} m/s")
-        self.give_up_at = time.monotonic() + 2.0 * target / rate + 5.0
+        self.started_at = time.monotonic()
+        self.give_up_at = self.started_at + 2.0 * target / rate + 5.0
         self.phase = "moving"
 
     def traveled(self):
@@ -148,13 +149,21 @@ class Moves:
         if self.phase == "moving":
             kind, value = self.moves[self.index]
             if now > self.give_up_at:
-                raise RuntimeError("Movement timed out")
+                if kind == "turn":
+                    progress = f"turned an estimated {abs(math.degrees(self.turned())):.0f} of {abs(value):.0f} deg"
+                else:
+                    progress = f"walked an estimated {self.traveled():.2f} of {abs(value):.2f} m"
+                raise RuntimeError(
+                    f"Move {self.index + 1} timed out: {progress} in {now - self.started_at:.0f} s. "
+                    "If the robot stepped in place, something was holding it (in the sim, the "
+                    "band: press 9 in the MuJoCo window).")
             if kind == "turn":
                 # Positive angle turns left (counterclockwise seen from above).
                 sign = math.copysign(1.0, value)
                 progress = sign * self.turned()
                 if progress < -WRONG_WAY_LIMIT:
-                    raise RuntimeError("Turning the wrong way")
+                    raise RuntimeError(
+                        f"Turning the wrong way: {math.degrees(-progress):.0f} deg opposite to the command.")
                 done = progress >= math.radians(abs(value))
                 cmd = [0.0, 0.0, sign * self.turn_speed]
             else:
@@ -180,7 +189,8 @@ class Moves:
             if self.index < len(self.moves):
                 self.begin()
             else:
-                print("Done. The robot keeps balancing; support it, then press o to stop.")
+                print("All moves done. GR00T keeps balancing; support the robot, then press o "
+                      "to stop (it will sink).")
                 self.phase = "done"
 
 
@@ -214,13 +224,13 @@ def main():
     if args.real:
         check_unitree_controller_off()
     walker = Walker(real=args.real)
+    walker.next_hint = "Then press g here to start the moves (o stops)."
     plan = Moves(walker, LegOdometry(args.scene), args.moves, args.speed, args.turn_speed)
     try:
         with TerminalKeys() as keys:
-            print("Press ] to start the policy, then g to move once the robot stands on its own.")
             walker.run(lambda: plan.read_key(keys.read), plan.on_policy_step)
     except KeyboardInterrupt:
-        print("Interrupted")
+        print("Interrupted (Ctrl-C).")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         walker.damp()
