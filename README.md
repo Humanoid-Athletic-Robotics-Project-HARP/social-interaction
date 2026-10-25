@@ -1,5 +1,8 @@
 # HARP Human Interaction
 
+Robot: Unitree G1 EDU with **29 joints**. Use 29-DoF models and joint indices
+for low-level control and simulation.
+
 Current goal: make the Unitree G1 walk a specific distance, using ROS 2 and
 only Unitree's official code.
 
@@ -79,3 +82,68 @@ should increase.
 - Commands request 0.5 s validity; verify actual expiry behavior on the robot.
 - Reaching the target, an error, or Ctrl-C sends the stop command 5 times,
   0.1 s apart, in case some are lost. If the network is down, none get through.
+
+## Simulation (MuJoCo, on a Mac)
+
+This runs on your laptop, not the Jetson. It uses Unitree's official
+[unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco) Python
+simulator, which only simulates the low-level topics (`rt/lowcmd`,
+`rt/lowstate`, `rt/sportmodestate`). It has no built-in walking controller, so
+`move_distance.py` doesn't work in it yet. The G1 hangs from a virtual elastic
+band until your own code commands its joints.
+
+Setup was done on an Apple Silicon Mac with Python 3.12, with everything cloned
+next to this repo (about 830 MB in total):
+
+```bash
+cd ..
+git clone https://github.com/eclipse-cyclonedds/cyclonedds -b releases/0.10.x
+cd cyclonedds && mkdir build install && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
+cmake --build . --target install
+cd ../..
+git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git
+git clone --depth 1 https://github.com/unitreerobotics/unitree_mujoco.git
+python3 -m venv sim-venv && source sim-venv/bin/activate
+CYCLONEDDS_HOME=$PWD/cyclonedds/install pip install -e ./unitree_sdk2_python mujoco pygame
+```
+
+Three fixes (the first two are Mac-only):
+
+- **The SDK's timer is Linux-only** (`timerfd_create: symbol not found`). Apply
+  the open upstream fix
+  [unitree_sdk2_python#139](https://github.com/unitreerobotics/unitree_sdk2_python/pull/139).
+  It changes only `unitree_sdk2py/utils/thread.py` and leaves Linux behavior
+  unchanged:
+  `curl -sL https://github.com/unitreerobotics/unitree_sdk2_python/pull/139.diff | git -C unitree_sdk2_python apply`
+- **The loopback interface is `lo0`, not `lo`.**
+- **Any key press in the viewer crashes the sim** (`module 'mujoco' has no
+  attribute 'glfw'`). Newer MuJoCo (3.17 here) dropped `mujoco.glfw`. In
+  `unitree_mujoco/simulate_python/unitree_sdk2py_bridge.py`, in
+  `MujuocoKeyCallback`, replace `glfw = mujoco.glfw.glfw` with `import glfw`.
+  The standalone `glfw` package is already installed as a MuJoCo dependency.
+
+In `unitree_mujoco/simulate_python/config.py`, set:
+
+```python
+ROBOT = "g1"
+ROBOT_SCENE = "../unitree_robots/" + ROBOT + "/scene_29dof.xml"
+INTERFACE = "lo0"
+USE_JOYSTICK = 0           # 1 if you have an Xbox/Switch gamepad
+ENABLE_ELASTIC_BAND = True
+```
+
+Run it with `mjpython` (macOS needs it for the viewer window):
+
+```bash
+cd unitree_mujoco/simulate_python && ../../sim-venv/bin/mjpython unitree_mujoco.py
+```
+
+In the viewer, `9` attaches or releases the band, `7` shortens it (raises the
+robot) and `8` lengthens it (lowers the robot). Unitree's README has `7` and `8`
+the other way around, but the code works as described here. Code talks to the sim with `ChannelFactoryInitialize(1, "lo0")`
+(domain 1). The real robot uses domain 0 on its own network interface, so the
+two don't cross-talk.
+
+Sim quirks: state is published at about 140–170 Hz on a Mac (200 Hz target), and
+`imu_state.rpy` and `tick` stay 0. Use `imu_state.quaternion` instead.
