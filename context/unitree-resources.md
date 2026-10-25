@@ -8,7 +8,7 @@ metadata:
 Research done 2026-10-24 for [[project-overview]].
 
 **Official (github.com/unitreerobotics)**
-- `unitree_ros2`: ROS 2 message packages (`unitree_go`, `unitree_hg` for humanoids/G1, `unitree_api`) plus examples. The robot speaks CycloneDDS, so ROS 2 talks to it directly. Targets Ubuntu 22.04/Humble (recommended) and 20.04/Foxy.
+- `unitree_ros2`: ROS 2 message packages (`unitree_go`, `unitree_hg` for humanoids/G1, `unitree_api`) plus examples. The robot speaks CycloneDDS, so ROS 2 talks to it directly. Tested on Ubuntu 20.04/Foxy and 22.04/Humble. The GitHub README calls Humble "recommended", but Unitree's G1 "Ros2 Communication Routine" doc says the examples were developed under Foxy. The robot's DDS is CycloneDDS 0.10.2. On Foxy you must build CycloneDDS 0.10.x and `rmw_cyclonedds` (foxy branch) in `cyclonedds_ws` with ROS *not* sourced; Humble skips that step. PC2 (Jetson Orin NX) most likely runs Ubuntu 20.04 + Foxy, based on community G1 guides and the Go2 EDU's JetPack 5 image, but this is not confirmed on our robot yet (check `ls /opt/ros` and `lsb_release -a`). Don't upgrade or reflash the Jetson to get Humble: it needs Unitree's custom BSP. `move_distance.py` runs on Foxy and Python 3.8 as written.
 - `unitree_sdk2` (C++) and `unitree_sdk2_python`: the main SDK. Includes the high-level `LocoClient` (walking) and `AudioClient` (TTS/speaker).
 - `unitree_mujoco`: simulator. G1 uses `unitree_hg` messages.
 - `unitree_rl_gym` and `unitree_rl_lab` (IsaacLab): RL locomotion training with sim2sim and sim2real for the G1.
