@@ -16,8 +16,10 @@ Draft goals, all still in the research phase as of 2026-10-24:
 
 **HARP** stands for Humanoid Athletics Robotics Project ("Intro to Humanoid Robotics"). It runs as a lecture series with teams by topic, and this repo is the **Human Interaction** team ("realistic social engagement"). Other teams cover dance, paddle sports, combat, ball sports, and precision sports. Lecture 2 (a course PDF; it is not in the repo) covers G1 specs, ROS 2 `rt/lowcmd`/`rt/lowstate`, and a method for reviewing prior research. Its ROS 2 code example publishes `JointCommand` to `/safety/precheck` and subscribes to `RobotFeedback` on `/safety/policy_observation`, with `session_id` and `observation_id` fields. That points to a HARP-provided safety layer that team code goes through. Its source and rules are not known yet (as of 2026-10-24).
 
-**Current concrete goal:** make the robot walk a specific distance. On 2026-10-25 the mentors moved the project off Unitree's closed sport service and onto an open policy (GR00T, see [[gr00t-wbc]]). The ROS 2 / sport-service `move_distance.py` and `sim/fake_sport.py` were removed. `move_distance.py` now walks with `gr00t/walk.py`, using its own leg odometry, and is tested only in our sim (`sim/run_sim.py`, see [[mujoco-sim]]), not on the real robot. See [[feedback-minimal-setup]].
+**Current concrete goal:** make the robot walk a specific distance. Since 2026-10-25 we use an open policy, GR00T ([[gr00t-wbc]]), instead of Unitree's closed sport service. `move_distance.py` walks with `gr00t/walk.py` and its own leg odometry. It works in our sim (`sim/run_sim.py`, [[mujoco-sim]]) and hasn't been tried on the real robot. See [[feedback-minimal-setup]].
+
+**Open question for the real robot:** the course's HARP safety layer (above) may have to sit between our controller and the motors. Find out before the first hardware run.
 
 **Why:** Everything is a draft. Expect the goals to change as research progresses.
 
-**How to apply:** Treat plans as exploratory. Before committing to a design, check the official Unitree resources ([[unitree-resources]]).
+**How to apply:** Treat plans as exploratory. Before committing to a design, check the official and open-source resources ([[unitree-resources]]).
