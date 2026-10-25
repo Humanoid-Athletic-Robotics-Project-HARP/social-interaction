@@ -1,27 +1,23 @@
 ---
 name: mujoco-sim
-description: What Unitree's MuJoCo options can and can't simulate for the G1, and how they were set up on one teammate's Mac (the only OS tested so far)
+description: Our MuJoCo sim (sim/run_sim.py), why it replaces unitree_mujoco's runner, and Mac-specific facts (the only OS tested so far)
 metadata:
   type: reference
 ---
 
-Read from the official READMEs on 2026-10-25.
+**What we use:** `sim/run_sim.py`. It loads Unitree's G1 model (`unitree_mujoco/unitree_robots/g1/scene_29dof.xml`, cloned next to the repo) and speaks the robot's low-level topics. It reads `rt/lowcmd` and publishes `rt/lowstate` (unitree_hg) every 5 ms step, with `rpy` and `tick` filled in. It uses DDS domain 1 on loopback; the real robot uses 0. It has an elastic band with keys 7/8/9, and `--headless --auto-release` for scripted tests. There is no `sport` service in any MuJoCo option, so only our own controller ([[gr00t-wbc]]) walks in it.
 
-**unitree_mujoco** (official): only simulates low-level DDS topics: `rt/lowcmd`, `rt/lowstate`, `SportModeState`, and `rt/secondary_imu` for the G1. There is no built-in walking controller and no `sport` service, so `/api/sport/request` gets no answer. `move_distance.py` can't run against it as written. Our robot's model is `unitree_robots/g1/scene_29dof.xml` (29 joints, see [[project-overview]]), using `unitree_hg` messages. Set `robot: g1` / `ROBOT = "g1"`. Sim uses domain id 1 on `lo` (the real robot uses 0). Its test programs send `unitree_go` messages, so they need changing for the G1. The C++ build is apt/Linux-only. The Python version (`simulate_python`) needs `unitree_sdk2_python` (which needs CycloneDDS) and `mujoco`. Turn on the elastic band for humanoids. The keys are below, with the glfw fix.
+**Why not unitree_mujoco's `simulate_python`** (found 2026-10-25):
+- Its bridge computes the PD torque once per received `rt/lowcmd`, on the DDS thread, and holds it. With GR00T this blew up the physics on landing. `run_sim.py` recomputes PD every step from the latest command, like NVIDIA's GR00T sim and the robot's motor drivers.
+- Its sleep-based pacing drifts to about 0.8x real time on the Mac (lowstate at 140–170 Hz instead of 200), so a wall-clock 50 Hz policy runs too fast relative to sim time. `run_sim.py` paces against an absolute schedule.
+- Running it needs three local fixes. Our scripts need none of them, and we checked they don't import `unitree_sdk2py.utils.thread`. The fixes are: unitree_sdk2_python PR #139 for the Linux-only `timerfd`; `import glfw` in `MujuocoKeyCallback`, because MuJoCo 3.17 dropped `mujoco.glfw`; and editing `config.py`.
 
-**unitree_rl_gym `deploy/deploy_mujoco`** (official): runs a pretrained G1 walking policy (`deploy/pre_train/g1/motion.pt`, 12 leg joints) directly in MuJoCo, with no DDS. It only controls the legs, so it doesn't exercise our robot's waist or arm joints. Run it with `deploy_mujoco.py g1.yaml`. The walk command is fixed by `cmd_init` in the yaml (default 0.5 m/s forward). Don't `pip install -e` it: setup.py pins isaacgym and numpy 1.20. Running from the repo root with `PYTHONPATH=.` and installing mujoco, torch and pyyaml should be enough, but this is untested.
+**Mac facts** (one teammate's Apple Silicon Mac, Python 3.12, 2026-10-25; other OSes untested, see [[team-context]]):
+- Loopback is `lo0`, not `lo`. Our scripts pick it automatically.
+- The viewer (`launch_passive`) needs `mjpython`, not `python3`; `--headless` works with plain python.
+- The setup (CycloneDDS 0.10.x C library, unitree_sdk2_python, unitree_mujoco, `sim-venv` with mujoco and onnxruntime) is in the README.
+- Band keys, per the code: 7 shortens (raises), 8 lengthens (lowers), 9 toggles. Unitree's README has 7 and 8 reversed.
 
-**Tested machine:** one teammate's Apple Silicon Mac with Python 3.12 and no ROS 2. Other teammates use other OSes, which haven't been tried yet (see [[team-context]]). MuJoCo's `launch_passive` viewer needs `mjpython` on macOS, not `python3`.
+**Alternative, not used:** unitree_rl_gym's `deploy/deploy_mujoco` runs its own 12-leg-joint policy directly in MuJoCo, without DDS.
 
-**Set up and working on the Mac (2026-10-25):** cyclonedds (0.10.x C library), unitree_sdk2_python, unitree_mujoco and `sim-venv` are siblings of this repo's clone, about 830 MB in total. The README's Simulation section has the steps. Mac-specific findings:
-- Loopback is `lo0`, not `lo`. This applies to config.py and to `ChannelFactoryInitialize(1, "lo0")`.
-- The SDK's `RecurrentThread` uses Linux-only `timerfd`. A teammate approved applying the open community PR unitree_sdk2_python#139 (only `utils/thread.py`, with a sleep fallback off Linux) to the local clone. It is not merged upstream, so re-apply it after re-cloning, and other Mac teammates need it too.
-- Verified: G1 29-DoF lowstate arrives at about 140–170 Hz (200 Hz target). The sim leaves `imu_state.rpy` and `tick` at 0, so use `imu_state.quaternion`. The base starts at about 1.28 m, hanging on the elastic band.
-
-**Not Mac-specific (applies on any platform with MuJoCo 3.17+):** with the elastic band on, any key press in the viewer crashed the sim. `MujuocoKeyCallback` in `simulate_python/unitree_sdk2py_bridge.py` used `mujoco.glfw.glfw`, which MuJoCo 3.17 dropped. A teammate approved replacing it locally with `import glfw` (the standalone package is a MuJoCo dependency). There is no upstream fix as of 2026-10-25, so re-apply it after re-cloning. They confirmed the keys work in the live viewer after the fix. Band keys per the code: 9 toggles the band, 7 shortens it (raises the robot), 8 lengthens it (lowers the robot). Unitree's README has 7 and 8 reversed.
-
-**History:** a fake sport service, `sim/fake_sport.py`, was built and then removed on 2026-10-25 when we switched to GR00T. It was `sim/fake_sport.py` in this repo. It's a standalone MuJoCo script that loads the G1 model from the sibling unitree_mujoco clone and doesn't use the bridge. It subclasses unitree_sdk2py's RPC `Server` and answers 7105/7101/7001 (anything else gets 3203). It slides the robot kinematically and publishes `rt/lf/odommodestate` at 20 Hz with yaw in `rpy[2]`. Verified on the Mac with LocoClient (walk, turn, duration expiry, error codes) in headless and viewer modes. Not yet run with `move_distance.py`, which needs ROS 2. The next step would be a real walking policy instead of the slide.
-
-**Our sim, `sim/run_sim.py` (2026-10-25):** used instead of `unitree_mujoco.py` for GR00T. Running GR00T against unitree_mujoco's Python bridge blew up the physics on landing. That bridge computes the PD torque once per received `rt/lowcmd`, on the DDS thread, and holds it. It also runs at about 0.8x real time on the Mac, because its sleep-based pacing drifts (that's the 140–170 Hz). `run_sim.py` recomputes PD at every 5 ms step from the latest command, like NVIDIA's GR00T sim and the real motor drivers, and paces against the wall clock. It publishes `rt/lowstate` every step with rpy and tick filled in, and offers `--headless --auto-release` for tests. It uses only unitree_mujoco's G1 model, so the timerfd/glfw/config fixes aren't needed for our scripts. Our code doesn't import `unitree_sdk2py.utils.thread`, which was checked.
-
-Related: [[unitree-resources]], [[project-overview]]
+Related: [[off-robot-testing]], [[project-overview]]
