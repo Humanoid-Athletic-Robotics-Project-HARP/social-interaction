@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+._*
+
+# colcon / ROS 2 build outputs
+build/
+install/
+log/
+
+# Third-party code fetched from dependencies.repos
+deps/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets (LLM API keys etc.)
+.env
+.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Recorded robot data (rosbags) and large model weights
+rosbag2_*/
+*.bag
+*.mcap
+*.db3
+*.onnx
+*.pt
+*.pth
+*.engine
