@@ -24,6 +24,7 @@ Run from the sim venv (DDS domain 1 by default):
 import argparse
 import math
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -113,11 +114,17 @@ def main():
     viewer = None
     if not args.headless:
         viewer = mujoco.viewer.launch_passive(model, data, key_callback=band.on_key)
+
+        def draw():
+            # Separate thread, so drawing never delays physics or rt/lowstate.
+            while viewer.is_running():
+                viewer.sync()
+                time.sleep(VIEWER_PERIOD)
+        threading.Thread(target=draw, daemon=True).start()
     print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C to quit.")
 
     start = time.monotonic()
     next_step = start
-    last_view = 0.0
     release_at = None
     try:
         while viewer is None or viewer.is_running():
@@ -180,14 +187,11 @@ def main():
                 print(f"t={data.time:5.1f}  pelvis x={data.qpos[0]:+.2f} y={data.qpos[1]:+.2f} "
                       f"z={data.qpos[2]:.2f} yaw={yaw:+6.1f}  wall={now - start:5.1f}", flush=True)
 
-            if viewer is not None and now - last_view >= VIEWER_PERIOD:
-                viewer.sync()
-                last_view = now
-
             next_step += SIM_DT
             lag = time.monotonic() - next_step
             if lag > MAX_LAG:
-                next_step = time.monotonic()   # fell behind; don't try to catch up in a burst
+                print(f"Sim fell {lag * 1000:.0f} ms behind real time at t={data.time:.1f} s")
+                next_step = time.monotonic()   # don't try to catch up in a burst
             else:
                 time.sleep(max(0.0, -lag))
     except KeyboardInterrupt:
