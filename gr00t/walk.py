@@ -247,7 +247,7 @@ class Walker:
         while not self.quit:
             now = time.monotonic()
             if now - self.state_time > STATE_TIMEOUT:
-                raise RuntimeError("Lost rt/lowstate")
+                raise RuntimeError(f"Lost rt/lowstate (none for {(now - self.state_time) * 1000:.0f} ms)")
             key = read_key()
             if key:
                 self.handle_key(key)

@@ -73,27 +73,32 @@ For tests without a window, `python3 sim/run_sim.py --headless --auto-release 3 
 lowers the robot onto its feet after 3 s, waits 3 s (press `]` then), releases
 the band, and prints the true pelvis position every second.
 
-## Walk a distance or turn an angle: `move_distance.py`
+## Walk distances and turn angles: `move_distance.py`
 
 With the sim running (terminal 1 above):
 
 ```bash
 ../sim-venv/bin/python move_distance.py --distance 1.0 --speed 0.3
 ../sim-venv/bin/python move_distance.py --angle 90 --turn-speed 20
+../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2 --speed 0.3
 ```
 
-Same start-up as above (feet on the floor, `]`, release the band), then press
-`g` to start the move. It stops when the estimate reaches the target, prints
-the estimated distance or angle, and keeps balancing until you press `o`.
+`--distance` and `--angle` can be repeated, and the moves run in the order
+given, with the robot balancing in place for 1.5 s between them. Start-up is
+the same as above (feet on the floor, `]`, release the band), then press `g`
+to start the moves. Give the robot a few seconds to settle after the release:
+it often takes a step and turns a little while catching itself, and "forward"
+is wherever it faces when you press `g`. After each move it prints the estimated distance or
+angle. After the last one the robot keeps balancing until you press `o`.
 
 - `--distance`: meters, negative walks backward.
-- `--speed`: m/s, capped at 0.4. Default 0.2.
 - `--angle`: degrees, positive turns left (counterclockwise).
-- `--turn-speed`: deg/s, capped at 30. Default 20.
+- `--speed`: m/s for every walk, capped at 0.4. Default 0.2.
+- `--turn-speed`: deg/s for every turn, capped at 30. Default 20.
 
-Set exactly one of `--distance` or `--angle`. It aborts (and damps) if the
-move takes much longer than expected, a turn goes more than 10° the wrong
-way, the robot tilts past 60°, or robot state stops arriving.
+It aborts (and damps) if a move takes much longer than expected, a turn goes
+more than 10° the wrong way, the robot tilts past 60°, or robot state stops
+arriving.
 
 Without Unitree's controller there is no built-in odometry, so the script
 estimates its own:
@@ -104,7 +109,9 @@ estimates its own:
 In the sim (2026-10-25), a 90° turn was estimated at 90.1° and measured at
 89.9°. Walks of 1.5 m and 1 m backward ended at 1.63 m and 1.11 m: the
 odometry reads about 7% short, and the robot drifts about 0.1 m after the
-stop. GR00T walked at about 85% of the commanded speed.
+stop. GR00T walked at about 85% of the commanded speed. Each walk steers to
+hold the heading it started with. Without that, a 2 m walk drifted 5–10°
+off straight; with it, the heading stayed within about 2°.
 
 ## On the real robot (not tested yet)
 

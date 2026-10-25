@@ -18,7 +18,7 @@ Walk the newcomer through it one stage at a time, and ask which stage they need:
 Ask which OS they're on first ([[team-context]]). Linux should only need `lo` instead of `lo0` (the scripts choose automatically); that's untested. Windows is untested, and `TerminalKeys` uses termios, which is Mac/Linux only.
 1. README "Setup": build CycloneDDS 0.10.x, then clone `unitree_sdk2_python` and `unitree_mujoco` and create `sim-venv` (mujoco, onnxruntime), all as siblings of this repo. unitree_mujoco is only needed for the G1 model files; none of its local fixes are needed.
 2. README "Run it in the sim": `mjpython sim/run_sim.py` in one terminal and `python gr00t/walk.py` in another. The order matters: wait for the stand pose, lower the feet to the floor (`8` in the viewer), press `]`, then release the band (`9`). Started in the air, the policy flails. Released before `]`, the robot falls.
-3. Then `move_distance.py --distance 1.0` (or `--angle 90`): the same start-up, then `g`.
+3. Then `move_distance.py --distance 1.0`, or a sequence such as `--distance 2 --angle 90 --distance 2` (the flags repeat and run in order): the same start-up, then `g`.
 
 **2. Robot path (not tested on hardware yet)**
 1. Join the robot's `192.168.123.x` network; the Jetson is `ssh unitree@192.168.123.164` (initial password `123`, see [[g1-official-docs]]). Do not upgrade or reflash the Jetson.
