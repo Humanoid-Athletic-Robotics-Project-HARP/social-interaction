@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Stanford Humanoids project on a **Unitree G1 EDU** humanoid. Draft goals, all still in the research phase (as of 2026-10-24 no code has been written):
+Stanford Humanoids project on a **Unitree G1 EDU** humanoid. Draft goals, all still in the research phase as of 2026-10-24:
 
 1. Social interaction with people.
 2. Smooth, human-like walking.
