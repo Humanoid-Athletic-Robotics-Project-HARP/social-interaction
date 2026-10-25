@@ -63,4 +63,5 @@ Distance is estimated from odometry; accuracy and timeout settings need robot te
   remote the whole time.
 - Start with 0.5 m.
 - Commands request 0.5 s validity; verify actual expiry behavior on the robot.
-  Cleanup attempts a stop while communication remains available.
+- Reaching the target, an error, or Ctrl-C sends the stop command 5 times,
+  0.1 s apart, in case some are lost. If the network is down, none get through.
