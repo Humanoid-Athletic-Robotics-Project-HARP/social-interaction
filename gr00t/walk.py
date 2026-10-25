@@ -18,7 +18,7 @@ Sim (start unitree_mujoco first, see README):
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
   python3 gr00t/walk.py --real --interface eth0
 
-Keys: ] start policy, w/s forward/back, a/d left/right, q/e turn left/right,
+Keys, typed in this terminal: ] start policy, w/s forward/back, a/d left/right, q/e turn left/right,
 z zero velocity, 1/2 raise/lower, o stop (damp) and quit.
 """
 
@@ -91,7 +91,8 @@ CMD_STEP, HEIGHT_STEP = 0.2, 0.05
 CONTROL_DT = 0.02         # policy rate, 50 Hz
 PUBLISH_DT = 0.005        # lowcmd rate, 200 Hz
 RAMP_TIME = 3.0           # s to move from the current pose to the stand pose
-STATE_TIMEOUT = 0.1       # s without lowstate before damping
+STATE_TIMEOUT_REAL = 0.1  # s without lowstate before damping
+STATE_TIMEOUT_SIM = 0.5   # the sim's physics pauses when it stalls (macOS throttles its window), so a gap is harmless
 FALL_TILT = math.radians(60.0)  # damp if the pelvis tilts more than this
 STOP_TIME = 1.0           # s of damping commands sent when stopping
 
@@ -141,6 +142,7 @@ class Walker:
 
     def __init__(self, real=False):
         self.real = real
+        self.state_timeout = STATE_TIMEOUT_REAL if real else STATE_TIMEOUT_SIM
         self.policy = Gr00tPolicy()
         self.state = None
         self.state_time = 0.0
@@ -149,6 +151,9 @@ class Walker:
         self.standing = False     # stand-up ramp finished; the policy may start
         self.policy_on = False
         self.quit = False
+        # Printed once the policy is on; move_distance.py replaces it.
+        self.next_hint = ("Drive with w/s (forward/back), a/d (sideways), q/e (turn), "
+                          "z (stop moving), 1/2 (raise/lower); o stops.")
 
         self.low_cmd = unitree_hg_msg_dds__LowCmd_()
         self.crc = CRC()
@@ -188,20 +193,28 @@ class Walker:
             self.send(np.zeros(NUM_MOTORS), np.zeros(NUM_MOTORS),
                       np.full(NUM_MOTORS, DAMPING_KD))
             time.sleep(PUBLISH_DT)
-        print("Damping sent.")
+        print("Stopped: all joints damped, so the robot sinks.")
 
     def handle_key(self, key):
         steps = {"w": (0, CMD_STEP), "s": (0, -CMD_STEP), "a": (1, CMD_STEP),
                  "d": (1, -CMD_STEP), "q": (2, CMD_STEP), "e": (2, -CMD_STEP)}
         if key == "]" and not self.policy_on:
             if not self.standing:
-                print("Wait until the stand pose is reached.")
+                print("Not yet: wait for 'Stand pose reached' (about 3 s after start).")
                 return
             self.policy_on = True
-            print("Policy on.")
-        elif key == "o":
+            if self.real:
+                print("Policy on: GR00T is balancing. Slacken the gantry, leaving the rope "
+                      "just loose enough to catch a fall.")
+            else:
+                print("Policy on: GR00T is balancing. Release the band (9 in the MuJoCo "
+                      "window) and give the robot a few seconds to settle.")
+            print(self.next_hint)
+            return
+        if key == "o":
             self.quit = True
-        elif key in steps:
+            return
+        if key in steps:
             axis, step = steps[key]
             self.cmd[axis] += step
         elif key == "z":
@@ -219,11 +232,11 @@ class Walker:
     def check_mode_machine(self):
         mode = self.state.mode_machine
         if mode != G1_29DOF_REV_1_0:
-            msg = (f"lowstate.mode_machine is {mode}, but the GR00T config is for "
-                   f"the 29-joint G1 rev 1.0 ({G1_29DOF_REV_1_0})")
+            msg = (f"the robot reports mode_machine {mode}, but GR00T's config is for the "
+                   f"29-joint G1 rev 1.0 (mode_machine {G1_29DOF_REV_1_0})")
             if self.real:
-                raise RuntimeError(msg)
-            print(f"Note: {msg} (fine in the sim).")
+                raise RuntimeError(f"Not running: {msg}.")
+            print(f"Note: {msg}. Carrying on, since this is a sim.")
 
     def run(self, read_key, on_policy_step=None):
         """Control loop. read_key() returns one pending key or None.
@@ -234,7 +247,10 @@ class Walker:
         wait_until = time.monotonic() + 5.0
         while self.state is None:
             if time.monotonic() > wait_until:
-                raise RuntimeError("No rt/lowstate received; is the sim or robot running?")
+                where = ("the robot. Check the Ethernet cable and that --interface is the one "
+                         "on 192.168.123.x" if self.real else
+                         "the sim. Start sim/run_sim.py in another terminal first")
+                raise RuntimeError(f"No robot state (rt/lowstate) after 5 s from {where}.")
             time.sleep(0.05)
         self.check_mode_machine()
 
@@ -243,11 +259,13 @@ class Walker:
         next_tick = t0
         target = start_q
         tick = 0
-        print("Moving to the stand pose (o stops).")
+        print("Moving to the stand pose (3 s). Keys go to this terminal; o stops at any time.")
         while not self.quit:
             now = time.monotonic()
-            if now - self.state_time > STATE_TIMEOUT:
-                raise RuntimeError(f"Lost rt/lowstate (none for {(now - self.state_time) * 1000:.0f} ms)")
+            if now - self.state_time > self.state_timeout:
+                raise RuntimeError(
+                    f"Robot state (rt/lowstate) stopped for {(now - self.state_time) * 1000:.0f} ms. "
+                    "Did the sim or the network stop?")
             key = read_key()
             if key:
                 self.handle_key(key)
@@ -257,7 +275,8 @@ class Walker:
             gyro = np.array(self.state.imu_state.gyroscope, dtype=np.float32)
             if self.policy_on:
                 if gravity_in_body(quat)[2] > -math.cos(FALL_TILT):
-                    raise RuntimeError("Fall detected")
+                    raise RuntimeError(
+                        f"Fall detected: the pelvis tilted more than {math.degrees(FALL_TILT):.0f} degrees.")
                 if tick % round(CONTROL_DT / PUBLISH_DT) == 0:
                     if on_policy_step is not None:
                         on_policy_step(q, quat)
@@ -269,7 +288,12 @@ class Walker:
                 target = (1 - alpha) * start_q + alpha * STAND_POSE
                 if alpha >= 1.0 and not self.standing:
                     self.standing = True
-                    print("Stand pose reached. With the feet on the floor, press ] to start the policy.")
+                    if self.real:
+                        print("Stand pose reached. Lower the gantry until the feet are flat on "
+                              "the floor, then press ] here to start the policy.")
+                    else:
+                        print("Stand pose reached. Lower the robot onto its feet (press 8 a few "
+                              "times in the MuJoCo window), then press ] here to start the policy.")
             self.send(target, KP, KD)
 
             tick += 1
@@ -285,11 +309,12 @@ def check_unitree_controller_off():
     client.Init()
     code, result = client.CheckMode()
     if code != 0:
-        raise RuntimeError(f"Could not ask the robot which controller is active (code {code})")
+        raise RuntimeError(f"Could not ask the robot which controller is active (motion_switcher "
+                           f"error {code}). Is the robot on, and is --interface right?")
     if result and result.get("name"):
         raise RuntimeError(
-            f"Unitree's controller ({result['name']}) is active. Hang the robot, "
-            "press L1+A (damping), then L2+R2 (debug mode), and run again.")
+            f"Not running: Unitree's own controller ({result['name']}) is still active. Hang "
+            "the robot, press L1+A (damping), then L2+R2 (debug mode) on the remote, and run again.")
 
 
 class TerminalKeys:
@@ -328,7 +353,7 @@ def main():
         with TerminalKeys() as keys:
             walker.run(keys.read)
     except KeyboardInterrupt:
-        print("Interrupted")
+        print("Interrupted (Ctrl-C).")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         walker.damp()
