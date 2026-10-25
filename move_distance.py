@@ -22,11 +22,17 @@ from rclpy.node import Node
 from unitree_api.msg import Request, Response
 from unitree_go.msg import SportModeState
 
+try:
+    from rclpy.signals import SignalHandlerOptions
+except ImportError:  # Foxy: Ctrl-C doesn't shut down the ROS context, nothing to disable
+    SignalHandlerOptions = None
+
 SET_VELOCITY_API_ID = 7105
 MAX_SPEED = 0.4           # m/s, hard cap no matter what is passed in
 COMMAND_DURATION = 0.5    # requested validity; actual robot expiry needs testing
 COMMAND_PERIOD = 0.1      # s between velocity commands
 ODOM_TIMEOUT = 0.5        # s without valid position feedback before aborting
+STOP_REPEATS = 5          # stop commands sent COMMAND_PERIOD apart, in case some are lost
 
 
 class MoveDistance(Node):
@@ -42,6 +48,7 @@ class MoveDistance(Node):
         self.last_odom = 0.0
         self.request_ids = deque(maxlen=32)
         self.command_error = None
+        self.moving = False       # a nonzero velocity was sent and no stop has finished since
         self.create_subscription(SportModeState, "/lf/odommodestate", self.on_odom, 10)
         self.create_subscription(Response, "/api/sport/response", self.on_response, 10)
         self.request_pub = self.create_publisher(Request, "/api/sport/request", 1)
@@ -64,14 +71,21 @@ class MoveDistance(Node):
         self.request_ids.append(req.header.identity.id)
         req.header.identity.api_id = SET_VELOCITY_API_ID
         req.parameter = json.dumps({"velocity": [vx, 0.0, 0.0], "duration": duration})
+        if vx != 0:
+            self.moving = True
         self.request_pub.publish(req)
 
     def stop(self):
         try:
-            self.send_velocity(0.0, duration=1.0)
-            self.get_logger().info("Stop requested")
-        except Exception as e:  # e.g. the ROS context is already shut down after Ctrl-C
+            for i in range(STOP_REPEATS):
+                if i:
+                    time.sleep(COMMAND_PERIOD)
+                self.send_velocity(0.0, duration=1.0)
+        except Exception as e:  # e.g. the ROS context is already shut down
             self.get_logger().warn(f"Could not send stop: {e}")
+            return
+        self.moving = False
+        self.get_logger().info(f"Stop requested ({STOP_REPEATS} commands sent)")
 
     def traveled_from(self, start):
         return math.hypot(self.position[0] - start[0], self.position[1] - start[1])
@@ -124,19 +138,26 @@ class MoveDistance(Node):
 
 
 def main():
-    rclpy.init()
+    if SignalHandlerOptions is None:
+        rclpy.init()
+    else:
+        # Galactic and later shut down the ROS context on Ctrl-C, before our
+        # cleanup runs, so the stop could never be published. Keep it alive and
+        # let Python raise KeyboardInterrupt as usual.
+        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = None
     try:
         node = MoveDistance()
         node.run()
     except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
         return 130
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     finally:
         if node is not None:
-            if node.distance != 0:
+            if node.moving:
                 node.stop()
             node.destroy_node()
         if rclpy.ok():
