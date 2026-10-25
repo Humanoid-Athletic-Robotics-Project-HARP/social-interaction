@@ -7,3 +7,7 @@ Use the `context/` folder in this repository for **all** memory in this project.
 - Store each memory as its own Markdown file in `context/`.
 - Keep the memory index at `context/MEMORY.md` (one line per memory: `- [Title](file.md) — short hook`). This replaces the `MEMORY.md` index that would normally be kept internally.
 - Read `context/MEMORY.md` at the start of a session, and update it whenever you add, change, or remove a memory file.
+
+## Team
+
+This is a shared team repo. Several people work on it from different machines and operating systems, using either Claude or Codex. Don't assume the person you're talking to is on a Mac or is the same person as in earlier sessions. See `context/team-context.md`.

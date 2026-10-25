@@ -20,4 +20,4 @@ Research done 2026-10-24 for [[project-overview]].
 - Lidar: automaticdai/unitree-g1-navigation (FAST-LIO2 + Nav2 prototype, not validated on hardware), deepglint/FAST_LIO_LOCALIZATION_HUMANOID, norkraigh/Unitree-G1-SLAM.
 - Index: shaoxiang/awesome-unitree-robots.
 
-**Decision:** Do not fork or vendor `unitree_ros2`. Clone it as an external dependency and build its message packages. Write our own packages in this repo. (Recommended to the user 2026-10-24; not yet confirmed.)
+**Decision:** Do not fork or vendor `unitree_ros2`. Clone it as an external dependency and build its message packages. Write our own packages in this repo. (Recommended to the team 2026-10-24; not yet confirmed.)
