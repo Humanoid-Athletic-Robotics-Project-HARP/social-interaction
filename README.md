@@ -1,47 +1,62 @@
 # HARP Human Interaction
 
-Social interaction on the Unitree G1 EDU. This is a skeleton: every node is a
-stub with fake data, and nothing is sent to the robot yet.
+Current goal: make the Unitree G1 walk a specific distance, using ROS 2 and
+only Unitree's official code.
 
-## Layout
+Everything below runs **on the robot's Jetson** (`ssh unitree@192.168.123.164`).
 
-```
-src/
-├── harp_interfaces/   message definitions (Utterance, Person, PersonArray)
-└── harp/              all nodes, one Python package
-    ├── harp/
-    │   ├── robot_bridge.py  the ONLY node that talks to the robot (dry run by default)
-    │   ├── perception.py    lidar/camera -> people          (fake for now)
-    │   ├── voice.py         mic -> speech-to-text           (fake for now)
-    │   └── behavior.py      decides what to say and do      (echo + face person)
-    ├── launch/harp.launch.py
-    └── config/sim.yaml, real.yaml
-scripts/deploy.sh      rsync the repo to the Jetson
-dependencies.repos     Unitree code to fetch later (not needed yet)
-context/               project notes and memory
-```
+## 1. One-time setup: Unitree's official ROS 2 package
 
-## Topics
+Check that ROS 2 is installed (`ls /opt/ros`), then follow the
+[unitree_ros2 README](https://github.com/unitreerobotics/unitree_ros2) to clone
+it to `~/unitree_ros2` and build `cyclonedds_ws`. This gives you the robot's
+message types (`unitree_api`, `unitree_go`, `unitree_hg`).
 
-| Topic | Type | From → To |
-|---|---|---|
-| `/harp/heard` | `harp_interfaces/Utterance` | voice → behavior |
-| `/harp/people` | `harp_interfaces/PersonArray` | perception → behavior |
-| `/harp/say` | `std_msgs/String` | behavior → robot_bridge |
-| `/harp/cmd_vel` | `geometry_msgs/Twist` | behavior → robot_bridge |
-
-## Build and run
-
-Needs ROS 2 (Foxy on the Jetson, or Humble). From the repo root:
+In `~/unitree_ros2/setup.sh`, change the network interface (`enp3s0`) to the
+Jetson's interface on the `192.168.123.x` network (find it with `ip a`, usually
+`eth0`). Then, in every new terminal:
 
 ```bash
-colcon build
-source install/setup.bash
-ros2 launch harp harp.launch.py              # sim config
-ros2 launch harp harp.launch.py config:=real # on the robot
+source ~/unitree_ros2/setup.sh
 ```
 
-You should see fake speech echoed back ("You said: ...") and dry-run turn
-commands as the fake person moves.
+Check you can see the robot's odometry:
 
-To copy the repo to the robot over Ethernet: `scripts/deploy.sh`.
+```bash
+ros2 topic echo /lf/odommodestate
+```
+
+## 2. Optional: move with Unitree's own example (no code from us)
+
+Build the official examples (`cd ~/unitree_ros2/example && colcon build`,
+then `source install/setup.bash`) and run:
+
+```bash
+ros2 run unitree_ros2_example g1_loco_client_example --set_velocity="0.2 0 0 5"
+```
+
+That walks at 0.2 m/s for 5 s, roughly 1 m. It doesn't measure anything, so the
+real distance will be off.
+
+## 3. Walk an exact distance: `move_distance.py`
+
+Our one script. It sends the same walking command as Unitree's example, but
+watches the robot's odometry and stops when the target distance is reached,
+then prints how far the robot actually went.
+
+```bash
+python3 move_distance.py --ros-args -p distance:=0.5 -p speed:=0.2
+```
+
+- `distance`: meters, negative walks backward. Default 1.0.
+- `speed`: m/s, capped at 0.4. Default 0.2.
+
+## Safety
+
+- Stand the robot up in its normal walking mode with the remote first. The
+  script never changes the robot's mode.
+- Clear at least 2 m beyond the target distance, and keep someone holding the
+  remote the whole time.
+- Start with 0.5 m.
+- Each command only lasts 0.5 s, so if the script crashes or the network drops,
+  the robot stops on its own. Ctrl-C also sends a stop.

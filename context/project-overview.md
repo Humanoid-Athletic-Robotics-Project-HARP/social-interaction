@@ -14,6 +14,8 @@ Stanford Humanoids project on a **Unitree G1 EDU** humanoid. Draft goals, all st
 
 **HARP** stands for Humanoid Athletics Robotics Project ("Intro to Humanoid Robotics"). It runs as a lecture series with teams by topic, and this repo is the **Human Interaction** team ("realistic social engagement"). Other teams cover dance, paddle sports, combat, ball sports, and precision sports. Lecture 2 (a PDF the user has; it is not in the repo) covers G1 specs, ROS 2 `rt/lowcmd`/`rt/lowstate`, and a method for reviewing prior research. Its ROS 2 code example publishes `JointCommand` to `/safety/precheck` and subscribes to `RobotFeedback` on `/safety/policy_observation`, with `session_id` and `observation_id` fields. That points to a HARP-provided safety layer that team code goes through. Its source and rules are not known yet (as of 2026-10-24).
 
+**Current concrete goal (2026-10-24):** make the robot walk a specific distance with ROS 2. This is done by `move_distance.py`, which builds on official unitree_ros2. It has not been tested on the real robot yet. See [[feedback-minimal-setup]].
+
 **Why:** Everything is a draft. Expect the goals to change as research progresses.
 
 **How to apply:** Treat plans as exploratory. Before committing to a design, check the official Unitree resources ([[unitree-resources]]).
