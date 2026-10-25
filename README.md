@@ -38,7 +38,7 @@ ros2 run unitree_ros2_example g1_loco_client_example --set_velocity="0.2 0 0 5"
 That walks at 0.2 m/s for 5 s, roughly 1 m. It doesn't measure anything, so the
 real distance will be off.
 
-## 3. Walk an exact distance: `move_distance.py`
+## 3. Walk a target distance: `move_distance.py`
 
 Our one script. It sends the same walking command as Unitree's example, but
 watches the robot's odometry and stops when the target distance is reached,
@@ -49,7 +49,11 @@ python3 move_distance.py --ros-args -p distance:=0.5 -p speed:=0.2
 ```
 
 - `distance`: meters, negative walks backward. Default 1.0.
-- `speed`: m/s, capped at 0.4. Default 0.2.
+- `speed`: positive m/s, capped at 0.4. Default 0.2. Distance and speed must be finite.
+
+The script aborts if valid position updates stop for 0.5 s or its velocity
+command is rejected. Errors attempt a stop and return a nonzero exit code.
+Distance is estimated from odometry; accuracy and timeout settings need robot tests.
 
 ## Safety
 
@@ -58,5 +62,5 @@ python3 move_distance.py --ros-args -p distance:=0.5 -p speed:=0.2
 - Clear at least 2 m beyond the target distance, and keep someone holding the
   remote the whole time.
 - Start with 0.5 m.
-- Each command only lasts 0.5 s, so if the script crashes or the network drops,
-  the robot stops on its own. Ctrl-C also sends a stop.
+- Commands request 0.5 s validity; verify actual expiry behavior on the robot.
+  Cleanup attempts a stop while communication remains available.
