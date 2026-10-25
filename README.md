@@ -38,22 +38,36 @@ ros2 run unitree_ros2_example g1_loco_client_example --set_velocity="0.2 0 0 5"
 That walks at 0.2 m/s for 5 s, roughly 1 m. It doesn't measure anything, so the
 real distance will be off.
 
-## 3. Walk a target distance: `move_distance.py`
+## 3. Walk a distance or turn an angle: `move_distance.py`
 
-Our one script. It sends the same walking command as Unitree's example, but
-watches the robot's odometry and stops when the target distance is reached,
-then prints how far the robot actually went.
+Our one script. It sends the same velocity command as Unitree's example, but
+watches the robot's odometry and stops when the target is reached, then prints
+how far the robot actually went or turned. Each run does one move: set exactly
+one of `distance` or `angle`.
 
 ```bash
 python3 move_distance.py --ros-args -p distance:=0.5 -p speed:=0.2
+python3 move_distance.py --ros-args -p angle:=90.0 -p turn_speed:=20.0
 ```
 
-- `distance`: meters, negative walks backward. Default 1.0.
-- `speed`: positive m/s, capped at 0.4. Default 0.2. Distance and speed must be finite.
+- `distance`: meters, negative walks backward. Default 0.
+- `speed`: positive m/s, capped at 0.4. Default 0.2.
+- `angle`: degrees, positive turns left (counterclockwise). Default 0.
+- `turn_speed`: positive deg/s, capped at 30. Default 20.
 
-The script aborts if valid position updates stop for 0.5 s or its velocity
-command is rejected. Errors attempt a stop and return a nonzero exit code.
-Distance is estimated from odometry; accuracy and timeout settings need robot tests.
+All values must be finite and written as decimals (`90.0`, not `90`), or ROS
+rejects the parameter type.
+
+The script aborts if valid odometry stops for 0.5 s, its velocity command is
+rejected, the move takes much longer than expected, or a turn goes more than
+10° the wrong way. Errors attempt a stop and return a nonzero exit code.
+Distance and heading are estimated from odometry (heading is
+`imu_state.rpy[2]`); accuracy and timeout settings need robot tests.
+
+Before the first turn, check that heading is reported in radians and which way
+it changes: turn the robot left with the remote while running
+`ros2 topic echo /lf/odommodestate --field imu_state.rpy`. The third value
+should increase.
 
 ## Safety
 
@@ -61,7 +75,7 @@ Distance is estimated from odometry; accuracy and timeout settings need robot te
   script never changes the robot's mode.
 - Clear at least 2 m beyond the target distance, and keep someone holding the
   remote the whole time.
-- Start with 0.5 m.
+- Start with 0.5 m, and 45° for turns.
 - Commands request 0.5 s validity; verify actual expiry behavior on the robot.
 - Reaching the target, an error, or Ctrl-C sends the stop command 5 times,
   0.1 s apart, in case some are lost. If the network is down, none get through.
