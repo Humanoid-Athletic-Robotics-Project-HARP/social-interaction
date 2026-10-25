@@ -25,6 +25,6 @@ Read from the official headers on 2026-10-25. Every call is a `unitree_api/Reque
 - `agv` (G1AgvClient): move and height adjust, apparently for the wheeled G1-D (see `example/g1/g1d`). Not ours.
 - The docs also list lidar, SLAM navigation and odometer service pages. These have no headers in unitree_sdk2 and haven't been read yet.
 
-"Clients" are helper classes that run on our side. Each one knows its service name and api ids, builds the JSON, and waits for the matching response. `move_distance.py` does by hand what LocoClient's SetVelocity does. Streams such as `rt/lowcmd`, `rt/lowstate`, `rt/arm_sdk` and odometry are topics, not services.
+"Clients" are helper classes that run on our side. Each one knows its service name and api ids, builds the JSON, and waits for the matching response. The old ROS 2 `move_distance.py` (removed 2026-10-25) did by hand what LocoClient's SetVelocity does; we now walk with GR00T instead ([[gr00t-wbc]]). Streams such as `rt/lowcmd`, `rt/lowstate`, `rt/arm_sdk` and odometry are topics, not services.
 
 Calling the arm and voice services over raw ROS 2 (for example `/api/arm/request`) follows the same pattern but has not been tested. Related: [[g1-official-docs]], [[unitree-resources]].

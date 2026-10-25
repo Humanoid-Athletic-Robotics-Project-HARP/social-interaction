@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-Researched 2026-10-25 after the mentors suggested GR00T (see [[project-overview]]). Not tried yet.
+Researched 2026-10-25 after the mentors suggested GR00T (see [[project-overview]]). Implemented the same day as `gr00t/walk.py`, with the official ONNX files vendored in `gr00t/policy/` (pinned commit and sha256 in NOTICE.txt). It follows NVIDIA's real-deploy config (`g1_gear_wbc.yaml` scales: ang_vel 0.5, cmd [2,2,0.5]; MOTOR_KP/KD from `g1_29dof_gear_wbc.yaml`). LeRobot's copy uses 0.25 scales, which differ. Verified in `sim/run_sim.py`: it stands, walks at about 85% of the commanded speed, and turns. Not run on the robot yet.
 
 **NVlabs/GR00T-WholeBodyControl** (about 3.8k stars, active as of 2026-09). Code is Apache-2.0; weights are under the NVIDIA Open Model License. It targets the Unitree G1 and holds two things:
 - **Decoupled WBC**, the one that fits "walk and balance". An RL lower-body policy controls 15 joints (12 legs plus 3 waist) at 50 Hz. Its inputs are a velocity command (vx, vy, yaw rate), a base height (default 0.74) and a torso rpy. It is two small ONNX MLPs, Balance (used when the command is near zero) and Walk. Inputs stack 6 frames of 86 values. The upper body is left to IK or teleop. The official files are `decoupled_wbc/sim2mujoco/resources/robots/g1/policy/GR00T-WholeBodyControl-{Balance,Walk}.onnx` (git LFS), and `decoupled_wbc/sim2mujoco/scripts/run_mujoco_gear_wbc.py` is a pure-Python MuJoCo runner (mujoco, onnxruntime, torch, pynput). The full Decoupled WBC stack needs Ubuntu 22.04, an NVIDIA GPU and Docker.
