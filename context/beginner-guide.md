@@ -1,6 +1,6 @@
 ---
 name: beginner-guide
-description: BEGINNER GUIDE ONLY. Step-by-step setup and first use of this repo for someone who just cloned it. Skip unless the user says they are new to the repo or asks how to get started.
+description: BEGINNER GUIDE ONLY. Step-by-step setup and first use of this repo for someone who just cloned it (GR00T + our sim). Skip unless the user says they are new to the repo or asks how to get started.
 metadata:
   type: reference
 ---
@@ -11,28 +11,21 @@ Walk the newcomer through it one stage at a time, and ask which stage they need:
 
 **0. Orientation (2 minutes)**
 - This is the HARP **Human Interaction** team's repo for a **Unitree G1 EDU with 29 joints** ([[project-overview]]). Goals are drafts; the only concrete one so far is walking a set distance.
-- The repo is deliberately tiny: `move_distance.py` (our one script), `README.md` (all setup), and `context/` (shared memory for Claude/agents, indexed in `context/MEMORY.md`). Unitree's code is cloned *next to* the repo, never inside it ([[unitree-resources]]).
-- House rule: use Unitree's official code and ROS 2, and add only what the current goal needs ([[feedback-minimal-setup]]).
+- We walk with NVIDIA's GR00T policy (`gr00t/walk.py`), not Unitree's closed sport mode ([[gr00t-wbc]]). The same code talks to our MuJoCo sim (`sim/run_sim.py`) and the robot over `rt/lowstate`/`rt/lowcmd`. `move_distance.py` walks a set distance or turns a set angle with it. `README.md` has all the setup, and `context/` is shared memory for Claude and other agents, indexed in `context/MEMORY.md`. Unitree's code is cloned *next to* the repo, never inside it ([[unitree-resources]]).
+- House rule: add only what the current goal needs, and prefer open code we can read ([[feedback-minimal-setup]]).
 
-**1. Robot path (runs on the G1's Jetson, not the laptop)**
-1. Join the robot's `192.168.123.x` network and `ssh unitree@192.168.123.164` (initial password `123`, see [[g1-official-docs]]).
-2. Check the OS and ROS 2 version: `ls /opt/ros` and `lsb_release -a`. Likely Foxy on Ubuntu 20.04 (unconfirmed). Do not upgrade or reflash the Jetson.
-3. README §1: clone and build `unitree_ros2` in `~/unitree_ros2`, fix the network interface in `setup.sh` (usually `eth0`, from `ip a`), then `source ~/unitree_ros2/setup.sh` in every new terminal. On Foxy, build `cyclonedds_ws` with ROS *not* sourced.
-4. Sanity check: `ros2 topic echo /lf/odommodestate` should stream odometry. If nothing appears, the interface name in `setup.sh` is the usual culprit.
-5. Copy `move_distance.py` to the Jetson (e.g. `scp move_distance.py unitree@192.168.123.164:~`) or clone the repo there.
-6. Read README "Safety" before moving the robot: stand it up in walking mode with the remote, clear 2 m beyond the target, someone holds the remote the whole time.
-7. First run: README §3, starting with `distance:=0.5`. Before the first turn, do the heading-direction check described in §3. Parameters must be decimals (`90.0`, not `90`).
-8. Optional: README §2 runs Unitree's own example with no code from us.
+**1. Simulator path (start here; runs on a laptop; only tested on a Mac so far)**
+Ask which OS they're on first ([[team-context]]). Linux should only need `lo` instead of `lo0` (the scripts choose automatically); that's untested. Windows is untested, and `TerminalKeys` uses termios, which is Mac/Linux only.
+1. README "Setup": build CycloneDDS 0.10.x, then clone `unitree_sdk2_python` and `unitree_mujoco` and create `sim-venv` (mujoco, onnxruntime), all as siblings of this repo. unitree_mujoco is only needed for the G1 model files; none of its local fixes are needed.
+2. README "Run it in the sim": `mjpython sim/run_sim.py` in one terminal and `python gr00t/walk.py` in another. The order matters: wait for the stand pose, lower the feet to the floor (`8` in the viewer), press `]`, then release the band (`9`). Started in the air, the policy flails. Released before `]`, the robot falls.
+3. Then `move_distance.py --distance 1.0` (or `--angle 90`): the same start-up, then `g`.
 
-**2. Simulator path (runs on a laptop; only tested on a Mac so far)**
-Ask which OS they're on first ([[team-context]]). The steps below are what worked on an Apple Silicon Mac. On Linux, the two Mac-only fixes shouldn't be needed (use `lo`, skip PR #139) and plain `python3` should work, but that is untested. Windows is untested.
-1. README "Simulation" section: builds CycloneDDS 0.10.x, `unitree_sdk2_python`, `unitree_mujoco` and a `sim-venv`, all as siblings of this repo (~830 MB). Tested on Apple Silicon with Python 3.12; needs cmake and git.
-2. Three fixes are required (README lists them): apply unitree_sdk2_python PR #139 (timerfd, Mac-only), use `lo0` instead of `lo` (Mac-only), and in `unitree_sdk2py_bridge.py` replace `glfw = mujoco.glfw.glfw` with `import glfw`. Without that last one, newer MuJoCo crashes on any key press in the viewer. Re-apply all the patches after any re-clone.
-3. Edit `unitree_mujoco/simulate_python/config.py` as the README shows (G1, `scene_29dof.xml`, `lo0`, elastic band on).
-4. Run with `mjpython`, not `python3`. Keys: `9` band on/off, `7` raises the robot, `8` lowers it (Unitree's README has these backwards).
-5. Set expectations: the sim is low-level only, with no walking controller or `sport` service, so `move_distance.py` does **not** work in it. The robot just hangs on the band. Details in [[mujoco-sim]].
+**2. Robot path (not tested on hardware yet)**
+1. Join the robot's `192.168.123.x` network; the Jetson is `ssh unitree@192.168.123.164` (initial password `123`, see [[g1-official-docs]]). Do not upgrade or reflash the Jetson.
+2. Our controller replaces Unitree's, so the robot must be on a gantry, damped (L1+A), then in debug mode (L2+R2). The scripts refuse otherwise, and refuse if `mode_machine` isn't 5. Read README "On the real robot" first, and plan the first session with someone on the gantry rope.
+3. `--real --interface <iface>` on either script. Pressing `o` or any error damps the robot, so only do that while it's supported.
 
 **3. Where to go next**
-- Built-in robot functions (walk, gestures, speech, LED) and their API ids: [[g1-builtin-apis]].
+- How others test without the robot: [[off-robot-testing]]. Sim internals: [[mujoco-sim]].
+- Unitree's built-in robot functions (gestures, speech, LED) and their API ids: [[g1-builtin-apis]]. Many need Unitree's controller, so they're probably unavailable in debug mode.
 - Official Unitree docs (JavaScript site, open in a browser): [[g1-official-docs]].
-- Official and community repos: [[unitree-resources]].

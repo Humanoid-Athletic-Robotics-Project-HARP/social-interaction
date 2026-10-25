@@ -5,9 +5,9 @@
 
 - [Project overview](project-overview.md) — G1 EDU humanoid with 29 joints; draft goals (social, walking, voice+LLM, lidar avoidance); research phase
 - [Unitree resources](unitree-resources.md) — official/community G1 repos; unitree_ros2 used as an external dependency, not forked
-- [Minimal setup](feedback-minimal-setup.md) — build only what the current goal needs; official Unitree code + ROS 2 only
+- [Minimal setup](feedback-minimal-setup.md) — build only what the current goal needs; since 2026-10-25 prefer open code (GR00T) over Unitree's closed services
 - [G1 official docs](g1-official-docs.md) — every Unitree G1 developer doc URL; PC2 IP/login; sensors (MID-360, D435i)
 - [G1 built-in APIs](g1-builtin-apis.md) — every G1 service (sport, arm, voice, motion_switcher, robot_state, vui) with api ids, JSON formats, client classes
-- [MuJoCo sim](mujoco-sim.md) — unitree_mujoco working on one teammate's Mac (lo0, timerfd patch PR 139; other OSes untested); low-level only, no sport service (our sim/fake_sport.py stands in); rl_gym deploy_mujoco alternative
+- [MuJoCo sim](mujoco-sim.md) — unitree_mujoco working on one teammate's Mac (lo0, timerfd patch PR 139; other OSes untested); low-level only, no sport service; our sim/run_sim.py replaces its runner (per-step PD, real-time)
 - [Off-robot testing](off-robot-testing.md) — how others test G1 code without the robot: sim options, sport stand-ins, own-controller vs built-in split, gantry practice
-- [GR00T WBC](gr00t-wbc.md) — NVIDIA GR00T for the G1: Decoupled WBC walk/balance ONNX, SONIC, LeRobot Python impl, licenses, debug-mode consequences
+- [GR00T WBC](gr00t-wbc.md) — NVIDIA GR00T for the G1, implemented in gr00t/walk.py: Decoupled WBC ONNX, config source, SONIC, licenses, debug-mode consequences

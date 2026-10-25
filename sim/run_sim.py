@@ -1,0 +1,199 @@
+"""MuJoCo sim of the 29-joint G1 that speaks the robot's low-level DDS topics,
+for running our own controllers (gr00t/walk.py) before the real robot.
+
+Like unitree_mujoco's simulate_python, and using its G1 model, but:
+  - The PD torque (tau + kp*(q_cmd - q) + kd*(dq_cmd - dq)) is recomputed at
+    every physics step from the latest rt/lowcmd, as the robot's motor drivers
+    do. unitree_mujoco computes it once per command and holds it, which made
+    the GR00T policy blow up the sim on landing.
+  - Steps are paced against the wall clock, so it runs at real time.
+  - imu_state.rpy and tick are filled in.
+  - It needs none of unitree_mujoco's three local fixes (no RecurrentThread,
+    no glfw import).
+
+Publishes rt/lowstate (unitree_hg) every step; reads rt/lowcmd. Until a
+command arrives the joints are limp. The robot starts hanging from a virtual
+elastic band on the torso. In the viewer: 7 shortens the band (raises the
+robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
+
+Run from the sim venv (DDS domain 1 by default):
+  ../sim-venv/bin/mjpython sim/run_sim.py
+  python3 sim/run_sim.py --headless --auto-release 4
+"""
+
+import argparse
+import math
+import sys
+import time
+from pathlib import Path
+
+import mujoco
+import mujoco.viewer
+import numpy as np
+from unitree_sdk2py.core.channel import (
+    ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber)
+from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
+
+DEFAULT_SCENE = (Path(__file__).resolve().parents[2]
+                 / "unitree_mujoco/unitree_robots/g1/scene_29dof.xml")
+SIM_DT = 0.005            # s, as in NVIDIA's GR00T sim and unitree_mujoco
+VIEWER_PERIOD = 0.02      # s
+BAND_POINT = np.array([0.0, 0.0, 3.0])   # band anchor above the robot, as in unitree_mujoco
+BAND_STIFFNESS, BAND_DAMPING = 200.0, 100.0
+BAND_STEP = 0.1           # m per key press
+STANDING_PELVIS_Z = 0.80  # auto-release: lower the band until the pelvis is this low,
+RELEASE_DELAY = 3.0       # then wait this long (time to start the policy) and release
+MAX_LAG = 0.1             # s behind real time before giving up on catching up
+
+
+class Band:
+    """Virtual elastic band holding the torso up, like unitree_mujoco's."""
+
+    def __init__(self):
+        self.length = 0.0
+        self.enabled = True
+
+    def force(self, pos, vel):
+        delta = BAND_POINT - pos
+        distance = np.linalg.norm(delta)
+        direction = delta / distance
+        speed = np.dot(vel, direction)
+        return (BAND_STIFFNESS * (distance - self.length) - BAND_DAMPING * speed) * direction
+
+    def on_key(self, key):
+        if key == ord("7"):
+            self.length -= BAND_STEP
+        elif key == ord("8"):
+            self.length += BAND_STEP
+        elif key == ord("9"):
+            self.enabled = not self.enabled
+            print("Band", "attached" if self.enabled else "released")
+
+
+def sensor_slice(model, name):
+    i = model.sensor(name).id
+    return slice(model.sensor_adr[i], model.sensor_adr[i] + model.sensor_dim[i])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--domain", type=int, default=1, help="DDS domain id (robot uses 0)")
+    parser.add_argument("--interface", default="lo0" if sys.platform == "darwin" else "lo")
+    parser.add_argument("--scene", default=str(DEFAULT_SCENE))
+    parser.add_argument("--headless", action="store_true", help="no viewer window")
+    parser.add_argument("--auto-release", type=float, metavar="SECONDS",
+                        help="after this long, lower the robot onto its feet and release the band")
+    parser.add_argument("--duration", type=float, help="quit after this many seconds")
+    parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
+    args = parser.parse_args()
+
+    model = mujoco.MjModel.from_xml_path(args.scene)
+    model.opt.timestep = SIM_DT
+    data = mujoco.MjData(model)
+    nu = model.nu
+    joints = [model.actuator_trnid[i, 0] for i in range(nu)]
+    qadr = np.array([model.jnt_qposadr[j] for j in joints])
+    vadr = np.array([model.jnt_dofadr[j] for j in joints])
+    torque_low, torque_high = model.actuator_ctrlrange[:, 0], model.actuator_ctrlrange[:, 1]
+    imu_quat = sensor_slice(model, "imu_quat")
+    imu_gyro = sensor_slice(model, "imu_gyro")
+    imu_acc = sensor_slice(model, "imu_acc")
+    torso = model.body("torso_link").id
+
+    ChannelFactoryInitialize(args.domain, args.interface)
+    state_pub = ChannelPublisher("rt/lowstate", LowState_)
+    state_pub.Init()
+    latest_cmd = [None]
+    cmd_sub = ChannelSubscriber("rt/lowcmd", LowCmd_)
+    cmd_sub.Init(lambda msg: latest_cmd.__setitem__(0, msg), 10)
+    state = unitree_hg_msg_dds__LowState_()
+
+    band = Band()
+    viewer = None
+    if not args.headless:
+        viewer = mujoco.viewer.launch_passive(model, data, key_callback=band.on_key)
+    print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C to quit.")
+
+    start = time.monotonic()
+    next_step = start
+    last_view = 0.0
+    release_at = None
+    try:
+        while viewer is None or viewer.is_running():
+            now = time.monotonic()
+            if args.duration and now - start > args.duration:
+                break
+
+            if args.auto_release is not None and band.enabled and data.time > args.auto_release:
+                if data.qpos[2] > STANDING_PELVIS_Z:
+                    band.length += 0.5 * SIM_DT   # lower at 0.1 m/s
+                elif release_at is None:
+                    release_at = data.time + RELEASE_DELAY
+                    print(f"Feet down at t={data.time:.1f} s; releasing the band in {RELEASE_DELAY:.0f} s")
+                elif data.time > release_at:
+                    band.enabled = False
+                    print(f"Band released at t={data.time:.1f} s")
+            if band.enabled:
+                data.xfrc_applied[torso, :3] = band.force(data.qpos[:3], data.qvel[:3])
+            else:
+                data.xfrc_applied[torso, :3] = 0.0
+
+            q, dq = data.qpos[qadr], data.qvel[vadr]
+            cmd = latest_cmd[0]
+            if cmd is None:
+                data.ctrl[:] = 0.0
+            else:
+                m = cmd.motor_cmd
+                q_cmd = np.array([m[i].q for i in range(nu)])
+                dq_cmd = np.array([m[i].dq for i in range(nu)])
+                kp = np.array([m[i].kp for i in range(nu)])
+                kd = np.array([m[i].kd for i in range(nu)])
+                tau = np.array([m[i].tau for i in range(nu)])
+                torque = tau + kp * (q_cmd - q) + kd * (dq_cmd - dq)
+                data.ctrl[:] = np.clip(torque, torque_low, torque_high)
+
+            if viewer is not None:
+                with viewer.lock():
+                    mujoco.mj_step(model, data)
+            else:
+                mujoco.mj_step(model, data)
+
+            for i in range(nu):
+                ms = state.motor_state[i]
+                ms.q, ms.dq, ms.tau_est = float(data.qpos[qadr[i]]), float(data.qvel[vadr[i]]), float(data.ctrl[i])
+            w, x, y, z = data.sensordata[imu_quat]
+            state.imu_state.quaternion = [float(w), float(x), float(y), float(z)]
+            state.imu_state.gyroscope = data.sensordata[imu_gyro].tolist()
+            state.imu_state.accelerometer = data.sensordata[imu_acc].tolist()
+            state.imu_state.rpy = [
+                math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y)),
+                math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x)))),
+                math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)),
+            ]
+            state.tick = (state.tick + round(SIM_DT * 1000)) % 2**32  # ms, like the robot
+            state_pub.Write(state)
+
+            if args.log and data.time % 1.0 < SIM_DT:
+                pw, px, py, pz = data.qpos[3:7]
+                yaw = math.degrees(math.atan2(2 * (pw * pz + px * py), 1 - 2 * (py * py + pz * pz)))
+                print(f"t={data.time:5.1f}  pelvis x={data.qpos[0]:+.2f} y={data.qpos[1]:+.2f} "
+                      f"z={data.qpos[2]:.2f} yaw={yaw:+6.1f}  wall={now - start:5.1f}", flush=True)
+
+            if viewer is not None and now - last_view >= VIEWER_PERIOD:
+                viewer.sync()
+                last_view = now
+
+            next_step += SIM_DT
+            lag = time.monotonic() - next_step
+            if lag > MAX_LAG:
+                next_step = time.monotonic()   # fell behind; don't try to catch up in a burst
+            else:
+                time.sleep(max(0.0, -lag))
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

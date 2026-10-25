@@ -3,97 +3,23 @@
 Robot: Unitree G1 EDU with **29 joints**. Use 29-DoF models and joint indices
 for low-level control and simulation.
 
-Current goal: make the Unitree G1 walk a specific distance, using ROS 2 and
-only Unitree's official code.
+Current goal: make the G1 walk a specific distance with open-source code we
+can read, instead of Unitree's closed walking controller ("sport mode"). We
+walk and balance with NVIDIA's GR00T policy and test everything in MuJoCo
+first. The same code talks to the sim and the robot over the robot's
+low-level DDS topics (`rt/lowstate` in, `rt/lowcmd` out).
 
-Everything below runs **on the robot's Jetson** (`ssh unitree@192.168.123.164`).
+| File | What it does |
+|---|---|
+| `sim/run_sim.py` | MuJoCo sim of the G1 that speaks the robot's low-level topics |
+| `gr00t/walk.py` | GR00T walking controller, driven from the keyboard |
+| `move_distance.py` | Walks a set distance or turns a set angle with GR00T, using our own leg odometry |
+| `gr00t/policy/` | NVIDIA's GR00T walk and balance policies (ONNX) and their license |
 
-## 1. One-time setup: Unitree's official ROS 2 package
+## Setup (on your laptop)
 
-Check that ROS 2 is installed (`ls /opt/ros`), then follow the
-[unitree_ros2 README](https://github.com/unitreerobotics/unitree_ros2) to clone
-it to `~/unitree_ros2` and build `cyclonedds_ws`. This gives you the robot's
-message types (`unitree_api`, `unitree_go`, `unitree_hg`).
-
-In `~/unitree_ros2/setup.sh`, change the network interface (`enp3s0`) to the
-Jetson's interface on the `192.168.123.x` network (find it with `ip a`, usually
-`eth0`). Then, in every new terminal:
-
-```bash
-source ~/unitree_ros2/setup.sh
-```
-
-Check you can see the robot's odometry:
-
-```bash
-ros2 topic echo /lf/odommodestate
-```
-
-## 2. Optional: move with Unitree's own example (no code from us)
-
-Build the official examples (`cd ~/unitree_ros2/example && colcon build`,
-then `source install/setup.bash`) and run:
-
-```bash
-ros2 run unitree_ros2_example g1_loco_client_example --set_velocity="0.2 0 0 5"
-```
-
-That walks at 0.2 m/s for 5 s, roughly 1 m. It doesn't measure anything, so the
-real distance will be off.
-
-## 3. Walk a distance or turn an angle: `move_distance.py`
-
-Our one script. It sends the same velocity command as Unitree's example, but
-watches the robot's odometry and stops when the target is reached, then prints
-how far the robot actually went or turned. Each run does one move: set exactly
-one of `distance` or `angle`.
-
-```bash
-python3 move_distance.py --ros-args -p distance:=0.5 -p speed:=0.2
-python3 move_distance.py --ros-args -p angle:=90.0 -p turn_speed:=20.0
-```
-
-- `distance`: meters, negative walks backward. Default 0.
-- `speed`: positive m/s, capped at 0.4. Default 0.2.
-- `angle`: degrees, positive turns left (counterclockwise). Default 0.
-- `turn_speed`: positive deg/s, capped at 30. Default 20.
-
-All values must be finite and written as decimals (`90.0`, not `90`), or ROS
-rejects the parameter type.
-
-The script aborts if valid odometry stops for 0.5 s, its velocity command is
-rejected, the move takes much longer than expected, or a turn goes more than
-10° the wrong way. Errors attempt a stop and return a nonzero exit code.
-Distance and heading are estimated from odometry (heading is
-`imu_state.rpy[2]`); accuracy and timeout settings need robot tests.
-
-Before the first turn, check that heading is reported in radians and which way
-it changes: turn the robot left with the remote while running
-`ros2 topic echo /lf/odommodestate --field imu_state.rpy`. The third value
-should increase.
-
-## Safety
-
-- Stand the robot up in its normal walking mode with the remote first. The
-  script never changes the robot's mode.
-- Clear at least 2 m beyond the target distance, and keep someone holding the
-  remote the whole time.
-- Start with 0.5 m, and 45° for turns.
-- Commands request 0.5 s validity; verify actual expiry behavior on the robot.
-- Reaching the target, an error, or Ctrl-C sends the stop command 5 times,
-  0.1 s apart, in case some are lost. If the network is down, none get through.
-
-## Simulation (MuJoCo, on a Mac)
-
-This runs on your laptop, not the Jetson. It uses Unitree's official
-[unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco) Python
-simulator, which only simulates the low-level topics (`rt/lowcmd`,
-`rt/lowstate`, `rt/sportmodestate`). It has no built-in walking controller, so
-`move_distance.py` doesn't work in it directly (see "Fake sport service" below).
-The G1 hangs from a virtual elastic band until your own code commands its joints.
-
-Setup was done on an Apple Silicon Mac with Python 3.12, with everything cloned
-next to this repo (about 830 MB in total):
+Tested on an Apple Silicon Mac with Python 3.12. Clone everything next to this
+repo:
 
 ```bash
 cd ..
@@ -105,71 +31,113 @@ cd ../..
 git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git
 git clone --depth 1 https://github.com/unitreerobotics/unitree_mujoco.git
 python3 -m venv sim-venv && source sim-venv/bin/activate
-CYCLONEDDS_HOME=$PWD/cyclonedds/install pip install -e ./unitree_sdk2_python mujoco pygame
+CYCLONEDDS_HOME=$PWD/cyclonedds/install pip install -e ./unitree_sdk2_python mujoco onnxruntime
 ```
 
-Three fixes (the first two are Mac-only):
+`unitree_mujoco` is only needed for its G1 model files
+(`unitree_robots/g1/scene_29dof.xml`). We don't run its simulator, so its
+local fixes (the Linux-only timer patch, the `glfw` key fix, `config.py`) aren't
+needed for our scripts. On Linux, use the same steps; the loopback interface is
+`lo` instead of `lo0`, and the scripts pick the right one.
 
-- **The SDK's timer is Linux-only** (`timerfd_create: symbol not found`). Apply
-  the open upstream fix
-  [unitree_sdk2_python#139](https://github.com/unitreerobotics/unitree_sdk2_python/pull/139).
-  It changes only `unitree_sdk2py/utils/thread.py` and leaves Linux behavior
-  unchanged:
-  `curl -sL https://github.com/unitreerobotics/unitree_sdk2_python/pull/139.diff | git -C unitree_sdk2_python apply`
-- **The loopback interface is `lo0`, not `lo`.**
-- **Any key press in the viewer crashes the sim** (`module 'mujoco' has no
-  attribute 'glfw'`). Newer MuJoCo (3.17 here) dropped `mujoco.glfw`. In
-  `unitree_mujoco/simulate_python/unitree_sdk2py_bridge.py`, in
-  `MujuocoKeyCallback`, replace `glfw = mujoco.glfw.glfw` with `import glfw`.
-  The standalone `glfw` package is already installed as a MuJoCo dependency.
+## Run it in the sim
 
-In `unitree_mujoco/simulate_python/config.py`, set:
-
-```python
-ROBOT = "g1"
-ROBOT_SCENE = "../unitree_robots/" + ROBOT + "/scene_29dof.xml"
-INTERFACE = "lo0"
-USE_JOYSTICK = 0           # 1 if you have an Xbox/Switch gamepad
-ENABLE_ELASTIC_BAND = True
-```
-
-Run it with `mjpython` (macOS needs it for the viewer window):
+Terminal 1, the sim (macOS needs `mjpython` for the viewer window):
 
 ```bash
-cd unitree_mujoco/simulate_python && ../../sim-venv/bin/mjpython unitree_mujoco.py
+../sim-venv/bin/mjpython sim/run_sim.py
 ```
 
-In the viewer, `9` attaches or releases the band, `7` shortens it (raises the
-robot) and `8` lengthens it (lowers the robot). Unitree's README has `7` and `8`
-the other way around, but the code works as described here. Code talks to the sim with `ChannelFactoryInitialize(1, "lo0")`
-(domain 1). The real robot uses domain 0 on its own network interface, so the
-two don't cross-talk.
+The robot starts hanging from a virtual elastic band. In the viewer, `8`
+lowers it, `7` raises it, and `9` releases or re-attaches the band.
 
-Sim quirks: state is published at about 140–170 Hz on a Mac (200 Hz target), and
-`imu_state.rpy` and `tick` stay 0. Use `imu_state.quaternion` instead.
-
-### Fake sport service: `sim/fake_sport.py`
-
-Stands in for the robot's built-in walking service so code that uses it
-(`LocoClient`, `move_distance.py`) can run without the robot. It answers
-`SetVelocity` (7105), `SetFsmId` (7101) and `GetFsmId` (7001) on the same
-DDS topics as the robot and publishes odometry on `rt/lf/odommodestate`.
-It doesn't walk: it slides the whole robot, legs fixed, at the commanded
-velocity. Use it to check a script's logic (commands, odometry, stopping),
-not how the real robot moves. It needs the sim venv and the `unitree_mujoco`
-clone (for the G1 model), not `unitree_mujoco.py`:
+Terminal 2, the controller:
 
 ```bash
-../sim-venv/bin/mjpython sim/fake_sport.py
+../sim-venv/bin/python gr00t/walk.py
 ```
 
-Add `--headless` to run without a window (plain `python3` works then). It
-uses domain 1 on `lo0` (Mac) or `lo` (Linux); `--domain` and `--interface`
-change that. Then point a client at domain 1, for example `LocoClient` after
-`ChannelFactoryInitialize(1, "lo0")`.
+1. Wait for "Stand pose reached" (3 s).
+2. In the viewer, press `8` a few times until the feet touch the floor.
+3. In terminal 2, press `]` to start the policy.
+4. In the viewer, press `9` to release the band.
+5. In terminal 2, drive it: `w`/`s` forward/back, `a`/`d` left/right,
+   `q`/`e` turn, `z` stop moving, `1`/`2` raise/lower. Each press changes
+   the speed by 0.2.
+6. Press `o` to stop. All joints go limp (damping) and the robot sinks.
 
-Tested on a Mac with `LocoClient`: walking, turning, the command expiring after
-its `duration`, and error codes. `move_distance.py` itself hasn't been run
-against it, because it needs ROS 2, which the Mac setup doesn't have. On a
-Linux machine with unitree_ros2 it should work with `ROS_DOMAIN_ID=1` and
-CycloneDDS set to the loopback interface (untested).
+Start the policy only with the feet on the floor and before releasing the
+band. Started in the air, it flails; released without it, the robot falls.
+
+For tests without a window, `python3 sim/run_sim.py --headless --auto-release 3 --log`
+lowers the robot onto its feet after 3 s, waits 3 s (press `]` then), releases
+the band, and prints the true pelvis position every second.
+
+## Walk a distance or turn an angle: `move_distance.py`
+
+With the sim running (terminal 1 above):
+
+```bash
+../sim-venv/bin/python move_distance.py --distance 1.0 --speed 0.3
+../sim-venv/bin/python move_distance.py --angle 90 --turn-speed 20
+```
+
+Same start-up as above (feet on the floor, `]`, release the band), then press
+`g` to start the move. It stops when the estimate reaches the target, prints
+the estimated distance or angle, and keeps balancing until you press `o`.
+
+- `--distance`: meters, negative walks backward.
+- `--speed`: m/s, capped at 0.4. Default 0.2.
+- `--angle`: degrees, positive turns left (counterclockwise).
+- `--turn-speed`: deg/s, capped at 30. Default 20.
+
+Set exactly one of `--distance` or `--angle`. It aborts (and damps) if the
+move takes much longer than expected, a turn goes more than 10° the wrong
+way, the robot tilts past 60°, or robot state stops arriving.
+
+Without Unitree's controller there is no built-in odometry, so the script
+estimates its own:
+- **Heading:** from the pelvis IMU.
+- **Position:** from leg kinematics. The lower foot is taken as planted, and
+  the pelvis moves by minus that foot's motion.
+
+In the sim (2026-10-25), a 90° turn was estimated at 90.1° and measured at
+89.9°. Walks of 1.5 m and 1 m backward ended at 1.63 m and 1.11 m: the
+odometry reads about 7% short, and the robot drifts about 0.1 m after the
+stop. GR00T walked at about 85% of the commanded speed.
+
+## On the real robot (not tested yet)
+
+Running our own controller means turning Unitree's off, and then our code is
+the only thing keeping the robot up. Before the first run:
+
+1. Hang the robot from a gantry with its feet off the floor.
+2. Press L1+A on the remote (damping), then L2+R2 (debug mode). The scripts
+   check this and refuse to run while Unitree's controller is active.
+3. Run from the Jetson or a laptop on the robot's network (`192.168.123.x`).
+   Install the same Python packages there; the scripts need the
+   `unitree_mujoco` clone next to this repo for leg odometry.
+
+```bash
+python3 gr00t/walk.py --real --interface eth0
+python3 move_distance.py --real --interface eth0 --distance 0.5
+```
+
+4. Wait for the stand pose, lower the robot until its feet are on the floor,
+   press `]`, then slacken the gantry. Keep the gantry rope just loose enough
+   to catch a fall.
+
+The scripts refuse to run if the robot's `mode_machine` isn't 5 (29-joint G1
+rev 1.0, what NVIDIA's config is for). Pressing `o`, an error, or Ctrl-C damps
+every joint, so only do that with the robot supported. Unitree's other
+built-in services that need its controller (LocoClient, arm gestures,
+`lf/odommodestate`) are probably unavailable in debug mode.
+
+## Licenses
+
+- `gr00t/policy/*.onnx` are NVIDIA's, under the NVIDIA Open Model License
+  (`gr00t/policy/NVIDIA-Open-Model-License.txt`, `gr00t/policy/NOTICE.txt`).
+- `gr00t/walk.py` follows NVIDIA's GR00T-WholeBodyControl deployment code
+  (Apache-2.0, `gr00t/LICENSE-GR00T-WholeBodyControl.txt`).
+- The G1 model comes from Unitree's unitree_mujoco (BSD-3) and isn't copied
+  into this repo.
