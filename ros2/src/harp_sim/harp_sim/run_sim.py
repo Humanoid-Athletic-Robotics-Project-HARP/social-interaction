@@ -21,6 +21,8 @@ file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
 X m ahead and Y m left of where the robot starts; --lidar adds the head lidar
 (lidar.py) as a ROS 2 point cloud. Whenever the robot touches an obstacle,
 the sim prints it, so a run that prints no contact never hit anything.
+--record FILE saves the robot's true pose (qpos) at 20 Hz to FILE.npz on
+quitting, for measuring paths and clearances afterwards.
 
 Run from the ROS 2 environment (DDS domain 1 by default):
   ros2 run harp_sim run_sim
@@ -58,6 +60,7 @@ BAND_STEP = 0.1           # m per key press
 STANDING_PELVIS_Z = 0.80  # auto-release: lower the band until the pelvis is this low,
 RELEASE_DELAY = 3.0       # then wait this long (time to start the policy) and release
 MODE_MACHINE = 5          # what a 29-joint G1 rev 1.0 reports in lowstate
+RECORD_PERIOD = 0.05      # s between --record samples
 MAX_LAG = 0.1             # s behind real time before giving up on catching up
 BOX_SIZE = (0.5, 0.5, 0.5)   # m, width (x), depth (y), height, when --box gives only X Y
 BOX_RGBA = (0.8, 0.5, 0.2, 1.0)
@@ -172,6 +175,8 @@ def main():
                         help="after this long, lower the robot onto its feet and release the band")
     parser.add_argument("--duration", type=float, help="quit after this many seconds")
     parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
+    parser.add_argument("--record", metavar="FILE",
+                        help="save the true qpos at 20 Hz to FILE (.npz) on quitting")
     parser.add_argument("--world", metavar="NAME",
                         help="a course of obstacles: worlds/NAME.xml in harp_sim, or a file path")
     parser.add_argument("--box", dest="boxes", action=BoxArg, nargs="+", metavar="NUM", default=[],
@@ -242,6 +247,7 @@ def main():
             x, y = model.site_pos[i][:2]
             print(f"Course {model.site(i).name[len('course/'):]}: {x:+.1f} m ahead, {y:+.1f} m left of the start")
 
+    record_t, record_qpos, next_record = [], [], 0.0
     start = time.monotonic()
     next_step = start
     release_at = None
@@ -305,6 +311,11 @@ def main():
                 lidar.scan(data.qpos)
                 next_scan += LIDAR_PERIOD
 
+            if args.record and data.time >= next_record:
+                record_t.append(data.time)
+                record_qpos.append(data.qpos.copy())
+                next_record += RECORD_PERIOD
+
             if args.log and data.time % 1.0 < SIM_DT:
                 pw, px, py, pz = data.qpos[3:7]
                 yaw = math.degrees(math.atan2(2 * (pw * pz + px * py), 1 - 2 * (py * py + pz * pz)))
@@ -321,6 +332,10 @@ def main():
                 time.sleep(max(0.0, -lag))
     except KeyboardInterrupt:
         pass
+    if args.record:
+        np.savez(args.record, t=np.array(record_t), qpos=np.array(record_qpos),
+                 world=args.world or "", boxes=np.array(args.boxes, dtype=float).reshape(-1, 5))
+        print(f"Saved {len(record_t)} poses to {args.record}")
     if lidar is not None:
         rclpy.shutdown()
     return 0

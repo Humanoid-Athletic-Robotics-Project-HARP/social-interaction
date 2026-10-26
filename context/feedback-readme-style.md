@@ -7,6 +7,7 @@ metadata:
 
 `README.md` is the front page: newcomers and the project maintainer read it, so write it for them.
 - **Say what the robot does and has.** Leave out what it doesn't do, what we don't use, and comparisons with what we replaced (e.g. no "not Unitree's sport mode"). Safety steps stay, phrased as what to do ("keep the robot supported").
+- **Only the correct way, not what fails.** Give the right command (e.g. `pixi shell --as-is`) without explaining the failure it avoids; the reason and the symptom go in `context/` (here [[ros2-mac]]). A teammate asked for this on 2026-10-26.
 - **No process notes:** nothing like "ask the team", "decide with the team" or "ask the mentors", and no "draft" labels. HARP is a robotics team, so never "course" or "course staff".
 - **Short.** Commands with a line on what they do; bullets over paragraphs; the stand-up sequence explained once and referred to elsewhere.
 - **Detail lives in `context/`**: measured results, limits, edge cases, design reasons and gotchas. The README's "More detail" line points there, and Claude or Codex summarize it on request. Goals follow [[goals-workflow]].

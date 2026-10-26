@@ -151,7 +151,7 @@ pixi run build
 
 ## Run it in the sim
 
-Start every terminal with `pixi shell` in `ros2/`.
+Start every terminal with `pixi shell --as-is` in `ros2/`.
 
 Terminal 1, the sim (a MuJoCo window opens):
 
