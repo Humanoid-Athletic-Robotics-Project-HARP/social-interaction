@@ -9,6 +9,6 @@ This is a team repo (HARP Human Interaction team, see [[project-overview]]). Sev
 
 **How to apply:**
 - Don't assume the current person is on a Mac, or is the same person as earlier sessions. Ask, or check (`uname -a`, or the platform in your environment), before giving OS-specific commands.
-- Setup notes that say "Mac" (e.g. [[mujoco-sim]]) describe the one machine that was tested: an Apple Silicon Mac with Python 3.12. Linux and Windows haven't been tried for the sim yet (as of 2026-10-25). When someone gets it working on another OS, add those findings next to the Mac ones rather than replacing them.
+- Setup notes that say "Mac" (e.g. [[mujoco-sim]], [[ros2-mac]]) describe the one machine that was tested: an Apple Silicon Mac with Python 3.12. The pixi environment in `ros2/` only lists Apple Silicon Macs (macOS 14+); Linux would need its platform added, and Windows can't run the keyboard controllers (termios). Neither has been tried (as of 2026-10-25). When someone gets it working on another OS, add those findings next to the Mac ones rather than replacing them.
 - When writing a memory, say "a teammate" rather than "the user" for decisions and approvals, and name the OS or machine for anything platform-specific.
 - `context/` is the shared memory for every agent. Codex reaches it through `AGENTS.md`, which points to `CLAUDE.md`. Keep memories plain Markdown so both tools can read them.

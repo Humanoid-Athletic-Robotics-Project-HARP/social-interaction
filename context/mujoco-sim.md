@@ -19,7 +19,7 @@ metadata:
 **Mac facts** (one teammate's Apple Silicon Mac, Python 3.12, 2026-10-25; other OSes untested, see [[team-context]]):
 - Loopback is `lo0`, not `lo`. Our scripts pick it automatically.
 - The viewer (`launch_passive`) needs `mjpython`, not `python3`. `ros2 run` starts plain python, so `run_sim.py` restarts itself under `mjpython` (from the pip mujoco wheel in the pixi env) unless `--headless`.
-- The window throttling shows up as an occasional stall: "the sim fell ~115 ms behind". Once (2026-10-25) a stall reached 0.5 s and the controller stopped with "Robot state stopped for 502 ms"; rerunning worked.
+- The window throttling shows up as occasional stalls ("the sim fell ~115 ms behind"). Keep the MuJoCo window visible; a stall over 0.5 s stops the controller ("Robot state stopped"), and then both have to be restarted.
 - The setup (the pixi environment in `ros2/` plus the Unitree clones) is in the README. `sim-venv` and the source-built CycloneDDS are no longer used (2026-10-25).
 - Band keys, per the code: 7 shortens (raises), 8 lengthens (lowers), 9 toggles. Unitree's README has 7 and 8 reversed.
 
