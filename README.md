@@ -9,48 +9,52 @@ walk and balance with NVIDIA's GR00T policy and test everything in MuJoCo
 first. The same code talks to the sim and the robot over the robot's
 low-level DDS topics (`rt/lowstate` in, `rt/lowcmd` out).
 
-| File | What it does |
+All the code lives in a ROS 2 workspace, `ros2/`, as three ROS 2 packages:
+`harp_control` (walking, no ROS 2 needed), `harp_sim` (the sim) and `harp_ros`
+(ROS 2 nodes). The walking code talks to the robot directly over DDS; the
+walker node puts a ROS 2 interface on it (`/cmd_vel` in, `/odom` and `/tf`
+out) for Nav2 later.
+
+| Path | What it does |
 |---|---|
-| `sim/run_sim.py` | MuJoCo sim of the G1 that speaks the robot's low-level topics |
-| `gr00t/walk.py` | GR00T walking controller, driven from the keyboard |
-| `move_distance.py` | Walks a set distance, turns a set angle, or walks to a point in one smooth curve with GR00T, using our own leg odometry |
-| `smooth_control.py` | The control law for those curves (Park & Kuipers, the same as Nav2's Graceful Controller) |
-| `gr00t/policy/` | NVIDIA's GR00T walk and balance policies (ONNX) and their license |
-| `ros2/` | ROS 2 Jazzy environment (macOS) with Unitree's message types; no ROS 2 code uses it yet |
+| `ros2/src/harp_sim/harp_sim/run_sim.py` | MuJoCo sim of the G1 that speaks the robot's low-level topics |
+| `ros2/src/harp_control/harp_control/gr00t/walk.py` | GR00T walking controller, driven from the keyboard |
+| `ros2/src/harp_control/harp_control/gr00t/policy/` | NVIDIA's GR00T walk and balance policies (ONNX) and their license |
+| `ros2/src/harp_control/harp_control/move_distance.py` | Walks a set distance, turns a set angle, or walks to a point in one smooth curve with GR00T |
+| `ros2/src/harp_control/harp_control/leg_odometry.py` | Our leg odometry: position and heading from the joint angles and the IMU |
+| `ros2/src/harp_control/harp_control/smooth_control.py` | The control law for those curves (Park & Kuipers, the same as Nav2's Graceful Controller) |
+| `ros2/src/harp_ros/harp_ros/walker_node.py` | ROS 2 node around the GR00T walker: `/cmd_vel` in, `/odom` and `/tf` out, start/stop services |
+| `ros2/pixi.toml`, `ros2/pixi.lock` | The environment: ROS 2 Jazzy, Python 3.12, MuJoCo, onnxruntime, Unitree's SDK, pinned |
 
 ## Setup (on your laptop)
 
-Tested on an Apple Silicon Mac with Python 3.12. Linux should work with the
-same steps (the loopback interface is `lo` instead of `lo0`, and the scripts
-pick the right one), but nobody has tried it yet. Windows doesn't work:
-`gr00t/walk.py` reads keys with `termios`, which only macOS and Linux have.
+Tested on an Apple Silicon Mac with macOS 15; macOS 14 or newer is needed. The
+environment is only set up for Apple Silicon Macs so far: Linux would need
+its platform added to `ros2/pixi.toml` (and `lo` instead of `lo0`), which
+nobody has tried yet. Windows doesn't work: `walk.py` reads keys with
+`termios`, which only macOS and Linux have.
 
 ### 1. Install the tools
 
-You need git, cmake, a C compiler, and **Python 3.12 or newer** (the pinned
-numpy needs it). The Mac's built-in `/usr/bin/python3` is 3.9, which is too
-old.
+You need git and [pixi](https://pixi.sh). Everything else (Python 3.12, ROS 2
+Jazzy, compilers, MuJoCo, onnxruntime, CycloneDDS) comes from pixi.
 
-- macOS: `xcode-select --install` (git and the compiler), then
-  `brew install cmake python@3.12` ([Homebrew](https://brew.sh)). Python from
-  python.org works too.
-- Linux (Ubuntu 24.04): `sudo apt install git cmake build-essential python3.12-venv`.
-
-Check that `python3.12 --version` and `cmake --version` both work.
+```bash
+xcode-select --install
+brew install pixi
+```
 
 ### 2. Make a folder for everything and clone this repo into it
 
-The scripts look for Unitree's code right next to this repo, so everything
-goes in one folder of its own (about 900 MB in all):
+The build looks for Unitree's code right next to this repo, so everything
+goes in one folder of its own:
 
 ```
 harp/
 ├── stanford-harp-social-interaction/   this repo
-├── cyclonedds/                         DDS library, built from source
 ├── unitree_sdk2_python/                Unitree's Python SDK
 ├── unitree_mujoco/                     only for its G1 model files
-├── unitree_ros2/                       only for its ROS 2 message definitions
-└── sim-venv/                           Python packages
+└── unitree_ros2/                       only for its ROS 2 message definitions
 ```
 
 ```bash
@@ -58,20 +62,9 @@ mkdir harp && cd harp
 # clone this repo here
 ```
 
-Run steps 3 to 5 from `harp/`.
+Run step 3 from `harp/`.
 
-### 3. Build CycloneDDS
-
-```bash
-git clone -b releases/0.10.x https://github.com/eclipse-cyclonedds/cyclonedds
-git -C cyclonedds checkout 5041f3560c088c99e5088b2b8520b69169621196
-cd cyclonedds && mkdir build install && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
-cmake --build . --target install
-cd ../..
-```
-
-### 4. Clone Unitree's SDK and G1 model
+### 3. Clone Unitree's SDK, G1 model and messages
 
 ```bash
 git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git
@@ -92,37 +85,45 @@ That's a Go2-W file we don't use, so ignore it.
 `unitree_mujoco` is only needed for its G1 model files
 (`unitree_robots/g1/scene_29dof.xml`). We don't run its simulator, so its
 local fixes (the Linux-only timer patch, the `glfw` key fix, `config.py`) aren't
-needed for our scripts.
+needed. `unitree_ros2` is only needed for its message packages.
 
-`unitree_ros2` is only needed for ROS 2 (below): `ros2/` builds its message
-packages.
-
-### 5. Install the Python packages
+### 4. Install the environment and build the packages
 
 ```bash
-python3.12 -m venv sim-venv
-CYCLONEDDS_HOME=$PWD/cyclonedds/install sim-venv/bin/pip install -e ./unitree_sdk2_python mujoco==3.17.0 onnxruntime==1.31.0 numpy==2.5.4
+cd stanford-harp-social-interaction/ros2
+pixi install --locked
+pixi run build
 ```
 
-The commits and versions in steps 3 to 5 are the ones we tested. Newer ones
-can break things (MuJoCo 3.17 already broke a script in `unitree_mujoco`), so
-update them together and re-test in the sim.
+`pixi install --locked` installs exactly the versions in `pixi.lock` (a few
+GB, into `ros2/.pixi/`, which git ignores). It builds Unitree's SDK against
+the same CycloneDDS that ROS 2 uses. `pixi run build` builds our packages and
+Unitree's messages with colcon. Our Python files are linked rather than
+copied, so edits take effect without rebuilding; run `pixi run build` again
+after adding a file or a package, or after reinstalling the environment.
 
-### 6. Go into the repo
+The commits in step 3 and the versions in `pixi.lock` are the ones we tested.
+Newer ones can break things (MuJoCo 3.17 already broke a script in
+`unitree_mujoco`), so update them together and re-test in the sim.
 
-Every command from here on runs from inside this repo:
+Check it:
 
 ```bash
-cd stanford-harp-social-interaction
-../sim-venv/bin/python -c "import mujoco, onnxruntime, unitree_sdk2py; print('Setup OK')"
+pixi run ros2 pkg executables harp_control
 ```
+
+That lists `harp_control move_distance` and `harp_control walk`.
 
 ## Run it in the sim
 
-Terminal 1, the sim (macOS needs `mjpython` for the viewer window):
+In every terminal, start with `pixi shell` from `ros2/`. It sets up ROS 2, the
+DDS settings for the sim and the path to the G1 model.
+
+Terminal 1, the sim (on macOS it restarts itself under `mjpython`, which the
+viewer window needs):
 
 ```bash
-../sim-venv/bin/mjpython sim/run_sim.py
+ros2 run harp_sim run_sim
 ```
 
 The robot starts hanging from a virtual elastic band. In the viewer, `8`
@@ -131,7 +132,7 @@ lowers it, `7` raises it, and `9` releases or re-attaches the band.
 Terminal 2, the controller:
 
 ```bash
-../sim-venv/bin/python gr00t/walk.py
+ros2 run harp_control walk
 ```
 
 Keys for the controller (`]`, `g`, `o`, `w`...) go to terminal 2. Only the
@@ -151,55 +152,81 @@ typing in it.
 Start the policy only with the feet on the floor and before releasing the
 band. Started in the air, it flails; released without it, the robot falls.
 
-For tests without a window, `python3 sim/run_sim.py --headless --auto-release 3 --log`
+For tests without a window, `ros2 run harp_sim run_sim --headless --auto-release 3 --log`
 lowers the robot onto its feet after 3 s, waits 3 s (press `]` then), releases
 the band, and prints the true pelvis position every second.
 
-## ROS 2 (macOS)
+## Drive it through ROS 2: `walker_node`
 
-ROS 2 is set up for the Nav2 work to come; none of our scripts use it yet.
-`ros2/` holds a ROS 2 Jazzy environment from
-[RoboStack](https://robostack.github.io), managed by [pixi](https://pixi.sh),
-with Unitree's message types. It's separate from `sim-venv`: the two only
-talk over DDS, so ROS 2 sees the sim's topics directly. Only Apple Silicon
-Macs are set up so far. On Linux, Ubuntu 24.04's own ROS 2 Jazzy packages
-should work instead, but nobody has tried it yet.
+`walker_node` runs the same GR00T walker as `walk`, but takes its velocity from
+the `/cmd_vel` topic and publishes our leg odometry, so other ROS 2 nodes (and
+later Nav2) can drive it.
 
-Install it once (a few GB, into `ros2/.pixi/`, which git ignores):
+| | Name | Type | |
+|---|---|---|---|
+| Subscribes | `/cmd_vel` | `geometry_msgs/Twist` | `linear.x`, `linear.y` (m/s), `angular.z` (rad/s) |
+| Publishes | `/odom` | `nav_msgs/Odometry` | `odom` → `base_link`, 50 Hz while the policy runs |
+| Publishes | `/tf` | `odom` → `base_link` | the same pose, for tf2 |
+| Service | `/walker/start` | `std_srvs/Trigger` | starts the policy, like `]` |
+| Service | `/walker/stop` | `std_srvs/Trigger` | damps every joint and quits, like `o` |
 
-```bash
-brew install pixi
-cd ros2
-pixi install --locked
-pixi run build
-```
+If `/cmd_vel` goes quiet for 0.5 s (the `cmd_timeout` parameter), the command
+drops to zero and GR00T balances in place. The speed limits of `walk` still
+apply. The `odom` frame starts where the policy started.
 
-`pixi run build` builds Unitree's messages from `../unitree_ros2` (step 4).
-Run it again if you reinstall the environment.
-
-With the sim running (terminal 1 above), from `ros2/` in another terminal:
+Terminal 1, the sim: `ros2 run harp_sim run_sim`. Terminal 2:
 
 ```bash
-pixi shell
-ros2 topic list
-ros2 topic echo /lowstate --once --field imu_state
+ros2 run harp_ros walker_node
 ```
 
-`ros2 topic list` should show `/lowstate` and `/lowcmd`, and the echo prints
-the sim's IMU readings. Ignore the "Failed to parse type hash" warnings: the
-sim publishes through unitree_sdk2py, not ROS 2. The environment uses the
-sim's DDS settings (domain 1 on `lo0`); the real robot needs domain 0 and the
-interface on `192.168.123.x`.
+Start-up is the same as for `walk`: wait for "Stand pose reached", lower the
+feet (`8` in the viewer), then start the policy with `]` in terminal 2 or
+
+```bash
+ros2 service call /walker/start std_srvs/srv/Trigger
+```
+
+and release the band (`9`). Then, in terminal 3, drive it with the keyboard
+(hold a key: it stops 0.5 s after the last message) or send a command:
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+```bash
+ros2 topic pub -r 10 -t 40 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.3}}"
+```
+
+That second one walks forward at 0.3 m/s for 4 s. Watch where the robot thinks
+it is with `ros2 topic echo /odom --field pose.pose`, and stop with `o` in
+terminal 2 or `ros2 service call /walker/stop std_srvs/srv/Trigger`.
+
+In the sim (2026-10-25), 0.3 m/s for 4 s moved the robot 1.02 m and `/odom`
+said 1.02 m; a 0.5 rad/s turn for 3 s turned it 85.4° and `/odom` said 85.5°.
+With no `/cmd_vel` it drifted 0.01 m in 2 s.
+
+**DDS domains:** ROS 2 runs on domain 2. The robot's own topics are on
+domain 0 on the robot and 1 in the sim, and CycloneDDS can't have ROS 2 and
+Unitree's SDK on the same domain in one program (`walker_node` has both). So
+`ros2 topic list` shows only ROS 2 topics. To look at the sim's raw topics:
+
+```bash
+ROS_DOMAIN_ID=1 ros2 topic echo /lowstate --once --field imu_state
+```
+
+Ignore the "Failed to parse type hash" warnings there: the sim publishes
+through unitree_sdk2py, not ROS 2.
 
 ## Walk distances and turn angles: `move_distance.py`
 
-With the sim running (terminal 1 above):
+With the sim running (terminal 1 above), after `pixi shell`:
 
 ```bash
-../sim-venv/bin/python move_distance.py --distance 1.0 --speed 0.3
-../sim-venv/bin/python move_distance.py --angle 90 --turn-speed 20
-../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2 --speed 0.3
-../sim-venv/bin/python move_distance.py --to 2 1 --speed 0.3
+ros2 run harp_control move_distance --distance 1.0 --speed 0.3
+ros2 run harp_control move_distance --angle 90 --turn-speed 20
+ros2 run harp_control move_distance --distance 2 --angle 90 --distance 2 --speed 0.3
+ros2 run harp_control move_distance --to 2 1 --speed 0.3
 ```
 
 `--distance`, `--angle` and `--to` can be repeated and mixed, and the moves
@@ -230,16 +257,16 @@ place, the band was still on.
 
 ### Example: walk 2 m, turn left 90°, walk 2 m
 
-Terminal 1:
+Terminal 1 (after `pixi shell` in `ros2/`, as in every terminal):
 
 ```bash
-../sim-venv/bin/mjpython sim/run_sim.py
+ros2 run harp_sim run_sim
 ```
 
 Terminal 2:
 
 ```bash
-../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2 --speed 0.3
+ros2 run harp_control move_distance --distance 2 --angle 90 --distance 2 --speed 0.3
 ```
 
 | Step | Where | Do | You should see |
@@ -272,8 +299,8 @@ position. `--to` moves have the same limit. To run it again,
 restart both terminals: after `o` the robot lies on the floor, and the band is
 anchored above where it started.
 
-Without Unitree's controller there is no built-in odometry, so the script
-estimates its own:
+Without Unitree's controller there is no built-in odometry, so we estimate
+our own (`harp_control/leg_odometry.py`):
 - **Heading:** from the pelvis IMU.
 - **Position:** from leg kinematics. The lower foot is taken as planted, and
   the pelvis moves by minus that foot's motion.
@@ -302,14 +329,14 @@ rather than by turning around first. Points closer than 0.16 m are refused:
 use `--angle` to turn in place.
 
 ```bash
-../sim-venv/bin/python move_distance.py --to 2 1 --speed 0.3
-../sim-venv/bin/python move_distance.py --to 1.5 -1 -90 --speed 0.3
-../sim-venv/bin/python move_distance.py --distance 1 --angle 90 --to 1 1 90 --speed 0.3
+ros2 run harp_control move_distance --to 2 1 --speed 0.3
+ros2 run harp_control move_distance --to 1.5 -1 -90 --speed 0.3
+ros2 run harp_control move_distance --distance 1 --angle 90 --to 1 1 90 --speed 0.3
 ```
 
 The curve comes from Park and Kuipers' control law ("A Smooth Control Law for
 Graceful Motion of Differential Wheeled Mobile Robots in 2D Environments",
-ICRA 2011), in `smooth_control.py`. It's the same law, with the same default gains, as
+ICRA 2011), in `harp_control/smooth_control.py`. It's the same law, with the same default gains, as
 Nav2's Graceful Controller, so moving to Nav2 later keeps the same behavior.
 
 Results in the sim (2026-10-25, `--speed 0.3`, true positions from `--log`):
@@ -332,16 +359,16 @@ The robot curves 1 m to the left over 2 m, straightens out facing forward
 again, then curves 1 m back to the right. It ends 4 m straight ahead of where
 it started, facing the way it started, without stopping to turn in place.
 
-Terminal 1:
+Terminal 1 (after `pixi shell` in `ros2/`, as in every terminal):
 
 ```bash
-../sim-venv/bin/mjpython sim/run_sim.py
+ros2 run harp_sim run_sim
 ```
 
 Terminal 2:
 
 ```bash
-../sim-venv/bin/python move_distance.py --to 2 1 0 --to 2 -1 0 --speed 0.3
+ros2 run harp_control move_distance --to 2 1 0 --to 2 -1 0 --speed 0.3
 ```
 
 | Step | Where | Do | You should see |
@@ -378,16 +405,18 @@ the only thing keeping the robot up. Before the first run:
 1. Hang the robot from a gantry with its feet off the floor.
 2. Press L1+A on the remote (damping), then L2+R2 (debug mode). The scripts
    check this and refuse to run while Unitree's controller is active.
-3. Run from the Jetson or a laptop on the robot's network (`192.168.123.x`).
-   Install the same Python packages there; the scripts need the
-   `unitree_mujoco` clone next to this repo for leg odometry. The Jetson
-   probably has Python 3.8, too old for the pinned versions, so it may need
-   older ones (untested).
+3. Run from a laptop on the robot's network (`192.168.123.x`), set up as
+   above, after `pixi shell`. The environment is only set up for Macs, so
+   running on the robot's Jetson would need its own setup (untested).
 
 ```bash
-python3 gr00t/walk.py --real --interface eth0
-python3 move_distance.py --real --interface eth0 --distance 0.5
+ros2 run harp_control walk --real --interface en0
+ros2 run harp_control move_distance --real --interface en0 --distance 0.5
+ros2 run harp_ros walker_node --ros-args -p real:=true -p interface:=en0
 ```
+
+   `--interface` is the laptop's network interface on `192.168.123.x`
+   (`en0` is only an example; `ifconfig` shows which one).
 
 4. Wait for the stand pose, lower the robot until its feet are on the floor,
    press `]`, then slacken the gantry. Keep the gantry rope just loose enough
@@ -401,9 +430,10 @@ built-in services that need its controller (LocoClient, arm gestures,
 
 ## Licenses
 
-- `gr00t/policy/*.onnx` are NVIDIA's, under the NVIDIA Open Model License
-  (`gr00t/policy/NVIDIA-Open-Model-License.txt`, `gr00t/policy/NOTICE.txt`).
-- `gr00t/walk.py` follows NVIDIA's GR00T-WholeBodyControl deployment code
-  (Apache-2.0, `gr00t/LICENSE-GR00T-WholeBodyControl.txt`).
+In `ros2/src/harp_control/harp_control/gr00t/`:
+- `policy/*.onnx` are NVIDIA's, under the NVIDIA Open Model License
+  (`policy/NVIDIA-Open-Model-License.txt`, `policy/NOTICE.txt`).
+- `walk.py` follows NVIDIA's GR00T-WholeBodyControl deployment code
+  (Apache-2.0, `LICENSE-GR00T-WholeBodyControl.txt`).
 - The G1 model comes from Unitree's unitree_mujoco (BSD-3) and isn't copied
   into this repo.

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>harp_control</name>
+  <version>0.1.0</version>
+  <description>
+    G1 walking without ROS: NVIDIA's GR00T walk and balance policies (gr00t/),
+    our leg odometry, the smooth-curve control law, and move_distance.
+  </description>
+  <maintainer email="todo@todo.todo">HARP Human Interaction team</maintainer>
+  <license>TODO</license>
+
+  <!-- Python dependencies (numpy, mujoco, onnxruntime, unitree_sdk2py) come
+       from ros2/pixi.toml, not rosdep. -->
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

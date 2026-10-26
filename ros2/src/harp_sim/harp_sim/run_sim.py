@@ -1,5 +1,5 @@
 """MuJoCo sim of the 29-joint G1 that speaks the robot's low-level DDS topics,
-for running our own controllers (gr00t/walk.py) before the real robot.
+for running our own controllers (harp_control) before the real robot.
 
 Like unitree_mujoco's simulate_python, and using its G1 model, but:
   - The PD torque (tau + kp*(q_cmd - q) + kd*(dq_cmd - dq)) is recomputed at
@@ -16,17 +16,19 @@ command arrives the joints are limp. The robot starts hanging from a virtual
 elastic band on the torso. In the viewer: 7 shortens the band (raises the
 robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
 
-Run from the sim venv (DDS domain 1 by default):
-  ../sim-venv/bin/mjpython sim/run_sim.py
-  python3 sim/run_sim.py --headless --auto-release 4
+Run from the ROS 2 environment (DDS domain 1 by default):
+  ros2 run harp_sim run_sim
+  ros2 run harp_sim run_sim --headless --auto-release 4
+On macOS the viewer needs mjpython, so with the viewer it restarts itself
+under mjpython.
 """
 
 import argparse
 import math
+import os
 import sys
 import threading
 import time
-from pathlib import Path
 
 import mujoco
 import mujoco.viewer
@@ -36,8 +38,10 @@ from unitree_sdk2py.core.channel import (
 from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
 
-DEFAULT_SCENE = (Path(__file__).resolve().parents[2]
-                 / "unitree_mujoco/unitree_robots/g1/scene_29dof.xml")
+# Unitree's G1 model (unitree_mujoco, cloned next to this repo). The ROS 2
+# environment (ros2/pixi.toml) sets HARP_G1_SCENE to it.
+DEFAULT_SCENE = os.environ.get("HARP_G1_SCENE")
+UNDER_MJPYTHON = "HARP_SIM_UNDER_MJPYTHON"   # set once we have restarted under mjpython
 SIM_DT = 0.005            # s, as in NVIDIA's GR00T sim and unitree_mujoco
 VIEWER_PERIOD = 0.02      # s
 BAND_POINT = np.array([0.0, 0.0, 3.0])   # band anchor above the robot, as in unitree_mujoco
@@ -83,13 +87,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--domain", type=int, default=1, help="DDS domain id (robot uses 0)")
     parser.add_argument("--interface", default="lo0" if sys.platform == "darwin" else "lo")
-    parser.add_argument("--scene", default=str(DEFAULT_SCENE))
+    parser.add_argument("--scene", default=DEFAULT_SCENE,
+                        help="G1 MuJoCo model (default: $HARP_G1_SCENE)")
     parser.add_argument("--headless", action="store_true", help="no viewer window")
     parser.add_argument("--auto-release", type=float, metavar="SECONDS",
                         help="after this long, lower the robot onto its feet and release the band")
     parser.add_argument("--duration", type=float, help="quit after this many seconds")
     parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
     args = parser.parse_args()
+    if not args.scene:
+        parser.error("no G1 model: pass --scene, or set HARP_G1_SCENE (the ROS 2 environment does)")
+    if sys.platform == "darwin" and not args.headless and not os.environ.get(UNDER_MJPYTHON):
+        # MuJoCo's viewer only runs under mjpython on macOS; ros2 run starts plain python.
+        os.environ[UNDER_MJPYTHON] = "1"
+        os.execvp("mjpython", ["mjpython", "-m", "harp_sim.run_sim", *sys.argv[1:]])
 
     model = mujoco.MjModel.from_xml_path(args.scene)
     model.opt.timestep = SIM_DT

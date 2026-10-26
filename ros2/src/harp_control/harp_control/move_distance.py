@@ -10,21 +10,16 @@ robot stands when the move starts, turning while it walks
 If it arrives facing more than a few degrees off, it finishes with a turn in
 place.
 
-Distance and heading come from our own estimate, since Unitree's odometry is
-part of the built-in controller we no longer use:
-  - Heading: yaw from the pelvis IMU quaternion.
-  - Position: leg odometry. Joint angles and the IMU orientation give each
-    foot's position relative to the pelvis (forward kinematics of the G1
-    model in MuJoCo). The lower foot is taken as planted, so the pelvis moves
-    by minus that foot's motion.
+Distance and heading come from our own leg odometry (leg_odometry.py), since
+Unitree's odometry is part of the built-in controller we no longer use.
 
-Run against the sim (start sim/run_sim.py first, see README):
-  ../sim-venv/bin/python move_distance.py --distance 1.0 --speed 0.3
-  ../sim-venv/bin/python move_distance.py --angle 90 --turn-speed 20
-  ../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2
-  ../sim-venv/bin/python move_distance.py --to 2 1 --to 1 -1 -90
+Run against the sim (start it first: ros2 run harp_sim run_sim, see README):
+  ros2 run harp_control move_distance --distance 1.0 --speed 0.3
+  ros2 run harp_control move_distance --angle 90 --turn-speed 20
+  ros2 run harp_control move_distance --distance 2 --angle 90 --distance 2
+  ros2 run harp_control move_distance --to 2 1 --to 1 -1 -90
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
-  python3 move_distance.py --real --interface eth0 --distance 0.5
+  ros2 run harp_control move_distance --real --interface eth0 --distance 0.5
 
 Keys, typed in this terminal: ] start the policy (balance in place), g start the moves once the robot
 stands on its own, o stop (damp) and quit. After the last move the robot
@@ -35,19 +30,15 @@ import argparse
 import math
 import sys
 import time
-from pathlib import Path
 
-import mujoco
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from gr00t.walk import (CONTROL_DT, NUM_MOTORS, TerminalKeys, Walker,
-                        check_unitree_controller_off)
-from smooth_control import command, ego_polar, wrap_angle
+from harp_control.gr00t.walk import (CONTROL_DT, TerminalKeys, Walker,
+                                     check_unitree_controller_off)
+from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
+from harp_control.smooth_control import command, ego_polar, wrap_angle
 
-DEFAULT_SCENE = (Path(__file__).resolve().parent.parent
-                 / "unitree_mujoco/unitree_robots/g1/scene_29dof.xml")
-FEET = ("left_ankle_roll_link", "right_ankle_roll_link")
 MAX_SPEED = 0.4           # m/s, hard cap no matter what is passed in
 MAX_TURN_SPEED = 30.0     # deg/s, hard cap no matter what is passed in
 SETTLE_TIME = 1.5         # s standing still after each move before reporting it
@@ -59,11 +50,6 @@ CURVE_ACCEL = 0.4         # m/s^2, ramp for the forward speed of curved moves
 CURVE_TURN_ACCEL = 1.0    # rad/s^2, ramp for their turn rate
 POSITION_TOLERANCE = 0.08  # m, a curved move has reached its point inside this
 HEADING_TOLERANCE = math.radians(5.0)  # its final turn in place stops inside this
-
-
-def yaw_of(quat):
-    w, x, y, z = quat
-    return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 
 
 def rotate(v, angle):
@@ -105,40 +91,6 @@ class PointArg(argparse.Action):
         moves = getattr(namespace, self.dest) or []
         moves.append(("curve", (numbers[0], numbers[1], heading)))
         setattr(namespace, self.dest, moves)
-
-
-class LegOdometry:
-    """Pelvis position on the floor and unwrapped heading, from joints and IMU."""
-
-    def __init__(self, scene):
-        self.model = mujoco.MjModel.from_xml_path(str(scene))
-        self.data = mujoco.MjData(self.model)
-        self.feet = [self.model.body(name).id for name in FEET]
-        self.position = np.zeros(2)
-        self.heading = 0.0        # sum of yaw changes, radians
-        self.yaw = None
-        self.stance = None        # index of the planted foot
-        self.last_feet = None     # both feet relative to the pelvis, world-aligned, last update
-
-    def update(self, q, quat):
-        yaw = yaw_of(quat)
-        if self.yaw is not None:
-            self.heading += wrap_angle(yaw - self.yaw)
-        self.yaw = yaw
-
-        d = self.data
-        d.qpos[:3] = 0.0          # pelvis at the origin, so foot positions are relative to it
-        d.qpos[3:7] = quat
-        d.qpos[7:7 + NUM_MOTORS] = q
-        mujoco.mj_kinematics(self.model, d)
-        feet = [d.xpos[f].copy() for f in self.feet]
-        if self.last_feet is not None:
-            # Use the foot that was planted since the last update, also on the update
-            # where the planted foot switches. Skipping that one dropped its motion at
-            # every footstep, about 7% of the distance walked.
-            self.position -= feet[self.stance][:2] - self.last_feet[self.stance][:2]
-        self.stance = 0 if feet[0][2] < feet[1][2] else 1
-        self.last_feet = feet
 
 
 class Moves:
@@ -309,9 +261,12 @@ def main():
     parser.add_argument("--real", action="store_true",
                         help="the real robot (DDS domain 0) instead of the sim (domain 1)")
     parser.add_argument("--interface", help="network interface; default lo0/lo in the sim")
-    parser.add_argument("--scene", default=str(DEFAULT_SCENE),
-                        help="G1 MuJoCo model, for leg odometry")
+    parser.add_argument("--scene", default=DEFAULT_SCENE,
+                        help="G1 MuJoCo model, for leg odometry (default: $HARP_G1_SCENE)")
     args = parser.parse_args()
+
+    if not args.scene:
+        parser.error("no G1 model: pass --scene, or set HARP_G1_SCENE (the ROS 2 environment does)")
 
     if not args.moves:
         parser.error("give at least one --distance, --angle or --to")

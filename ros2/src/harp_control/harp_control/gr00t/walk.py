@@ -4,8 +4,8 @@
 Talks to the robot or the MuJoCo sim over the same low-level DDS topics, so
 the same code runs on both: reads rt/lowstate (unitree_hg), writes rt/lowcmd.
 The policy drives the 15 leg and waist joints at 50 Hz; the arms are held in a
-fixed pose. Commands go out at 200 Hz so the sim's PD (computed only when a
-command arrives) stays stiff.
+fixed pose. Commands go out at 200 Hz, one per sim step; the motor drivers
+(and our sim, harp_sim) recompute the PD torque toward them at every step.
 
 Observation layout, scales, gains, default pose and arm pose follow NVIDIA's
 real-robot G1 deployment (GR00T-WholeBodyControl, decoupled_wbc:
@@ -13,10 +13,10 @@ g1_gear_wbc_policy.py, g1_gear_wbc.yaml, g1_29dof_gear_wbc.yaml; Apache-2.0,
 see LICENSE-GR00T-WholeBodyControl.txt). The ONNX weights in policy/ are
 NVIDIA's, under the NVIDIA Open Model License (policy/NOTICE.txt).
 
-Sim (start unitree_mujoco first, see README):
-  ../sim-venv/bin/python gr00t/walk.py
+Sim (start it first: ros2 run harp_sim run_sim, see README):
+  ros2 run harp_control walk
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
-  python3 gr00t/walk.py --real --interface eth0
+  ros2 run harp_control walk --real --interface eth0
 
 Keys, typed in this terminal: ] start policy, w/s forward/back, a/d left/right, q/e turn left/right,
 z zero velocity, 1/2 raise/lower, o stop (damp) and quit.
@@ -249,7 +249,7 @@ class Walker:
             if time.monotonic() > wait_until:
                 where = ("the robot. Check the Ethernet cable and that --interface is the one "
                          "on 192.168.123.x" if self.real else
-                         "the sim. Start sim/run_sim.py in another terminal first")
+                         "the sim. Start it in another terminal first: ros2 run harp_sim run_sim")
                 raise RuntimeError(f"No robot state (rt/lowstate) after 5 s from {where}.")
             time.sleep(0.05)
         self.check_mode_machine()
