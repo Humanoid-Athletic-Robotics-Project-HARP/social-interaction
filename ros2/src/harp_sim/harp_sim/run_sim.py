@@ -255,15 +255,17 @@ def main():
 
     band = Band()
     viewer = None
+    quitting = threading.Event()
     if not args.headless:
         viewer = mujoco.viewer.launch_passive(model, data, key_callback=band.on_key)
 
         def draw():
             # Separate thread, so drawing never delays physics or rt/lowstate.
-            while viewer.is_running():
+            while viewer.is_running() and not quitting.is_set():
                 viewer.sync()
                 time.sleep(VIEWER_PERIOD)
-        threading.Thread(target=draw, daemon=True).start()
+        drawer = threading.Thread(target=draw, daemon=True)
+        drawer.start()
     print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C here quits.")
     if viewer is not None:
         print("MuJoCo window keys: 8 lowers the robot, 7 raises it, 9 releases or "
@@ -362,9 +364,19 @@ def main():
     except KeyboardInterrupt:
         pass
     runlog.event("sim", "quit", sim_t=round(data.time, 2))
+    if viewer is not None:
+        quitting.set()
+        drawer.join(timeout=1.0)
+        viewer.close()
     node.destroy_node()
     rclpy.shutdown()
-    return 0
+    # Quit without Python's own teardown. The DDS libraries' threads (Unitree's
+    # rt/lowstate and rt/lowcmd, which can't be stopped from here) keep running
+    # while it frees modules and unloads libraries, and in course runs one of
+    # them crashed into freed code (exit -11) about one exit in three.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
