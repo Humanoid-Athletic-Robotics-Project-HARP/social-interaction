@@ -184,6 +184,11 @@ point. If it still faces more than 5° off when it gets there, it finishes with
 a short turn in place. The point is relative to where the robot stands when
 the move starts, not to where the run started.
 
+It never steps sideways, so a point close by and off to one side takes a
+small loop to reach. A point behind the robot is reached in a wider curve
+rather than by turning around first. Points closer than 0.16 m are refused:
+use `--angle` to turn in place.
+
 ```bash
 ../sim-venv/bin/python move_distance.py --to 2 1 --speed 0.3
 ../sim-venv/bin/python move_distance.py --to 1.5 -1 -90 --speed 0.3
@@ -206,7 +211,8 @@ Results in the sim (2026-10-25, `--speed 0.3`, true positions from `--log`):
 | `--to 1 1 90` after a walk and a turn | 1.00, 1.00, 90° | 1.03, 0.93, 94° | 1.04, 0.94, 94° |
 
 It stops within 8 cm and 5° of the target by its own estimate. Moves took
-13–21 s, including the 1.5 s settle.
+13–21 s, including the 1.5 s settle. Only the robot's own estimate guides it,
+so errors from earlier moves carry over, as in the example above.
 
 ## On the real robot (not tested yet)
 
