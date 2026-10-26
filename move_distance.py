@@ -1,6 +1,14 @@
-"""Walk the G1 straight forward (or backward) set distances and turn it in
-place by set angles, using our GR00T walking controller (gr00t/walk.py).
-Moves run one after another, with the robot balancing in between.
+"""Walk the G1 straight forward (or backward) set distances, turn it in
+place by set angles, or walk it to a point in one smooth curve, using our
+GR00T walking controller (gr00t/walk.py). Moves run one after another, with
+the robot balancing in between.
+
+A curved move (--to X Y [HEADING]) goes to a point relative to where the
+robot stands when the move starts, turning while it walks
+(smooth_control.py, Park & Kuipers' control law). It ends facing HEADING
+(degrees, positive left), or, without it, facing away from where it started.
+If it arrives facing more than a few degrees off, it finishes with a turn in
+place.
 
 Distance and heading come from our own estimate, since Unitree's odometry is
 part of the built-in controller we no longer use:
@@ -14,6 +22,7 @@ Run against the sim (start sim/run_sim.py first, see README):
   ../sim-venv/bin/python move_distance.py --distance 1.0 --speed 0.3
   ../sim-venv/bin/python move_distance.py --angle 90 --turn-speed 20
   ../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2
+  ../sim-venv/bin/python move_distance.py --to 2 1 --to 1 -1 -90
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
   python3 move_distance.py --real --interface eth0 --distance 0.5
 
@@ -32,7 +41,9 @@ import mujoco
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from gr00t.walk import NUM_MOTORS, TerminalKeys, Walker, check_unitree_controller_off
+from gr00t.walk import (CONTROL_DT, NUM_MOTORS, TerminalKeys, Walker,
+                        check_unitree_controller_off)
+from smooth_control import command, ego_polar, wrap_angle
 
 DEFAULT_SCENE = (Path(__file__).resolve().parent.parent
                  / "unitree_mujoco/unitree_robots/g1/scene_29dof.xml")
@@ -43,6 +54,11 @@ SETTLE_TIME = 1.5         # s standing still after each move before reporting it
 WRONG_WAY_LIMIT = math.radians(10.0)  # abort if a turn goes this far the wrong way
 HEADING_GAIN = 1.5        # rad/s of turn per rad of heading error, during walks
 MAX_HEADING_CORRECTION = 0.3  # rad/s, cap on that correction
+CURVE_MIN_SPEED = 0.1     # m/s, keeps curved moves walking (GR00T balances below 0.05)
+CURVE_ACCEL = 0.4         # m/s^2, ramp for the forward speed of curved moves
+CURVE_TURN_ACCEL = 1.0    # rad/s^2, ramp for their turn rate
+POSITION_TOLERANCE = 0.08  # m, a curved move has reached its point inside this
+HEADING_TOLERANCE = math.radians(5.0)  # its final turn in place stops inside this
 
 
 def yaw_of(quat):
@@ -50,9 +66,14 @@ def yaw_of(quat):
     return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 
 
-def wrap_angle(a):
-    """Wrap an angle in radians to [-pi, pi)."""
-    return (a + math.pi) % (2.0 * math.pi) - math.pi
+def rotate(v, angle):
+    c, s = math.cos(angle), math.sin(angle)
+    return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1]])
+
+
+def toward(current, target, max_step):
+    """current moved toward target by at most max_step."""
+    return current + float(np.clip(target - current, -max_step, max_step))
 
 
 def move_arg(kind):
@@ -65,6 +86,27 @@ def move_arg(kind):
     return number
 
 
+class PointArg(argparse.Action):
+    """--to X Y [HEADING]: appends ("curve", (x, y, heading or None)) to the moves."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) not in (2, 3):
+            parser.error(f"{option_string} takes X Y or X Y HEADING, got {len(values)} numbers")
+        try:
+            numbers = [float(v) for v in values]
+        except ValueError:
+            parser.error(f"{option_string} takes numbers, got {' '.join(values)}")
+        if not all(math.isfinite(n) for n in numbers):
+            parser.error(f"{option_string} takes finite numbers")
+        if math.hypot(numbers[0], numbers[1]) < 2 * POSITION_TOLERANCE:
+            parser.error(f"{option_string} {' '.join(values)} is too close; "
+                         "use --angle to turn in place")
+        heading = numbers[2] if len(numbers) == 3 else None
+        moves = getattr(namespace, self.dest) or []
+        moves.append(("curve", (numbers[0], numbers[1], heading)))
+        setattr(namespace, self.dest, moves)
+
+
 class LegOdometry:
     """Pelvis position on the floor and unwrapped heading, from joints and IMU."""
 
@@ -75,8 +117,8 @@ class LegOdometry:
         self.position = np.zeros(2)
         self.heading = 0.0        # sum of yaw changes, radians
         self.yaw = None
-        self.stance = None
-        self.stance_foot = None   # planted foot relative to the pelvis, world-aligned
+        self.stance = None        # index of the planted foot
+        self.last_feet = None     # both feet relative to the pelvis, world-aligned, last update
 
     def update(self, q, quat):
         yaw = yaw_of(quat)
@@ -90,10 +132,13 @@ class LegOdometry:
         d.qpos[7:7 + NUM_MOTORS] = q
         mujoco.mj_kinematics(self.model, d)
         feet = [d.xpos[f].copy() for f in self.feet]
-        stance = 0 if feet[0][2] < feet[1][2] else 1
-        if stance == self.stance:
-            self.position -= feet[stance][:2] - self.stance_foot[:2]
-        self.stance, self.stance_foot = stance, feet[stance]
+        if self.last_feet is not None:
+            # Use the foot that was planted since the last update, also on the update
+            # where the planted foot switches. Skipping that one dropped its motion at
+            # every footstep, about 7% of the distance walked.
+            self.position -= feet[self.stance][:2] - self.last_feet[self.stance][:2]
+        self.stance = 0 if feet[0][2] < feet[1][2] else 1
+        self.last_feet = feet
 
 
 class Moves:
@@ -128,13 +173,26 @@ class Moves:
         self.start_heading = self.odom.heading
         step = f"[{self.index + 1}/{len(self.moves)}]"
         if kind == "turn":
-            target, rate = math.radians(abs(value)), self.turn_speed
-            print(f"{step} Turning {value:+.1f} deg at {math.degrees(rate):.1f} deg/s")
+            duration = 2.0 * math.radians(abs(value)) / self.turn_speed
+            print(f"{step} Turning {value:+.1f} deg at {math.degrees(self.turn_speed):.1f} deg/s")
+        elif kind == "curve":
+            x, y, heading = value
+            end_heading = math.radians(heading) if heading is not None else math.atan2(y, x)
+            # The point and heading in the odometry frame, which IMU yaw is measured in.
+            self.start_yaw = self.odom.yaw
+            self.target = (*(self.odom.position + rotate((x, y), self.start_yaw)),
+                           self.start_yaw + end_heading)
+            self.facing = False     # True once at the point, turning to the final heading
+            facing = f"{heading:+.0f} deg" if heading is not None else "away from the start"
+            print(f"{step} Walking to {x:+.2f} m forward, {y:+.2f} m left, ending facing "
+                  f"{facing}, at up to {self.speed:.2f} m/s")
+            # Generous: the curve is longer than the straight line and slows near the point.
+            duration = 3.0 * math.hypot(x, y) / self.speed + 2.0 * abs(end_heading) / self.turn_speed
         else:
-            target, rate = abs(value), self.speed
+            duration = 2.0 * abs(value) / self.speed
             print(f"{step} Walking {value:+.2f} m at {self.speed:.2f} m/s")
         self.started_at = time.monotonic()
-        self.give_up_at = self.started_at + 2.0 * target / rate + 5.0
+        self.give_up_at = self.started_at + duration + 5.0
         self.phase = "moving"
 
     def traveled(self):
@@ -142,6 +200,33 @@ class Moves:
 
     def turned(self):
         return self.odom.heading - self.start_heading
+
+    def pose(self):
+        return (*self.odom.position, self.odom.yaw)
+
+    def curve_command(self):
+        """Velocity command for a curved move; None once it is done."""
+        r, _, delta = ego_polar(self.pose(), self.target)
+        # Reached the point, or passed it (it is close and behind): face the final heading.
+        if not self.facing and (r < POSITION_TOLERANCE or (r < 0.3 and abs(delta) > math.pi / 2)):
+            self.facing = True
+            self.facing_sign = math.copysign(1.0, wrap_angle(self.target[2] - self.odom.yaw))
+        if self.facing:
+            error = wrap_angle(self.target[2] - self.odom.yaw)
+            # Stop inside the tolerance, or once the turn carries past the heading.
+            if abs(error) < HEADING_TOLERANCE or error * self.facing_sign < 0:
+                return None
+            return [0.0, 0.0, self.facing_sign * self.turn_speed]
+        v, w = command(self.pose(), self.target, self.speed, self.turn_speed, CURVE_MIN_SPEED)
+        # Ramp toward the law's command so the robot doesn't lurch into or out of the curve.
+        vx, _, yaw_rate = self.walker.cmd
+        return [toward(vx, v, CURVE_ACCEL * CONTROL_DT), 0.0,
+                toward(yaw_rate, w, CURVE_TURN_ACCEL * CONTROL_DT)]
+
+    def curve_progress(self):
+        """Where the robot is relative to the curved move's start: x forward, y left, heading."""
+        x, y = rotate(self.odom.position - self.start_position, -self.start_yaw)
+        return x, y, math.degrees(wrap_angle(self.odom.yaw - self.start_yaw))
 
     def on_policy_step(self, q, quat):
         self.odom.update(q, quat)
@@ -151,6 +236,10 @@ class Moves:
             if now > self.give_up_at:
                 if kind == "turn":
                     progress = f"turned an estimated {abs(math.degrees(self.turned())):.0f} of {abs(value):.0f} deg"
+                elif kind == "curve":
+                    x, y, _ = self.curve_progress()
+                    progress = (f"reached an estimated ({x:+.2f}, {y:+.2f}) m "
+                                f"of ({value[0]:+.2f}, {value[1]:+.2f}) m")
                 else:
                     progress = f"walked an estimated {self.traveled():.2f} of {abs(value):.2f} m"
                 raise RuntimeError(
@@ -166,6 +255,9 @@ class Moves:
                         f"Turning the wrong way: {math.degrees(-progress):.0f} deg opposite to the command.")
                 done = progress >= math.radians(abs(value))
                 cmd = [0.0, 0.0, sign * self.turn_speed]
+            elif kind == "curve":
+                cmd = self.curve_command()
+                done = cmd is None
             else:
                 done = self.traveled() >= abs(value)
                 # Steer back toward the heading the walk started with.
@@ -182,6 +274,12 @@ class Moves:
             if kind == "turn":
                 print(f"  Target {value:+.1f} deg, "
                       f"estimated turn {math.degrees(self.turned()):+.1f} deg")
+            elif kind == "curve":
+                x, y, heading = self.curve_progress()
+                gx, gy, _ = value
+                target_heading = math.degrees(wrap_angle(self.target[2] - self.start_yaw))
+                print(f"  Target ({gx:+.2f}, {gy:+.2f}) m facing {target_heading:+.0f} deg, "
+                      f"estimated ({x:+.2f}, {y:+.2f}) m facing {heading:+.1f} deg")
             else:
                 print(f"  Target {abs(value):.2f} m, "
                       f"estimated displacement {self.traveled():.2f} m")
@@ -201,6 +299,10 @@ def main():
                         help="walk this many meters (negative walks backward); repeatable")
     parser.add_argument("--angle", dest="moves", action="append", type=move_arg("turn"),
                         help="turn this many degrees (positive turns left); repeatable")
+    parser.add_argument("--to", dest="moves", action=PointArg, nargs="+", metavar="NUM",
+                        help="X Y [HEADING]: walk in one smooth curve to X m forward, Y m left "
+                             "(from where the move starts), ending facing HEADING deg (positive "
+                             "left; default: away from the start); repeatable")
     parser.add_argument("--speed", type=float, default=0.2, help=f"m/s, capped at {MAX_SPEED}")
     parser.add_argument("--turn-speed", type=float, default=20.0,
                         help=f"deg/s, capped at {MAX_TURN_SPEED:.0f}")
@@ -212,7 +314,7 @@ def main():
     args = parser.parse_args()
 
     if not args.moves:
-        parser.error("give at least one --distance or --angle")
+        parser.error("give at least one --distance, --angle or --to")
     if not (math.isfinite(args.speed) and math.isfinite(args.turn_speed)) \
             or args.speed <= 0 or args.turn_speed <= 0:
         parser.error("speed and turn-speed must be positive")

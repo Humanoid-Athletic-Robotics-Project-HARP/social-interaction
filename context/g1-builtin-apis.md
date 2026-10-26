@@ -23,7 +23,11 @@ Read from the official headers on 2026-10-25. We no longer walk with these (see 
 - `robot_state` (RobotStateClient, go2 folder): list services and turn them on or off.
 - `vui` (VuiClient, go2 folder): volume and brightness switches.
 - `agv` (G1AgvClient): move and height adjust, apparently for the wheeled G1-D (see `example/g1/g1d`). Not ours.
-- The docs also list lidar, SLAM navigation and odometer service pages. These have no headers in unitree_sdk2 and haven't been read yet.
+- The docs also list lidar, SLAM navigation and odometer service pages. These have no headers in unitree_sdk2.
+
+**Odometry: `odometer_service_interface` page** (read 2026-10-25). The "State Estimator" service publishes `SportModeState_` (unitree_go) on `rt/odommodestate` (500 Hz) and `rt/lf/odommodestate` (20 Hz): position, velocity, rpy, yaw rate, quaternion. The frame's origin is the ground point under the base at start-up, with x forward. The docs say it "relies on the motion control system" and can't be used in development (low-level) mode, so it is gone whenever our controller runs. Its algorithm isn't documented. In unitree_sdk2_python issue #135 (unanswered), a user reports that its velocity stays flat when the hung robot is pushed. That suggests leg kinematics with contact from the controller, not IMU integration.
+
+**SLAM and navigation: `slam_operate` service** (read 2026-10-25). Lidar SLAM on the MID-360 and its own IMU (`rt/utlidar/cloud_livox_mid360`, `rt/utlidar/imu_livox_mid360`), enabled from the App (`unitree_slam`, `lidar_driver`). The APIs are 1801/1802 to start and end mapping (saves a .pcd), 1804 to initialize the pose in a map, 1102 to navigate to a pose (at most 10 m away, in a straight line), 1201/1202 to pause and resume, and 1901 to close. The pose comes on `rt/unitree/slam_relocation/odom` (nav_msgs Odometry) and in `rt/slam_info` JSON. Its status shows a `"ctrName":"pid"` follower that outputs vx, vy and vyaw. The docs scope it to static, feature-rich indoor floors under 45 m. Navigation needs Unitree's walking controller. Whether localization alone runs in debug mode is untested.
 
 "Clients" are helper classes that run on our side. Each one knows its service name and api ids, builds the JSON, and waits for the matching response. Streams such as `rt/lowcmd`, `rt/lowstate`, `rt/arm_sdk` and odometry are topics, not services.
 
