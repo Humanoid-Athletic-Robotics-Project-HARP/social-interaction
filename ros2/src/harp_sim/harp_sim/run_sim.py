@@ -16,9 +16,13 @@ command arrives the joints are limp. The robot starts hanging from a virtual
 elastic band on the torso. In the viewer: 7 shortens the band (raises the
 robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
 
+--box X Y puts a fixed box on the floor, X m ahead and Y m left of where the
+robot starts; --lidar adds the head lidar (lidar.py) as a ROS 2 point cloud.
+
 Run from the ROS 2 environment (DDS domain 1 by default):
   ros2 run harp_sim run_sim
   ros2 run harp_sim run_sim --headless --auto-release 4
+  ros2 run harp_sim run_sim --lidar --box 2 0 --box 3 -1 0.3 1.0 0.8
 On macOS the viewer needs mjpython, so with the viewer it restarts itself
 under mjpython.
 """
@@ -51,6 +55,8 @@ STANDING_PELVIS_Z = 0.80  # auto-release: lower the band until the pelvis is thi
 RELEASE_DELAY = 3.0       # then wait this long (time to start the policy) and release
 MODE_MACHINE = 5          # what a 29-joint G1 rev 1.0 reports in lowstate
 MAX_LAG = 0.1             # s behind real time before giving up on catching up
+BOX_SIZE = (0.5, 0.5, 0.5)   # m, width (x), depth (y), height, when --box gives only X Y
+BOX_RGBA = (0.8, 0.5, 0.2, 1.0)
 
 
 class Band:
@@ -78,6 +84,32 @@ class Band:
                   "Band released: the robot is on its own (9 re-attaches).")
 
 
+class BoxArg(argparse.Action):
+    """--box X Y [W D H]: appends (x, y, w, d, h) to the boxes."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) not in (2, 5):
+            parser.error(f"{option_string} takes X Y or X Y W D H, got {len(values)} numbers")
+        try:
+            numbers = [float(v) for v in values]
+        except ValueError:
+            parser.error(f"{option_string} takes numbers, got {' '.join(values)}")
+        if not all(math.isfinite(n) for n in numbers) or any(n <= 0 for n in numbers[2:]):
+            parser.error(f"{option_string} takes finite numbers and positive sizes")
+        boxes = getattr(namespace, self.dest) or []
+        boxes.append(tuple(numbers) if len(numbers) == 5 else (*numbers, *BOX_SIZE))
+        setattr(namespace, self.dest, boxes)
+
+
+def load_model(scene, boxes):
+    """Unitree's G1 scene plus fixed boxes standing on the floor."""
+    spec = mujoco.MjSpec.from_file(scene)
+    for i, (x, y, w, d, h) in enumerate(boxes):
+        spec.worldbody.add_geom(name=f"box{i}", type=mujoco.mjtGeom.mjGEOM_BOX,
+                                size=[w / 2, d / 2, h / 2], pos=[x, y, h / 2], rgba=BOX_RGBA)
+    return spec.compile()
+
+
 def sensor_slice(model, name):
     i = model.sensor(name).id
     return slice(model.sensor_adr[i], model.sensor_adr[i] + model.sensor_dim[i])
@@ -94,6 +126,11 @@ def main():
                         help="after this long, lower the robot onto its feet and release the band")
     parser.add_argument("--duration", type=float, help="quit after this many seconds")
     parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
+    parser.add_argument("--box", dest="boxes", action=BoxArg, nargs="+", metavar="NUM", default=[],
+                        help="X Y [W D H]: a fixed box X m ahead and Y m left of the start, "
+                             f"W x D x H m (default {' x '.join(map(str, BOX_SIZE))}); repeatable")
+    parser.add_argument("--lidar", action="store_true",
+                        help="simulate the head lidar and publish it as a ROS 2 point cloud")
     args = parser.parse_args()
     if not args.scene:
         parser.error("no G1 model: pass --scene, or set HARP_G1_SCENE (the ROS 2 environment does)")
@@ -102,7 +139,7 @@ def main():
         os.environ[UNDER_MJPYTHON] = "1"
         os.execvp("mjpython", ["mjpython", "-m", "harp_sim.run_sim", *sys.argv[1:]])
 
-    model = mujoco.MjModel.from_xml_path(args.scene)
+    model = load_model(args.scene, args.boxes)
     model.opt.timestep = SIM_DT
     data = mujoco.MjData(model)
     nu = model.nu
@@ -114,6 +151,17 @@ def main():
     imu_gyro = sensor_slice(model, "imu_gyro")
     imu_acc = sensor_slice(model, "imu_acc")
     torso = model.body("torso_link").id
+
+    lidar = None
+    if args.lidar:
+        import rclpy
+        from rclpy.signals import SignalHandlerOptions
+        from harp_sim.lidar import PERIOD as LIDAR_PERIOD, TOPIC as LIDAR_TOPIC, SimLidar
+        # ROS 2 on its own domain (ROS_DOMAIN_ID, 2), the robot's topics on args.domain.
+        # No signal handlers: Ctrl-C stays a KeyboardInterrupt for the loop below.
+        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+        lidar = SimLidar(model)
+        next_scan = 0.0
 
     ChannelFactoryInitialize(args.domain, args.interface)
     state_pub = ChannelPublisher("rt/lowstate", LowState_)
@@ -138,6 +186,8 @@ def main():
     if viewer is not None:
         print("MuJoCo window keys: 8 lowers the robot, 7 raises it, 9 releases or "
               "re-attaches the band. Controller keys go to the controller's terminal.")
+    if lidar is not None:
+        print(f"Lidar: sensor_msgs/PointCloud2 on {LIDAR_TOPIC} (ROS 2), 10 Hz.")
 
     start = time.monotonic()
     next_step = start
@@ -197,6 +247,9 @@ def main():
             state.mode_machine = MODE_MACHINE
             state.tick = (state.tick + round(SIM_DT * 1000)) % 2**32  # ms, like the robot
             state_pub.Write(state)
+            if lidar is not None and data.time >= next_scan:
+                lidar.scan(data.qpos)
+                next_scan += LIDAR_PERIOD
 
             if args.log and data.time % 1.0 < SIM_DT:
                 pw, px, py, pz = data.qpos[3:7]
@@ -214,6 +267,8 @@ def main():
                 time.sleep(max(0.0, -lag))
     except KeyboardInterrupt:
         pass
+    if lidar is not None:
+        rclpy.shutdown()
     return 0
 
 

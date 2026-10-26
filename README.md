@@ -14,7 +14,7 @@ with them and avoids obstacles, on open code we can read.
 | Path | What's in it |
 |---|---|
 | `ros2/src/harp_control` | Walking: the GR00T controller (`walk`), moves and curves to a point (`move_distance`), our leg odometry |
-| `ros2/src/harp_sim` | The MuJoCo sim of the G1 (`run_sim`) |
+| `ros2/src/harp_sim` | The MuJoCo sim of the G1 (`run_sim`), with boxes and the head lidar |
 | `ros2/src/harp_ros` | ROS 2 nodes: `walker_node`, `/cmd_vel` in, `/odom` and `/tf` out |
 | `ros2/pixi.toml`, `pixi.lock` | The environment: ROS 2 Jazzy, Python 3.12, MuJoCo, Unitree's SDK, pinned |
 | `context/` | Shared notes for Claude and Codex: the detail behind this README |
@@ -26,7 +26,7 @@ with them and avoids obstacles, on open code we can read.
 | Goal | Sim | Robot | Next step |
 |---|---|---|---|
 | Move like a person | ✅ | ⬜ | Run it on the robot |
-| Get around obstacles | ⬜ | ⬜ | **Next:** lidar and boxes in the sim, then Nav2 |
+| Get around obstacles | 🟡 | ⬜ | **Next:** Nav2 driving `walker_node` in the sim |
 | Find people and walk up to them | ⬜ | ⬜ | Pick a person detector for the camera |
 | Talk with people | ⬜ | ⬜ | Make the speaker talk |
 | Run safely on the real robot | – | ⛔ | Settle how HARP's safety layer fits in |
@@ -46,9 +46,9 @@ with them and avoids obstacles, on open code we can read.
 
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
-- ⬜ Sim: a simulated lidar and some boxes.
+- ✅ Sim: a simulated head lidar and boxes (`run_sim --lidar --box`).
 - ⬜ Sim: Nav2 (Graceful Controller, the same law as our curves) driving
-  `walker_node`.
+  `walker_node`, with a filter that removes the robot's own body from the cloud.
 - ⬜ Robot: real lidar data in ROS 2, then the same walk.
 
 ### Find people and walk up to them
@@ -211,6 +211,7 @@ The same GR00T walker, driven by any ROS 2 program (later Nav2):
 |---|---|---|
 | In | `/cmd_vel` | `geometry_msgs/Twist` (m/s, rad/s); stops 0.5 s after the last message |
 | Out | `/odom`, `/tf` | `nav_msgs/Odometry`, `odom` → `base_link` |
+| Out | `/tf_static` | `base_link` → `livox_frame`: where the head lidar sits |
 | Service | `/walker/start`, `/walker/stop` | `std_srvs/Trigger`, like `]` and `o` |
 
 Terminal 2: `ros2 run harp_ros walker_node`, then the usual start-up (`]` or
@@ -232,6 +233,29 @@ ros2 topic echo /odom --field pose.pose
 - ROS 2 runs on DDS domain 2, separate from the robot's own topics (0 on the
   robot, 1 in the sim). To see the sim's raw topics, prefix a command with
   `ROS_DOMAIN_ID=1`.
+
+## Boxes and the lidar in the sim
+
+```bash
+ros2 run harp_sim run_sim --lidar --box 2 0 --box 0 -3 0.3 1.0 2.0
+```
+
+```bash
+rviz2 -d $(ros2 pkg prefix harp_sim)/share/harp_sim/rviz/lidar.rviz
+```
+
+- `--box X Y [W D H]` puts a box X m ahead and Y m left of the start
+  (default 0.5 m cube); repeatable.
+- `--lidar` publishes the head lidar (Livox MID-360) as a point cloud on
+  `/utlidar/cloud_livox_mid360` in `livox_frame`, the names Unitree uses on
+  the robot, at 10 Hz.
+- rviz2 needs `walker_node` running (above) for where the lidar sits on
+  the robot (upside down, as on the G1). Stand the robot up so the floor
+  lines up with the grid; drive it with teleop to walk toward the boxes.
+- The mount's numbers are in `harp_control/lidar_mount.py`, shared by the
+  sim's lidar and `walker_node`.
+- The lidar can't see the floor within about 1 m of the robot, and it sees
+  the robot's own shoulders and arms.
 
 ## On the real robot
 

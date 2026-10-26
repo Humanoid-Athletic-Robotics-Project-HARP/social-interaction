@@ -9,6 +9,7 @@ publishes where the robot estimates it is.
   Subscribes  /cmd_vel        geometry_msgs/Twist  linear.x, linear.y (m/s), angular.z (rad/s)
   Publishes   /odom           nav_msgs/Odometry    odom -> base_link, 50 Hz while the policy runs
               /tf             odom -> base_link
+              /tf_static      base_link -> livox_frame, where the head lidar sits (lidar_mount)
   Services    /walker/start   std_srvs/Trigger     start the policy (like ] in walk.py)
               /walker/stop    std_srvs/Trigger     damp every joint and quit (like o)
 
@@ -39,9 +40,10 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 from std_srvs.srv import Trigger
-from tf2_ros import TransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
+from harp_control import lidar_mount
 from harp_control.gr00t.walk import (CONTROL_DT, MAX_VX, MAX_VY, MAX_YAW_RATE, TerminalKeys,
                                      Walker, check_unitree_controller_off)
 from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
@@ -77,6 +79,21 @@ class WalkerNode(Node):
         self.tf = TransformBroadcaster(self)
         self.create_service(Trigger, "/walker/start", self.on_start)
         self.create_service(Trigger, "/walker/stop", self.on_stop)
+        self.publish_lidar_mount()
+
+    def publish_lidar_mount(self):
+        # Fixed, so sent once on /tf_static: for rviz2 now and Nav2 later.
+        self.static_tf = StaticTransformBroadcaster(self)
+        position, rotation = lidar_mount.from_base_link()
+        tf = TransformStamped()
+        tf.header.stamp = self.get_clock().now().to_msg()
+        tf.header.frame_id = "base_link"
+        tf.child_frame_id = lidar_mount.FRAME
+        t = tf.transform.translation
+        t.x, t.y, t.z = map(float, position)
+        r = tf.transform.rotation
+        r.x, r.y, r.z, r.w = rotation
+        self.static_tf.sendTransform(tf)
 
     def on_cmd_vel(self, msg):
         self.cmd = np.array([msg.linear.x, msg.linear.y, msg.angular.z], dtype=np.float32)

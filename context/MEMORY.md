@@ -9,9 +9,10 @@
 - [Goals workflow](goals-workflow.md) — how to edit README "Goals and progress": wide unnumbered goals, bullets only, sim/robot status, update in the same commit; goal changes need the team
 - [Minimal setup](feedback-minimal-setup.md) — build only what the goal needs; prefer open code we can read over Unitree's closed services; ROS 2 adopted, add its pieces only as goals need them
 - [Memory style](feedback-memory-style.md) — memories are direct instructions and facts, not notes on one-off mistakes
+- [Lidar and Nav2 research](lidar-nav2-research.md) — MID-360 sim with mj_multiRay, boxes via MjSpec, real lidar (IP, topics, inverted mount, ~1 m floor blind ring), Nav2 packages on RoboStack (no STVL/docking), Graceful setup
 - [G1 official docs](g1-official-docs.md) — every Unitree G1 developer doc URL; PC2 IP/login; sensors (MID-360, D435i)
 - [G1 built-in APIs](g1-builtin-apis.md) — Unitree's G1 services (sport, arm, voice, motion_switcher, odometry, SLAM) with api ids and topics; mostly unavailable in debug mode
-- [MuJoCo sim](mujoco-sim.md) — our sim, harp_sim's run_sim.py (per-step PD, real-time); ALWAYS run it with the viewer (mjpython), never --headless; Mac facts (lo0)
+- [MuJoCo sim](mujoco-sim.md) — our sim, harp_sim's run_sim.py (per-step PD, real-time); ALWAYS run it with the viewer (mjpython), never --headless, and rviz2 in a window too; --box and --lidar (simulated MID-360); Mac facts (lo0)
 - [move_distance](move-distance.md) — flags and limits, how moves run and abort, curve (--to) rules, leg odometry method, measured sim results (moved out of the README)
 - [ROS 2 workspace](ros2-mac.md) — ros2/ is the one environment (pixi, RoboStack Jazzy, Python 3.12) and colcon workspace with harp_control/harp_sim/harp_ros; walker_node topics; ROS 2 on DDS domain 2; Mac-only and testing gotchas
 - [Off-robot testing](off-robot-testing.md) — how others test G1 code without the robot: own-controller vs sport split, sim options, gantry practice

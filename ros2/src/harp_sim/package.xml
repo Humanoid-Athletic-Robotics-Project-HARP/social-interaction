@@ -11,7 +11,13 @@
   <license>TODO</license>
 
   <!-- Python dependencies (numpy, mujoco, unitree_sdk2py) come from
-       ros2/pixi.toml, not rosdep. -->
+       ros2/pixi.toml, not rosdep. ROS 2 is only for the simulated lidar,
+       and harp_control only for where the lidar sits (lidar_mount). -->
+  <exec_depend>harp_control</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>sensor_msgs_py</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
