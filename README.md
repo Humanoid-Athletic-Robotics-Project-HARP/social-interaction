@@ -13,7 +13,8 @@ low-level DDS topics (`rt/lowstate` in, `rt/lowcmd` out).
 |---|---|
 | `sim/run_sim.py` | MuJoCo sim of the G1 that speaks the robot's low-level topics |
 | `gr00t/walk.py` | GR00T walking controller, driven from the keyboard |
-| `move_distance.py` | Walks a set distance or turns a set angle with GR00T, using our own leg odometry |
+| `move_distance.py` | Walks a set distance, turns a set angle, or walks to a point in one smooth curve with GR00T, using our own leg odometry |
+| `smooth_control.py` | The control law for those curves (Park & Kuipers, the same as Nav2's Graceful Controller) |
 | `gr00t/policy/` | NVIDIA's GR00T walk and balance policies (ONNX) and their license |
 
 ## Setup (on your laptop)
@@ -86,21 +87,28 @@ With the sim running (terminal 1 above):
 ../sim-venv/bin/python move_distance.py --distance 1.0 --speed 0.3
 ../sim-venv/bin/python move_distance.py --angle 90 --turn-speed 20
 ../sim-venv/bin/python move_distance.py --distance 2 --angle 90 --distance 2 --speed 0.3
+../sim-venv/bin/python move_distance.py --to 2 1 --speed 0.3
 ```
 
-`--distance` and `--angle` can be repeated, and the moves run in the order
-given, with the robot balancing in place for 1.5 s between them. Start-up is
-the same as above (feet on the floor, `]`, release the band), then press `g`
-to start the moves. Give the robot a few seconds to settle after the release:
-it often takes a step and turns a little while catching itself, and "forward"
-is wherever it faces when you press `g`. After each move it prints the
-estimated distance or angle. After the last one the robot keeps balancing
-until you press `o`.
+`--distance`, `--angle` and `--to` can be repeated and mixed, and the moves
+run in the order given, with the robot balancing in place for 1.5 s between
+them. Start-up is the same as above (feet on the floor, `]`, release the
+band), then press `g` to start the moves. Give the robot a few seconds to
+settle after the release: it often takes a step and turns a little while
+catching itself, and "forward" is wherever it faces when you press `g`. After
+each move it prints the estimated distance, angle or position. After the last
+one the robot keeps balancing until you press `o`.
 
 - `--distance`: meters, negative walks backward.
 - `--angle`: degrees, positive turns left (counterclockwise).
-- `--speed`: m/s for every walk, capped at 0.4. Default 0.2.
-- `--turn-speed`: deg/s for every turn, capped at 30. Default 20.
+- `--to X Y [HEADING]`: walk to X m forward and Y m left of where the robot
+  stands when the move starts, in one smooth curve (see below). It ends facing
+  HEADING degrees (positive left), or, without it, facing away from where it
+  started.
+- `--speed`: m/s for every walk (the top speed for `--to`), capped at 0.4.
+  Default 0.2.
+- `--turn-speed`: deg/s for every turn, capped at 30. Default 20. For `--to`
+  it is the fastest the robot turns while walking.
 
 It aborts (and damps) if a move takes much longer than expected, a turn goes
 more than 10° the wrong way, the robot tilts past 60°, or robot state stops
@@ -136,16 +144,19 @@ Terminal 2 after step 6 (from a sim run on 2026-10-25):
 
 ```
 [1/3] Walking +2.00 m at 0.30 m/s
-  Target 2.00 m, estimated displacement 2.02 m
+  Target 2.00 m, estimated displacement 2.00 m
 [2/3] Turning +90.0 deg at 20.0 deg/s
-  Target +90.0 deg, estimated turn +91.4 deg
+  Target +90.0 deg, estimated turn +89.4 deg
 [3/3] Walking +2.00 m at 0.30 m/s
-  Target 2.00 m, estimated displacement 2.01 m
+  Target 2.00 m, estimated displacement 2.02 m
 All moves done. GR00T keeps balancing; support the robot, then press o to stop (it will sink).
 ```
 
-In that run the robot really ended about 2.0 m forward and 2.3 m to the left
-of where it started (the sim's true position, from `--log`). To run it again,
+In that run the robot really walked 2.01 m, turned 88.8° and walked 2.01 m,
+ending 2.24 m forward and 1.88 m to the left of where it started (the sim's
+true position, from `--log`). Each move only knows about itself, so the 1°
+short turn and the 0.1 m drift after the first walk carry into the end
+position. `--to` moves have the same limit. To run it again,
 restart both terminals: after `o` the robot lies on the floor, and the band is
 anchored above where it started.
 
@@ -156,11 +167,96 @@ estimates its own:
   the pelvis moves by minus that foot's motion.
 
 In the sim (2026-10-25), a 90° turn was estimated at 90.1° and measured at
-89.9°. Walks of 1.5 m and 1 m backward ended at 1.63 m and 1.11 m: the
-odometry reads about 7% short, and the robot drifts about 0.1 m after the
-stop. GR00T walked at about 85% of the commanded speed. Each walk steers to
-hold the heading it started with. Without that, a 2 m walk drifted 5–10°
-off straight; with it, the heading stayed within about 2°.
+89.9°. A 2 m walk was estimated at 2.03 m and really went 2.03 m, and 1 m
+backward was estimated at 1.11 m and really went 1.12 m. The robot drifts
+about 0.1 m after the stop command, so walks end a little long. GR00T walked
+at about 85% of the commanded speed. Each walk steers to hold the heading it
+started with. Without that, a 2 m walk drifted 5–10° off straight; with it,
+the heading stayed within about 2°.
+
+### Curved moves: `--to`
+
+`--to X Y [HEADING]` walks to a point in one movement, turning while it walks,
+the way a person walks up to someone ahead and to one side. The robot keeps
+walking forward and steers along a smooth curve that ends at the point,
+already facing the final heading. It slows down on sharp curves and near the
+point. If it still faces more than 5° off when it gets there, it finishes with
+a short turn in place. The point is relative to where the robot stands when
+the move starts, not to where the run started.
+
+It never steps sideways, so a point close by and off to one side takes a
+small loop to reach. A point behind the robot is reached in a wider curve
+rather than by turning around first. Points closer than 0.16 m are refused:
+use `--angle` to turn in place.
+
+```bash
+../sim-venv/bin/python move_distance.py --to 2 1 --speed 0.3
+../sim-venv/bin/python move_distance.py --to 1.5 -1 -90 --speed 0.3
+../sim-venv/bin/python move_distance.py --distance 1 --angle 90 --to 1 1 90 --speed 0.3
+```
+
+The curve comes from Park and Kuipers' control law ("A Smooth Control Law for
+Graceful Motion of Differential Wheeled Mobile Robots in 2D Environments",
+ICRA 2011), in `smooth_control.py`. It's the same law, with the same default gains, as
+Nav2's Graceful Controller, so moving to Nav2 later keeps the same behavior.
+
+Results in the sim (2026-10-25, `--speed 0.3`, true positions from `--log`):
+
+| Move | Target (x, y, heading) | Really ended | Estimated |
+|---|---|---|---|
+| `--to 2 1` | 2.00, 1.00, 27° | 1.97, 0.92, 32° | 1.96, 0.94, 32° |
+| `--to 1.5 -1 -90` | 1.50, −1.00, −90° | 1.45, −0.94, −85° | 1.45, −0.93, −85° |
+| `--to 1 0 180` | 1.00, 0.00, 180° | 1.07, 0.00, 175° | 1.08, 0.01, 175° |
+| `--to -1 0.5` (behind) | −1.00, 0.50, 153° | −0.93, 0.54, 156° | −0.93, 0.54, 156° |
+| `--to 1 1 90` after a walk and a turn | 1.00, 1.00, 90° | 1.03, 0.93, 94° | 1.04, 0.94, 94° |
+
+It stops within 8 cm and 5° of the target by its own estimate. Moves took
+13–21 s, including the 1.5 s settle. Only the robot's own estimate guides it,
+so errors from earlier moves carry over, as in the example above.
+
+### Example: weave left, then right, with two curves
+
+The robot curves 1 m to the left over 2 m, straightens out facing forward
+again, then curves 1 m back to the right. It ends 4 m straight ahead of where
+it started, facing the way it started, without stopping to turn in place.
+
+Terminal 1:
+
+```bash
+../sim-venv/bin/mjpython sim/run_sim.py
+```
+
+Terminal 2:
+
+```bash
+../sim-venv/bin/python move_distance.py --to 2 1 0 --to 2 -1 0 --speed 0.3
+```
+
+| Step | Where | Do | You should see |
+|---|---|---|---|
+| 1 | terminal 2 | wait about 3 s | `Stand pose reached. Lower the robot onto its feet ...` |
+| 2 | MuJoCo window | press `8` about five times | the feet touch the floor |
+| 3 | terminal 2 | press `]` | `Policy on: GR00T is balancing. Release the band ...` |
+| 4 | MuJoCo window | press `9` once | terminal 1: `Band released: the robot is on its own` |
+| 5 | | wait a few seconds | the robot steadies itself |
+| 6 | terminal 2 | press `g` | a curve to the left that straightens out, a pause, then a curve to the right |
+| 7 | terminal 2 | press `o` when it says `All moves done` | `Stopped: all joints damped, so the robot sinks.` |
+
+Terminal 2 after step 6 (from a sim run on 2026-10-25):
+
+```
+[1/2] Walking to +2.00 m forward, +1.00 m left, ending facing +0 deg, at up to 0.30 m/s
+  Target (+2.00, +1.00) m facing +0 deg, estimated (+1.94, +0.96) m facing +3.2 deg
+[2/2] Walking to +2.00 m forward, -1.00 m left, ending facing +0 deg, at up to 0.30 m/s
+  Target (+2.00, -1.00) m facing +0 deg, estimated (+1.93, -1.03) m facing +4.8 deg
+All moves done. GR00T keeps balancing; support the robot, then press o to stop (it will sink).
+```
+
+In that run the robot really ended 3.93 m forward and 0.01 m to the left of
+where it started, facing 7° left (the sim's true position, from `--log`). The
+two moves took about 15 s each. To approach someone instead, give the final
+heading toward them: `--to 2 1 90` ends 2 m ahead and 1 m to the left, facing
+left.
 
 ## On the real robot (not tested yet)
 
