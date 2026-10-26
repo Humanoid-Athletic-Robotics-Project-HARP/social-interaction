@@ -16,6 +16,7 @@ low-level DDS topics (`rt/lowstate` in, `rt/lowcmd` out).
 | `move_distance.py` | Walks a set distance, turns a set angle, or walks to a point in one smooth curve with GR00T, using our own leg odometry |
 | `smooth_control.py` | The control law for those curves (Park & Kuipers, the same as Nav2's Graceful Controller) |
 | `gr00t/policy/` | NVIDIA's GR00T walk and balance policies (ONNX) and their license |
+| `ros2/` | ROS 2 Jazzy environment (macOS) with Unitree's message types; no ROS 2 code uses it yet |
 
 ## Setup (on your laptop)
 
@@ -48,6 +49,7 @@ harp/
 ├── cyclonedds/                         DDS library, built from source
 ├── unitree_sdk2_python/                Unitree's Python SDK
 ├── unitree_mujoco/                     only for its G1 model files
+├── unitree_ros2/                       only for its ROS 2 message definitions
 └── sim-venv/                           Python packages
 ```
 
@@ -78,6 +80,9 @@ git -C unitree_sdk2_python checkout 814556d15970dd2ecf1c9984e845ca02ab07e206
 git clone --depth 1 https://github.com/unitreerobotics/unitree_mujoco.git
 git -C unitree_mujoco fetch --depth 1 origin 1eb6642e3f3fdfb7fb13a9794fd6a2dd93ea0e7d
 git -C unitree_mujoco checkout 1eb6642e3f3fdfb7fb13a9794fd6a2dd93ea0e7d
+git clone --depth 1 https://github.com/unitreerobotics/unitree_ros2.git
+git -C unitree_ros2 fetch --depth 1 origin 668d1ec5a05d1c38d3306bdca7d59f2ba3581a88
+git -C unitree_ros2 checkout 668d1ec5a05d1c38d3306bdca7d59f2ba3581a88
 ```
 
 The checkouts print a "detached HEAD" note; that's expected. On a Mac, cloning
@@ -88,6 +93,9 @@ That's a Go2-W file we don't use, so ignore it.
 (`unitree_robots/g1/scene_29dof.xml`). We don't run its simulator, so its
 local fixes (the Linux-only timer patch, the `glfw` key fix, `config.py`) aren't
 needed for our scripts.
+
+`unitree_ros2` is only needed for ROS 2 (below): `ros2/` builds its message
+packages.
 
 ### 5. Install the Python packages
 
@@ -146,6 +154,42 @@ band. Started in the air, it flails; released without it, the robot falls.
 For tests without a window, `python3 sim/run_sim.py --headless --auto-release 3 --log`
 lowers the robot onto its feet after 3 s, waits 3 s (press `]` then), releases
 the band, and prints the true pelvis position every second.
+
+## ROS 2 (macOS)
+
+ROS 2 is set up for the Nav2 work to come; none of our scripts use it yet.
+`ros2/` holds a ROS 2 Jazzy environment from
+[RoboStack](https://robostack.github.io), managed by [pixi](https://pixi.sh),
+with Unitree's message types. It's separate from `sim-venv`: the two only
+talk over DDS, so ROS 2 sees the sim's topics directly. Only Apple Silicon
+Macs are set up so far. On Linux, Ubuntu 24.04's own ROS 2 Jazzy packages
+should work instead, but nobody has tried it yet.
+
+Install it once (a few GB, into `ros2/.pixi/`, which git ignores):
+
+```bash
+brew install pixi
+cd ros2
+pixi install --locked
+pixi run build
+```
+
+`pixi run build` builds Unitree's messages from `../unitree_ros2` (step 4).
+Run it again if you reinstall the environment.
+
+With the sim running (terminal 1 above), from `ros2/` in another terminal:
+
+```bash
+pixi shell
+ros2 topic list
+ros2 topic echo /lowstate --once --field imu_state
+```
+
+`ros2 topic list` should show `/lowstate` and `/lowcmd`, and the echo prints
+the sim's IMU readings. Ignore the "Failed to parse type hash" warnings: the
+sim publishes through unitree_sdk2py, not ROS 2. The environment uses the
+sim's DDS settings (domain 1 on `lo0`); the real robot needs domain 0 and the
+interface on `192.168.123.x`.
 
 ## Walk distances and turn angles: `move_distance.py`
 
