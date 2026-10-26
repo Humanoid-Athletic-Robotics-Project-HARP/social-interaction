@@ -3,9 +3,11 @@ name: rl-ideas
 description: Ideas for RL on the G1 (2026-10-26, not a team goal yet): high-level /cmd_vel policies vs low-level joint policies, tools, deployment path, bigger-scope projects, suggested order
 metadata:
   type: project
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
-Brainstorm from a teammate's question on 2026-10-26. None of this is a goal in the README yet; adding one needs the team ([[goals-workflow]]). Nothing here has been tried.
+Brainstorm from a teammate's question on 2026-10-26. None of this is a goal in the README yet; adding one needs the team ([[readme-and-memory-guidelines]]). Nothing here has been tried.
 
 **Two levels.** RL can sit above `walker_node` (outputs `/cmd_vel`) or replace or extend GR00T (outputs joint targets at 50 Hz, like `gr00t/walk.py`, [[gr00t-wbc]]).
 - High level: cheap to train (simple 2D sim, CPU), low sim-to-real risk because GR00T hides the leg dynamics. The gap is mostly perception.

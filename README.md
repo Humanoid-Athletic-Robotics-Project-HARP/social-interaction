@@ -15,7 +15,7 @@ with them and avoids obstacles, on open code we can read.
 |---|---|
 | `ros2/src/harp_control` | Walking: the GR00T controller (`walk`), moves and curves to a point (`move_distance`), our leg odometry |
 | `ros2/src/harp_sim` | The MuJoCo sim of the G1 (`run_sim`), with the head lidar and obstacle courses (`worlds/`) |
-| `ros2/src/harp_ros` | ROS 2: `walker_node` (`/cmd_vel` in, `/odom` and `/tf` out) and Nav2 (`nav2.launch.py`, `config/`) |
+| `ros2/src/harp_ros` | ROS 2: `walker_node` (`/cmd_vel` in, `/odom` and `/tf` out), Nav2 (`nav2.launch.py`, `config/`), and recorded test runs (`course`, `run_recorder`, `runs`) |
 | `ros2/pixi.toml`, `pixi.lock` | The environment: ROS 2 Jazzy, Python 3.12, MuJoCo, Unitree's SDK, pinned |
 | `context/` | Shared notes for Claude and Codex: the detail behind this README |
 
@@ -209,13 +209,14 @@ ros2 run harp_control move_distance --to 2 1 0 --to 2 -1 0 --speed 0.3
 
 ## Drive it through ROS 2: `walker_node`
 
-The same GR00T walker, driven by any ROS 2 program (later Nav2):
+The same GR00T walker, driven by any ROS 2 program, such as Nav2:
 
 | | Topic or service | Type |
 |---|---|---|
 | In | `/cmd_vel` | `geometry_msgs/Twist` (m/s, rad/s); stops 0.5 s after the last message |
 | Out | `/odom`, `/tf` | `nav_msgs/Odometry`, `odom` → `base_link` |
 | Out | `/tf` | `base_link` → `livox_frame`: where the head lidar is, from the joints and IMU |
+| Out | `/joint_states`, `/imu`, `/harp/events` | the joints, the pelvis IMU, and events (policy on, fall, ...) for run logs |
 | Service | `/walker/start`, `/walker/stop` | `std_srvs/Trigger`, like `]` and `o` |
 
 Terminal 2: `ros2 run harp_ros walker_node`, then the usual start-up (`]` or
@@ -277,7 +278,7 @@ ros2 launch harp_ros nav2.launch.py
 ```
 
 - In rviz2, wait until "Navigation" in the Navigation 2 panel is active
-  (about 30 s), then click "2D Goal Pose" and click-drag the goal and the
+  (a few seconds), then click "2D Goal Pose" and click-drag the goal and the
   direction to face. The robot plans a path around what the lidar has seen
   and walks it.
 - Courses, in order: `open_floor`, `one_box`, `slalom`, `obstacle_course`
@@ -287,6 +288,51 @@ ros2 launch harp_ros nav2.launch.py
   none never touched anything.
 - Start Nav2 after the policy runs: it needs `/odom`. Restart all three to go
   again.
+- For a test whose results you keep, use `course` (next section): it does
+  all of this in one command and records the run.
+
+## Test runs and logs
+
+One command runs a course test in the sim and records it; another compares
+runs:
+
+```bash
+ros2 run harp_ros course slalom --tag baseline --repeat 3
+```
+
+```bash
+ros2 run harp_ros runs compare --world slalom --plot paths.png
+```
+
+- `course` starts the sim, `walker_node`, Nav2 and the course's goal by
+  itself (the MuJoCo and rviz2 windows open as usual), and stops when the
+  robot arrives, gives up or falls. Each repeat starts fresh. Ctrl-C stops it.
+- Each run gets its own folder in `runs/` (ignored by git): what ran
+  (`run.yaml`: settings, git commit, machine, note), what happened
+  (`events.csv`), the true and estimated paths, every program's output, and
+  `summary.json`: result and pass/fail, time, path length, closest distance
+  to an obstacle, contacts, Nav2 recoveries and replans, odometry error,
+  achieved against commanded speed, and lidar health.
+- `--tag` names what the run tests; `runs compare` groups runs by course and
+  tag, with mean and spread. `--plot` draws the true paths.
+- `--extras nav,lidar --extras-reason "why"` also records Nav2's plans and
+  costmaps, or the lidar, into a bag (`harp_ros/config/logging.yaml` lists
+  what can be recorded).
+- To record anything else (driving by hand, `move_distance`), start
+  `ros2 run harp_ros run_recorder --ros-args -p tag:=NAME` first; Ctrl-C on
+  it ends the run.
+- `runs check` gives each course's pass rate against its criteria
+  (`harp_sim/worlds/<course>.yaml`: success, time, clearance, contacts,
+  recoveries, end error), and which runs failed what.
+- `--tether`, `--floor-surface`, `--battery-percent`, `--people-nearby` and
+  `--lighting` record the conditions; `runs set RUN tether=gantry` edits them
+  afterwards.
+- `--replay --replay-reason "why"` also records what's needed to play the run
+  back into Nav2 later, with other settings
+  (`ros2 launch harp_ros replay.launch.py run:=RUN params_file:=FILE`). It's
+  large, so only when someone asks for it.
+- `runs list`, `runs show RUN`; `runs pin RUN` keeps a run's data for good.
+  Old runs are trimmed automatically (`logging.yaml`).
 
 ## On the real robot
 
@@ -296,7 +342,7 @@ Our code drives the motors directly and keeps the robot up on its own. Read
 1. Hang the robot from a gantry, feet off the floor.
 2. Remote: L1+A (damping), then L2+R2 (debug mode). The scripts check for
    debug mode and `mode_machine` 5 before they start.
-3. From a Mac on the robot's network (`192.168.123.x`), after `pixi shell`:
+3. From a Mac on the robot's network (`192.168.123.x`), after `pixi shell --as-is`:
 
 ```bash
 ros2 run harp_control walk --real --interface en0

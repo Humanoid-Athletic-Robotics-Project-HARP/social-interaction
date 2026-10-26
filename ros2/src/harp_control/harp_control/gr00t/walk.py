@@ -40,6 +40,8 @@ from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
 from unitree_sdk2py.utils.crc import CRC
 
+from harp_control import runlog
+
 POLICY_DIR = Path(__file__).resolve().parent / "policy"
 NUM_MOTORS = 29
 NUM_ACTIONS = 15          # 12 leg joints + 3 waist joints, motor order
@@ -151,6 +153,7 @@ class Walker:
         self.standing = False     # stand-up ramp finished; the policy may start
         self.policy_on = False
         self.quit = False
+        self.on_policy_output = None   # (obs, action) after each policy step, for logging
         # Printed once the policy is on; move_distance.py replaces it.
         self.next_hint = ("Drive with w/s (forward/back), a/d (sideways), q/e (turn), "
                           "z (stop moving), 1/2 (raise/lower); o stops.")
@@ -193,6 +196,7 @@ class Walker:
             self.send(np.zeros(NUM_MOTORS), np.zeros(NUM_MOTORS),
                       np.full(NUM_MOTORS, DAMPING_KD))
             time.sleep(PUBLISH_DT)
+        runlog.event("walker", "damped")
         print("Stopped: all joints damped, so the robot sinks.")
 
     def handle_key(self, key):
@@ -203,6 +207,7 @@ class Walker:
                 print("Not yet: wait for 'Stand pose reached' (about 3 s after start).")
                 return
             self.policy_on = True
+            runlog.event("walker", "policy_on")
             if self.real:
                 print("Policy on: GR00T is balancing. Slacken the gantry, leaving the rope "
                       "just loose enough to catch a fall.")
@@ -263,6 +268,7 @@ class Walker:
         while not self.quit:
             now = time.monotonic()
             if now - self.state_time > self.state_timeout:
+                runlog.event("walker", "state_lost", ms=round((now - self.state_time) * 1000))
                 raise RuntimeError(
                     f"Robot state (rt/lowstate) stopped for {(now - self.state_time) * 1000:.0f} ms. "
                     "Did the sim or the network stop?")
@@ -275,6 +281,7 @@ class Walker:
             gyro = np.array(self.state.imu_state.gyroscope, dtype=np.float32)
             if self.policy_on:
                 if gravity_in_body(quat)[2] > -math.cos(FALL_TILT):
+                    runlog.event("walker", "fall")
                     raise RuntimeError(
                         f"Fall detected: the pelvis tilted more than {math.degrees(FALL_TILT):.0f} degrees.")
                 if tick % round(CONTROL_DT / PUBLISH_DT) == 0:
@@ -283,11 +290,14 @@ class Walker:
                     target = STAND_POSE.copy()
                     target[:NUM_ACTIONS] = self.policy.step(
                         q, dq, quat, gyro, self.cmd, self.height)
+                    if self.on_policy_output is not None:
+                        self.on_policy_output(self.policy.history[-1], self.policy.action, self.cmd)
             else:
                 alpha = min((now - t0) / RAMP_TIME, 1.0)
                 target = (1 - alpha) * start_q + alpha * STAND_POSE
                 if alpha >= 1.0 and not self.standing:
                     self.standing = True
+                    runlog.event("walker", "stand_pose")
                     if self.real:
                         print("Stand pose reached. Lower the gantry until the feet are flat on "
                               "the floor, then press ] here to start the policy.")

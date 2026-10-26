@@ -3,6 +3,8 @@ name: g1-official-docs
 description: Links to Unitree's official G1 developer docs, plus key hardware facts confirmed there (PC2 IP and login, sensors)
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
 Index: https://support.unitree.com/home/en/G1_developer (collected 2026-10-24). The site renders with JavaScript, so WebFetch returns nothing. Use the in-app browser.

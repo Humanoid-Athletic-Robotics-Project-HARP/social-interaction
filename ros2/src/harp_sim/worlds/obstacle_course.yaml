@@ -1,0 +1,9 @@
+# Pass criteria for course tests on this world (runs check, summary.json).
+# From the 2026-10-26 baselines (45-51 s, closest 0.16-0.18 m at l_forward,
+# end about 0.2 m off), loosened for run-to-run spread.
+must_succeed: true
+max_time_s: 75
+min_clearance_m: 0.10
+max_contacts: 0
+max_recoveries: 2
+max_end_error_m: 0.35

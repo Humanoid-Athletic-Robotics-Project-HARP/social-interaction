@@ -9,3 +9,6 @@ __pycache__/
 
 # Secrets
 .env
+
+# Recorded runs (harp_ros run_recorder), kept per machine
+runs/

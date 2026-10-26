@@ -3,6 +3,8 @@ name: gr00t-wbc
 description: NVIDIA GR00T Decoupled WBC as our G1 walking controller (harp_control's gr00t/walk.py): where it comes from, config choices, licenses, real-robot consequences
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: [ros2/src/harp_control/harp_control/gr00t/**, ros2/src/harp_control/harp_control/leg_odometry.py]
 ---
 
 **What we run:** `ros2/src/harp_control/harp_control/gr00t/walk.py` (`ros2 run harp_control walk`), implemented 2026-10-25. It uses the lower-body policy from NVIDIA's NVlabs/GR00T-WholeBodyControl ("Decoupled WBC"), which is two small ONNX MLPs: Balance, used when |cmd| < 0.05, and Walk. They control 15 joints (12 leg plus 3 waist) at 50 Hz. Inputs are 6 stacked frames of 86 values: the command (vx, vy, yaw rate), base height (0.74), torso rpy (0), gyro, gravity, all 29 joint positions and velocities, and the last action. Arms are held at NVIDIA's `loco_upper_body_dof_pos`. This matches our 29-joint G1 exactly.

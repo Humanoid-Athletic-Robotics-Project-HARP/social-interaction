@@ -71,11 +71,16 @@ class SimLidar:
                 self.wake.notify()
 
     def run(self):
-        while True:
+        while rclpy.ok():
             with self.wake:
                 self.wake.wait_for(lambda: self.pose is not None)
                 self.data.qpos[:] = self.pose
-            self.publish(self.cast())
+            try:
+                self.publish(self.cast())
+            except Exception:
+                if rclpy.ok():
+                    raise
+                return            # ROS shut down while the sim quits
             with self.wake:
                 self.pose = None
 

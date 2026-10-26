@@ -3,6 +3,8 @@ name: self-filter-trial
 description: A box self-filter node for the head lidar (instead of Nav2's 0.6 m range cut), tried in the sim on 2026-10-26 and set aside; what it does, test results, the open slalom question, and how to bring it back from the self-filter branch
 metadata:
   type: project
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
 **Status:** set aside on 2026-10-26 (a teammate's call). main uses the 0.6 m `obstacle_min_range` cut ([[nav2-sim]]). The work is in commit `93058bd` on the branch `self-filter`. As of 2026-10-26 that branch is local to one teammate's Mac and not pushed. Check `git branch -a`; if it's missing, ask the team.
@@ -19,9 +21,10 @@ metadata:
 - `slalom`, two runs: 0 contacts, nearest 0.26–0.27 m (range cut: 0.28 m). **Open problem:** both runs had trouble at the first gap, around (1.6–2.1, 1.1) where the robot turns hard. Run 1 had a ~15 s hesitation loop (69 s total) and came within 0.29 m of wall_1 (range cut: 0.43 m). Run 2 had one Nav2 recovery, but its path and time (52 s) matched the range cut. The range-cut run had no recovery. Body points are ruled out by the turns test. Untested guess: near points of wall_1 that the range cut used to drop are now marked close to the robot and fail Graceful's collision check. Which recovery ran and why wasn't logged.
 
 **To bring it back:**
-1. `git cherry-pick 93058bd` onto the current branch (or `git merge self-filter`), then `pixi run --as-is build` in `ros2/`.
+1. `git cherry-pick 93058bd` onto the current branch (or `git merge self-filter`), then `pixi run --as-is build` in `ros2/`. main's `nav2.launch.py` has had `params_file` (and `use_sim_time`) since 2026-10-26, so expect a conflict there: keep main's version and add only the `self_filter` Node.
 2. Before keeping it, settle the slalom question:
    - Run `slalom` 3–5 times with each filter.
    - Record the controller_server log, `/plan`, `/cmd_vel` and the local costmap at the first gap.
    - If near wall points cause it, try keeping a small `obstacle_min_range` (say 0.3) alongside the box.
+   - Likely already explained: on 2026-10-26 the range-cut setup had the same first-gap recoveries, and `nav2.log` showed the planner not acknowledging a replanning request within bt_navigator's 20 ms `default_server_timeout` ([[nav2-sim]]). Fix that first, then compare the filters with `course slalom --repeat 5 --tag ...` ([[run-logging]]).
 3. Test the case it's meant for: a bar or shelf at 0.9–1.4 m height, 0.45–0.6 m in front of the robot.

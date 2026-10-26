@@ -1,0 +1,64 @@
+# What run_recorder records into runs/<run>/ (see run_recorder.py and
+# context/run-logging.md).
+#
+# baseline: recorded on every run, small, written as plain files (CSV, npz)
+#   so they open without ROS. Each type has its own writer in run_recorder.py.
+# standard_bag: also every run, the light Nav2 data (nested messages, so a
+#   small bag: standard_bag/, MCAP with zstd). period_s keeps one message per
+#   that many seconds; no period keeps every message.
+# lidar_stats: per-scan point count and ranges, no points stored.
+# extras: only when asked for (course --extras nav,lidar --extras-reason ...),
+#   into bag/. rate (Hz) thins a topic out; none keeps every message.
+# replay: ONLY when a person explicitly asks for it (course --replay
+#   --replay-reason ...), never by default, never in an extras set, never
+#   started by an agent on its own. Enough to play a run back into Nav2 later
+#   (replay.launch.py). Big: about 110 MB/min in the sim; its own limits below.
+# retention: applied each time a recording starts (runs prune does it by hand).
+
+baseline:
+  odom:    {topic: /odom, type: nav_msgs/msg/Odometry, rate: 10, file: odom.csv}
+  cmd_vel: {topic: /cmd_vel, type: geometry_msgs/msg/Twist, rate: 10, file: cmd_vel.csv}
+  truth:   {topic: /sim/qpos, type: std_msgs/msg/Float64MultiArray, rate: 20, file: truth.npz}
+
+standard_bag:
+  - {topic: /behavior_tree_log}      # every status change: recoveries, replans, failures
+  - {topic: /plan, period_s: 5}      # the global plan, about 12 KB each
+
+lidar_stats: {topic: /utlidar/cloud_livox_mid360, rate: 10, file: lidar_stats.csv}
+
+extras:
+  joints:                  # the 29 joints and the pelvis IMU, from walker_node
+    - {topic: /joint_states, rate: 50}
+    - {topic: /imu, rate: 50}
+  policy:                  # GR00T's observation, action and command, each policy step
+    - {topic: /walker/policy, rate: 50}
+  tf:
+    - {topic: /tf, rate: 50}
+    - {topic: /tf_static}
+  nav:                     # Nav2: costmaps and the local plan
+    - {topic: /local_plan, rate: 2}
+    - {topic: /local_costmap/costmap, rate: 1}
+    - {topic: /global_costmap/costmap, rate: 0.2}
+  lidar:                   # the head lidar, thinned to 1 Hz (about 10 MB/min)
+    - {topic: /utlidar/cloud_livox_mid360, rate: 1}
+
+replay:
+  topics:
+    - {topic: /utlidar/cloud_livox_mid360, lidar: true}   # rate from lidar_rate
+    - {topic: /tf}
+    - {topic: /tf_static}
+    - {topic: /odom}
+    - {topic: /joint_states}
+    - {topic: /imu}
+    - {topic: /cmd_vel}
+  lidar_rate: 10           # Hz; 5 halves the size
+  lidar_fields: all        # all, or xyz (drops intensity, tag, timestamps)
+  run_cap_gb: 2            # a replay recording stops at this size
+  total_cap_gb: 10         # oldest replay recordings are removed above this, pinned runs excepted
+  min_free_gb: 5           # refuse to start, or stop, if the disk would have less free than this
+
+retention:
+  baseline_keep_runs: 100  # older runs keep only run.yaml, events.csv and summary.json
+  extras_keep_runs: 10     # older runs lose bag/
+  extras_max_gb: 2         # and bag/ folders are dropped, oldest first, above this total
+  run_budget_mb: 200       # a run stops recording extras once its bag reaches this

@@ -3,6 +3,8 @@ name: team-context
 description: This repo is shared by a team on different machines and OSes, using both Claude and Codex; don't assume a single user or a Mac
 metadata:
   type: project
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
 This is a team repo (HARP Human Interaction team, see [[project-overview]]). Several people work on it from **different computers and operating systems**, and some use **Claude** while others use **Codex**. Whoever you are talking to may be a different person, on a different OS, than whoever wrote a given memory.

@@ -34,6 +34,7 @@ import time
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
+from harp_control import runlog
 from harp_control.gr00t.walk import (CONTROL_DT, TerminalKeys, Walker,
                                      check_unitree_controller_off)
 from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
@@ -50,6 +51,7 @@ CURVE_ACCEL = 0.4         # m/s^2, ramp for the forward speed of curved moves
 CURVE_TURN_ACCEL = 1.0    # rad/s^2, ramp for their turn rate
 POSITION_TOLERANCE = 0.08  # m, a curved move has reached its point inside this
 HEADING_TOLERANCE = math.radians(5.0)  # its final turn in place stops inside this
+ODOM_LOG_PERIOD = 0.1     # s between leg-odometry samples in the run folder (10 Hz)
 
 
 def rotate(v, angle):
@@ -107,6 +109,7 @@ class Moves:
         self.start_position = None
         self.start_heading = 0.0
         self.give_up_at = self.settle_until = 0.0
+        self.next_log = 0.0
 
     def read_key(self, read):
         """Pass ], g and o through; ignore the walking keys."""
@@ -146,6 +149,8 @@ class Moves:
         self.started_at = time.monotonic()
         self.give_up_at = self.started_at + duration + 5.0
         self.phase = "moving"
+        runlog.event("move_distance", "move_start", move=self.index + 1, kind=kind,
+                     target=list(value) if kind == "curve" else value)
 
     def traveled(self):
         return float(np.hypot(*(self.odom.position - self.start_position)))
@@ -183,6 +188,12 @@ class Moves:
     def on_policy_step(self, q, quat):
         self.odom.update(q, quat)
         now = time.monotonic()
+        if now >= self.next_log:
+            x, y = self.odom.position
+            vx, vy, wz = self.walker.cmd
+            runlog.sample("leg_odom", t=time.time(), x=float(x), y=float(y), yaw=float(self.odom.yaw),
+                          cmd_vx=float(vx), cmd_vy=float(vy), cmd_wz=float(wz))
+            self.next_log = now + ODOM_LOG_PERIOD
         if self.phase == "moving":
             kind, value = self.moves[self.index]
             if now > self.give_up_at:
@@ -194,6 +205,7 @@ class Moves:
                                 f"of ({value[0]:+.2f}, {value[1]:+.2f}) m")
                 else:
                     progress = f"walked an estimated {self.traveled():.2f} of {abs(value):.2f} m"
+                runlog.event("move_distance", "move_timeout", move=self.index + 1, progress=progress)
                 raise RuntimeError(
                     f"Move {self.index + 1} timed out: {progress} in {now - self.started_at:.0f} s. "
                     "If the robot stepped in place, something was holding it (in the sim, the "
@@ -203,6 +215,8 @@ class Moves:
                 sign = math.copysign(1.0, value)
                 progress = sign * self.turned()
                 if progress < -WRONG_WAY_LIMIT:
+                    runlog.event("move_distance", "wrong_way", move=self.index + 1,
+                                 degrees=round(math.degrees(-progress), 1))
                     raise RuntimeError(
                         f"Turning the wrong way: {math.degrees(-progress):.0f} deg opposite to the command.")
                 done = progress >= math.radians(abs(value))
@@ -224,23 +238,28 @@ class Moves:
         elif self.phase == "settling" and now > self.settle_until:
             kind, value = self.moves[self.index]
             if kind == "turn":
-                print(f"  Target {value:+.1f} deg, "
-                      f"estimated turn {math.degrees(self.turned()):+.1f} deg")
+                estimate = math.degrees(self.turned())
+                print(f"  Target {value:+.1f} deg, estimated turn {estimate:+.1f} deg")
             elif kind == "curve":
                 x, y, heading = self.curve_progress()
                 gx, gy, _ = value
                 target_heading = math.degrees(wrap_angle(self.target[2] - self.start_yaw))
+                estimate = [x, y, heading]
                 print(f"  Target ({gx:+.2f}, {gy:+.2f}) m facing {target_heading:+.0f} deg, "
                       f"estimated ({x:+.2f}, {y:+.2f}) m facing {heading:+.1f} deg")
             else:
+                estimate = self.traveled()
                 print(f"  Target {abs(value):.2f} m, "
-                      f"estimated displacement {self.traveled():.2f} m")
+                      f"estimated displacement {estimate:.2f} m")
+            runlog.event("move_distance", "move_done", move=self.index + 1, kind=kind,
+                         target=list(value) if kind == "curve" else value, estimate=estimate)
             self.index += 1
             if self.index < len(self.moves):
                 self.begin()
             else:
                 print("All moves done. GR00T keeps balancing; support the robot, then press o "
                       "to stop (it will sink).")
+                runlog.event("move_distance", "all_moves_done")
                 self.phase = "done"
 
 
@@ -283,6 +302,7 @@ def main():
     walker = Walker(real=args.real)
     walker.next_hint = "Then press g here to start the moves (o stops)."
     plan = Moves(walker, LegOdometry(args.scene), args.moves, args.speed, args.turn_speed)
+    runlog.event("move_distance", "start", argv=sys.argv[1:])
     try:
         with TerminalKeys() as keys:
             walker.run(lambda: plan.read_key(keys.read), plan.on_policy_step)
@@ -290,6 +310,7 @@ def main():
         print("Interrupted (Ctrl-C).")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
+        runlog.event("move_distance", "error", message=str(e))
         walker.damp()
         return 1
     walker.damp()

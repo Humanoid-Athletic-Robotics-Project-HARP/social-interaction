@@ -11,8 +11,15 @@ publishes where the robot estimates it is.
               /tf             odom -> base_link, and base_link -> livox_frame: where the
                               head lidar is, from the joints and IMU (standing upright,
                               lidar_mount, before the policy runs)
+              /joint_states   sensor_msgs/JointState  the 29 joints (q, dq, estimated torque), 50 Hz
+              /imu            sensor_msgs/Imu      the pelvis IMU, 50 Hz
+              /walker/policy  std_msgs/Float32MultiArray  GR00T's observation (86), action (15)
+                              and command (3), each policy step
+              /harp/events    std_msgs/String      JSON events (stand pose, policy on, fall, ...)
   Services    /walker/start   std_srvs/Trigger     start the policy (like ] in walk.py)
               /walker/stop    std_srvs/Trigger     damp every joint and quit (like o)
+  Parameter   auto_start      sim only: start the policy by itself when the sim reports
+                              its feet down (run_sim --auto-release), as course tests need
 
 If /cmd_vel goes quiet for cmd_timeout seconds, the command drops to zero and
 GR00T balances in place. Start-up is the same as walk.py: wait for the stand
@@ -33,18 +40,23 @@ import sys
 import threading
 import time
 
+import json
+
 import numpy as np
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from rclpy.signals import SignalHandlerOptions
+from sensor_msgs.msg import Imu, JointState
+from std_msgs.msg import Float32MultiArray, String
 from std_srvs.srv import Trigger
 from tf2_ros import TransformBroadcaster
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from harp_control import lidar_mount
+from harp_control import lidar_mount, runlog
 from harp_control.gr00t.walk import (CONTROL_DT, MAX_VX, MAX_VY, MAX_YAW_RATE, TerminalKeys,
                                      Walker, check_unitree_controller_off)
 from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
@@ -62,6 +74,9 @@ class WalkerNode(Node):
         self.declare_parameter("interface", "")
         self.declare_parameter("scene", DEFAULT_SCENE or "")
         self.declare_parameter("cmd_timeout", 0.5)
+        self.declare_parameter("auto_start", False)
+        self.auto_start = self.get_parameter("auto_start").value
+        self.feet_down = False          # the sim reported its feet on the floor (auto_start)
         self.cmd_timeout = self.get_parameter("cmd_timeout").value
         self.cmd = np.zeros(3, dtype=np.float32)
         self.cmd_time = -math.inf
@@ -80,6 +95,17 @@ class WalkerNode(Node):
         self.tf = TransformBroadcaster(self)
         self.create_service(Trigger, "/walker/start", self.on_start)
         self.create_service(Trigger, "/walker/stop", self.on_stop)
+        self.joints_pub = self.create_publisher(JointState, "/joint_states", 10)
+        self.imu_pub = self.create_publisher(Imu, "/imu", 10)
+        self.policy_pub = self.create_publisher(Float32MultiArray, "/walker/policy", 10)
+        model = odometry.model
+        self.joint_names = [model.joint(model.actuator_trnid[i, 0]).name for i in range(model.nu)]
+        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        events_pub = self.create_publisher(String, "/harp/events", latched)
+        runlog.attach(lambda text: events_pub.publish(String(data=text)))
+        if self.auto_start:
+            self.create_subscription(String, "/harp/events", self.on_event, latched)
+        walker.on_policy_output = self.publish_policy
         # Until the policy runs there is no leg odometry, so the lidar goes where
         # it would be on a robot standing upright.
         self.create_timer(0.1, self.publish_standing_lidar)
@@ -99,6 +125,11 @@ class WalkerNode(Node):
         if not self.walker.policy_on:
             self.tf.sendTransform(self.lidar_transform(
                 self.get_clock().now().to_msg(), *lidar_mount.from_base_link()))
+
+    def on_event(self, msg):
+        record = json.loads(msg.data)
+        if record["source"] == "sim" and record["event"] == "feet_down":
+            self.feet_down = True
 
     def on_cmd_vel(self, msg):
         self.cmd = np.array([msg.linear.x, msg.linear.y, msg.angular.z], dtype=np.float32)
@@ -122,6 +153,10 @@ class WalkerNode(Node):
 
     def read_key(self, terminal):
         """Next ] or o, from the services first, then the terminal if there is one."""
+        if self.feet_down and self.walker.standing and not self.walker.policy_on:
+            self.feet_down = False
+            runlog.event("walker", "auto_start")
+            return "]"
         try:
             return self.requests.get_nowait()
         except queue.Empty:
@@ -135,6 +170,34 @@ class WalkerNode(Node):
         cmd = self.cmd if fresh else np.zeros(3, dtype=np.float32)
         self.walker.cmd = np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).astype(np.float32)
         self.publish_odometry()
+        self.publish_state()
+
+    def publish_state(self):
+        """Joints and IMU as the walker reads them (rt/lowstate), for rviz and run logging."""
+        state = self.walker.state
+        stamp = self.get_clock().now().to_msg()
+        motors = state.motor_state
+        joints = JointState()
+        joints.header.stamp = stamp
+        joints.name = self.joint_names
+        joints.position = [float(motors[i].q) for i in range(len(self.joint_names))]
+        joints.velocity = [float(motors[i].dq) for i in range(len(self.joint_names))]
+        joints.effort = [float(motors[i].tau_est) for i in range(len(self.joint_names))]
+        self.joints_pub.publish(joints)
+        imu = Imu()
+        imu.header.stamp = stamp
+        imu.header.frame_id = "imu_link"
+        o = imu.orientation
+        o.w, o.x, o.y, o.z = map(float, state.imu_state.quaternion)
+        g = imu.angular_velocity
+        g.x, g.y, g.z = map(float, state.imu_state.gyroscope)
+        a = imu.linear_acceleration
+        a.x, a.y, a.z = map(float, state.imu_state.accelerometer)
+        self.imu_pub.publish(imu)
+
+    def publish_policy(self, obs, action, cmd):
+        self.policy_pub.publish(Float32MultiArray(
+            data=np.concatenate([obs, action, cmd]).astype(float).tolist()))
 
     def publish_odometry(self):
         # The odom frame is the one the leg odometry integrates in: its origin is
@@ -201,7 +264,10 @@ def main():
     executor = SingleThreadedExecutor()
     executor.add_node(node)
     threading.Thread(target=executor.spin, daemon=True).start()
-    print("Start the policy with ] here or: ros2 service call /walker/start std_srvs/srv/Trigger")
+    if node.auto_start:
+        print("auto_start: the policy starts by itself when the sim reports its feet down.")
+    else:
+        print("Start the policy with ] here or: ros2 service call /walker/start std_srvs/srv/Trigger")
 
     code = 0
     try:
@@ -214,6 +280,7 @@ def main():
         print("Interrupted (Ctrl-C).")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
+        runlog.event("walker", "error", message=str(e))
         code = 1
     walker.damp()
     executor.shutdown()

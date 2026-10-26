@@ -3,6 +3,8 @@ name: off-robot-testing
 description: How people test G1 code without the robot (web research 2026-10-25): own-controller vs sport-service split, sim options, gantry practice
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
 From web research on 2026-10-25. Not tried by us unless [[mujoco-sim]] or [[gr00t-wbc]] says so.

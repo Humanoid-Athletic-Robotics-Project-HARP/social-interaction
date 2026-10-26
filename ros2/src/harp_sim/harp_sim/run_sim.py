@@ -21,8 +21,11 @@ file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
 X m ahead and Y m left of where the robot starts; --lidar adds the head lidar
 (lidar.py) as a ROS 2 point cloud. Whenever the robot touches an obstacle,
 the sim prints it, so a run that prints no contact never hit anything.
---record FILE saves the robot's true pose (qpos) at 20 Hz to FILE.npz on
-quitting, for measuring paths and clearances afterwards.
+
+For run logging (harp_ros run_recorder) it also publishes on ROS 2:
+  /sim/qpos     std_msgs/Float64MultiArray  [sim time, qpos...], the true pose, 20 Hz
+  /sim/info     std_msgs/String (JSON, latched)  scene, world, boxes, course goal, flags
+  /harp/events  std_msgs/String (JSON, latched)  feet down, band released, contacts, lag
 
 Run from the ROS 2 environment (DDS domain 1 by default):
   ros2 run harp_sim run_sim
@@ -40,13 +43,22 @@ import sys
 import threading
 import time
 
+import json
+
 import mujoco
 import mujoco.viewer
 import numpy as np
+import rclpy
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.signals import SignalHandlerOptions
+from rclpy.utilities import remove_ros_args
+from std_msgs.msg import Float64MultiArray, String
 from unitree_sdk2py.core.channel import (
     ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber)
 from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
+
+from harp_control import runlog
 
 # Unitree's G1 model (unitree_mujoco, cloned next to this repo). The ROS 2
 # environment (ros2/pixi.toml) sets HARP_G1_SCENE to it.
@@ -60,7 +72,7 @@ BAND_STEP = 0.1           # m per key press
 STANDING_PELVIS_Z = 0.80  # auto-release: lower the band until the pelvis is this low,
 RELEASE_DELAY = 3.0       # then wait this long (time to start the policy) and release
 MODE_MACHINE = 5          # what a 29-joint G1 rev 1.0 reports in lowstate
-RECORD_PERIOD = 0.05      # s between --record samples
+TRUTH_PERIOD = 0.05       # s of sim time between /sim/qpos messages (20 Hz)
 MAX_LAG = 0.1             # s behind real time before giving up on catching up
 BOX_SIZE = (0.5, 0.5, 0.5)   # m, width (x), depth (y), height, when --box gives only X Y
 BOX_RGBA = (0.8, 0.5, 0.2, 1.0)
@@ -87,6 +99,7 @@ class Band:
             self.length += BAND_STEP
         elif key == ord("9"):
             self.enabled = not self.enabled
+            runlog.event("sim", "band_attached" if self.enabled else "band_released", by="key")
             print("Band attached." if self.enabled else
                   "Band released: the robot is on its own (9 re-attaches).")
 
@@ -154,6 +167,9 @@ class ContactReport:
                     continue
                 if data.time - self.last_seen.get((body, obstacle), -math.inf) > self.GAP:
                     self.count += 1
+                    runlog.event("sim", "contact", n=self.count, sim_t=round(data.time, 2),
+                                 body=self.model.body(body).name,
+                                 obstacle=self.model.geom(obstacle).name or f"geom {obstacle}")
                     print(f"Contact {self.count} at t={data.time:.1f} s: {self.model.body(body).name} "
                           f"touched {self.model.geom(obstacle).name or f'geom {obstacle}'}", flush=True)
                 self.last_seen[(body, obstacle)] = data.time
@@ -175,8 +191,6 @@ def main():
                         help="after this long, lower the robot onto its feet and release the band")
     parser.add_argument("--duration", type=float, help="quit after this many seconds")
     parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
-    parser.add_argument("--record", metavar="FILE",
-                        help="save the true qpos at 20 Hz to FILE (.npz) on quitting")
     parser.add_argument("--world", metavar="NAME",
                         help="a course of obstacles: worlds/NAME.xml in harp_sim, or a file path")
     parser.add_argument("--box", dest="boxes", action=BoxArg, nargs="+", metavar="NUM", default=[],
@@ -184,7 +198,8 @@ def main():
                              f"W x D x H m (default {' x '.join(map(str, BOX_SIZE))}); repeatable")
     parser.add_argument("--lidar", action="store_true",
                         help="simulate the head lidar and publish it as a ROS 2 point cloud")
-    args = parser.parse_args()
+    # ros2 launch adds --ros-args to Node actions; those are for rclpy.
+    args = parser.parse_args(remove_ros_args(sys.argv)[1:])
     if not args.scene:
         parser.error("no G1 model: pass --scene, or set HARP_G1_SCENE (the ROS 2 environment does)")
     if sys.platform == "darwin" and not args.headless and not os.environ.get(UNDER_MJPYTHON):
@@ -206,14 +221,27 @@ def main():
     imu_acc = sensor_slice(model, "imu_acc")
     torso = model.body("torso_link").id
 
+    # ROS 2 on its own domain (ROS_DOMAIN_ID, 2), the robot's topics on args.domain.
+    # No signal handlers: Ctrl-C stays a KeyboardInterrupt for the loop below.
+    rclpy.init(args=sys.argv, signal_handler_options=SignalHandlerOptions.NO)
+    node = rclpy.create_node("sim")
+    latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    events_pub = node.create_publisher(String, "/harp/events", latched)
+    runlog.attach(lambda text: events_pub.publish(String(data=text)))
+    truth_pub = node.create_publisher(Float64MultiArray, "/sim/qpos", 10)
+    info_pub = node.create_publisher(String, "/sim/info", QoSProfile(
+        depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+    goal = next((model.site_pos[i][:2].tolist() for i in range(model.nsite)
+                 if model.site(i).name == "course/goal"), None)
+    info_pub.publish(String(data=json.dumps({
+        "scene": args.scene, "world": args.world, "boxes": args.boxes, "goal": goal,
+        "auto_release": args.auto_release, "lidar": args.lidar, "headless": args.headless,
+        "argv": remove_ros_args(sys.argv)[1:]})))
+    next_truth = 0.0
+
     lidar = None
     if args.lidar:
-        import rclpy
-        from rclpy.signals import SignalHandlerOptions
         from harp_sim.lidar import PERIOD as LIDAR_PERIOD, TOPIC as LIDAR_TOPIC, SimLidar
-        # ROS 2 on its own domain (ROS_DOMAIN_ID, 2), the robot's topics on args.domain.
-        # No signal handlers: Ctrl-C stays a KeyboardInterrupt for the loop below.
-        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         lidar = SimLidar(model)
         next_scan = 0.0
 
@@ -247,7 +275,6 @@ def main():
             x, y = model.site_pos[i][:2]
             print(f"Course {model.site(i).name[len('course/'):]}: {x:+.1f} m ahead, {y:+.1f} m left of the start")
 
-    record_t, record_qpos, next_record = [], [], 0.0
     start = time.monotonic()
     next_step = start
     release_at = None
@@ -262,9 +289,11 @@ def main():
                     band.length += 0.5 * SIM_DT   # lower at 0.1 m/s
                 elif release_at is None:
                     release_at = data.time + RELEASE_DELAY
+                    runlog.event("sim", "feet_down", sim_t=round(data.time, 2))
                     print(f"Feet down at t={data.time:.1f} s; releasing the band in {RELEASE_DELAY:.0f} s")
                 elif data.time > release_at:
                     band.enabled = False
+                    runlog.event("sim", "band_released", by="auto", sim_t=round(data.time, 2))
                     print(f"Band released at t={data.time:.1f} s: the robot is on its own.")
             if band.enabled:
                 data.xfrc_applied[torso, :3] = band.force(data.qpos[:3], data.qvel[:3])
@@ -311,10 +340,9 @@ def main():
                 lidar.scan(data.qpos)
                 next_scan += LIDAR_PERIOD
 
-            if args.record and data.time >= next_record:
-                record_t.append(data.time)
-                record_qpos.append(data.qpos.copy())
-                next_record += RECORD_PERIOD
+            if data.time >= next_truth:
+                truth_pub.publish(Float64MultiArray(data=[data.time, *data.qpos.tolist()]))
+                next_truth += TRUTH_PERIOD
 
             if args.log and data.time % 1.0 < SIM_DT:
                 pw, px, py, pz = data.qpos[3:7]
@@ -325,6 +353,7 @@ def main():
             next_step += SIM_DT
             lag = time.monotonic() - next_step
             if lag > MAX_LAG:
+                runlog.event("sim", "lag", ms=round(lag * 1000), sim_t=round(data.time, 2))
                 print(f"Warning: the sim fell {lag * 1000:.0f} ms behind real time at "
                       f"t={data.time:.1f} s. A controller in sim mode stops if state is over 0.5 s late.")
                 next_step = time.monotonic()   # don't try to catch up in a burst
@@ -332,12 +361,9 @@ def main():
                 time.sleep(max(0.0, -lag))
     except KeyboardInterrupt:
         pass
-    if args.record:
-        np.savez(args.record, t=np.array(record_t), qpos=np.array(record_qpos),
-                 world=args.world or "", boxes=np.array(args.boxes, dtype=float).reshape(-1, 5))
-        print(f"Saved {len(record_t)} poses to {args.record}")
-    if lidar is not None:
-        rclpy.shutdown()
+    runlog.event("sim", "quit", sim_t=round(data.time, 2))
+    node.destroy_node()
+    rclpy.shutdown()
     return 0
 
 

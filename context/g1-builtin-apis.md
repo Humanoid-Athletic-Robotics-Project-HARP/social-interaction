@@ -3,6 +3,8 @@ name: g1-builtin-apis
 description: The G1's built-in high-level functions (walking, posture, arm gestures, speech, LED), with API ids, read from Unitree's official headers
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
 Read from the official headers on 2026-10-25. We no longer walk with these (see [[gr00t-wbc]]). The ones that sit on Unitree's controller (sport, arm) are probably unavailable while our controller runs in debug mode; voice and LED likely still work, but that's untested. Every call is a `unitree_api/Request` with an `api_id` and a JSON `parameter` string, sent on `/api/<service>/request`.

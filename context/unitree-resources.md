@@ -3,6 +3,8 @@ name: unitree-resources
 description: Key official and community repos for the G1, and how we depend on them (cloned next to the repo, not vendored)
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: [README.md, ros2/pixi.toml]
 ---
 
 Research done 2026-10-24 for [[project-overview]].

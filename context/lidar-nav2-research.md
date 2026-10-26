@@ -3,9 +3,11 @@ name: lidar-nav2-research
 description: Research for "Get around obstacles" (2026-10-26): simulating the MID-360 in MuJoCo, adding boxes, the real G1 lidar (IP, topics, inverted mount, extrinsics), Nav2 setup on RoboStack, testing lidar apart from walking
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: []
 ---
 
-Research done 2026-10-26 for the "Get around obstacles" goal ([[project-overview]]). The sim lidar and boxes are built (`run_sim --lidar --box`, details in [[mujoco-sim]]); Nav2 isn't yet. Status lives in the README.
+Research done 2026-10-26 for the "Get around obstacles" goal ([[project-overview]]). The sim lidar and boxes are built (`run_sim --lidar --box`, details in [[mujoco-sim]]), and so is Nav2 ([[nav2-sim]]); this note keeps the research behind them. Status lives in the README.
 
 **MID-360 facts** (livoxtech.com/mid-360/specs): 360° × −7° to +52° FOV, 0.1 m blind zone, 200k points/s at 10 Hz (about 20k per frame), ≤2 cm range noise, non-repetitive scan, built-in IMU.
 
@@ -28,7 +30,7 @@ Research done 2026-10-26 for the "Get around obstacles" goal ([[project-overview
 - No map: rolling-window global costmap (no static layer, about 15 × 15 m; goals outside it fail), and either `global_frame: odom` everywhere or a static identity map → odom. Goals are then relative to where the walker started.
 - Cloud into costmap: obstacle_layer or voxel_layer with `data_type: PointCloud2` and a height band (about 0.1–1.6 m). The height filter applies in the costmap's frame, so planar odom means height above the floor.
 - Graceful Controller (Jazzy) outputs only `linear.x` and `angular.z` and collision-checks its own trajectory. Defaults: `v_linear_max` 0.5, `v_angular_max` 1.0, `v_linear_min` 0.1, `v_angular_min_in_place` 0.25. Keep minimums well above GR00T's Balance switch (|cmd| < 0.05, `walk.py`). MPPI with the Omni model is the option if we want sideways steps.
-- `walker_node`'s `base_link` is planar (x, y, yaw, z = 0), really a `base_footprint`. A static base_link → lidar transform ignores torso sway, which tilts rays a few degrees and can mark the floor far away as obstacles; limit marking range or put torso orientation into TF.
+- `walker_node`'s `base_link` is planar (x, y, yaw, z = 0), really a `base_footprint`. A static base_link → lidar transform ignores torso sway, which tilts rays a few degrees and can mark the floor far away as obstacles. Solved by publishing the lidar's real pose on /tf ([[nav2-sim]], "Floor marked as obstacles").
 
 **Community G1 stacks** (none says it has been validated on hardware): automaticdai/unitree-g1-navigation (Humble, FAST-LIO2 + Nav2 + collision monitor, Unitree SDK walking), cristidragomir97/grove-g1 (Jazzy, own policy over `rt/lowcmd`, FAST-LIO2 + Nav2, sim-first; closest to ours), deepglint/FAST_LIO_LOCALIZATION_HUMANOID (`humble` branch, inverted-mount driver fix), norkraigh/Unitree-G1-SLAM (offline SLAM comparison, static TF roll 180°).
 

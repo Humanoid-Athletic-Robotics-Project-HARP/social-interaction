@@ -3,9 +3,14 @@ name: move-distance
 description: move_distance (harp_control) in detail: flags and limits, how moves run and abort, curve (--to) behavior, leg odometry method, and the measured sim results behind the README's examples
 metadata:
   type: reference
+  updated: 2026-10-26T21:32:46Z
+  covers: [ros2/src/harp_control/harp_control/move_distance.py, ros2/src/harp_control/harp_control/smooth_control.py, ros2/src/harp_control/harp_control/leg_odometry.py]
 ---
 
 `ros2 run harp_control move_distance` drives GR00T ([[gr00t-wbc]]) through a list of moves in the sim ([[mujoco-sim]]) or on the robot. The README only lists example commands; this note has the detail.
+
+
+Runs are recorded when run_recorder is running ([[run-logging]]): move_distance writes start, `move_start`, `move_done` (target and estimate), timeouts, wrong-way turns and errors, plus leg odometry and the command at 10 Hz (`leg_odom.csv`), into the active run folder through `harp_control/runlog.py`. That needs no ROS.
 
 **Flags**
 - `--distance M`: meters, negative walks backward. `--angle DEG`: positive turns left (counterclockwise). `--to X Y [HEADING]`: curve to X m forward, Y m left of where the move starts, ending facing HEADING (positive left), or without it, facing away from the start.
