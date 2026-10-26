@@ -1,23 +1,27 @@
 # HARP Human Interaction
 
-The Stanford HARP Human Interaction team's **Unitree G1 EDU (29 joints)**.
-The aim: it walks around, notices people, walks up to them naturally, talks
-with them and avoids obstacles, on open code we can read.
+This project is the workspace for the Human Interaction subteam within
+Stanford HARP (Human Athletics Robotics Project). In this subteam, we are
+focused on creating a natural, human-like robot. Some preliminary goals
+include: walking around, avoiding obstacles, detecting people, walking up to
+people, remembering people, talking and listening to people. All of our code
+is open source, and we would love for people to build on top of it!
 
-- It walks and balances with NVIDIA's GR00T policy (legs and waist). Our
-  controller commands all 29 motors over the robot's low-level topics
-  (`rt/lowstate`, `rt/lowcmd`).
-- Everything runs in a MuJoCo sim of the G1 first; the same code drives the
-  sim and the robot.
-- The code is a ROS 2 workspace in `ros2/`:
+This project uses ROS 2 and a MuJoCo simulator. Here's a brief overview of
+the project structure:
 
-| Path | What's in it |
+| Path | Description |
 |---|---|
-| `ros2/src/harp_control` | Walking: the GR00T controller (`walk`), moves and curves to a point (`move_distance`), our leg odometry |
-| `ros2/src/harp_sim` | The MuJoCo sim of the G1 (`run_sim`), with the head lidar and obstacle courses (`worlds/`) |
-| `ros2/src/harp_ros` | ROS 2: `walker_node` (`/cmd_vel` in, `/odom` and `/tf` out), Nav2 (`nav2.launch.py`, `config/`), and recorded test runs (`course`, `run_recorder`, `runs`) |
-| `ros2/pixi.toml`, `pixi.lock` | The environment: ROS 2 Jazzy, Python 3.12, MuJoCo, Unitree's SDK, pinned |
-| `context/` | Shared notes for Claude and Codex: the detail behind this README |
+| `ros2/src/harp_control` | Walking. The GR00T controller (`walk`), planned moves and curves (`move_distance`), and our leg odometry. |
+| `ros2/src/harp_sim` | Our MuJoCo sim of the G1 (`run_sim`), including the head lidar and the obstacle courses in `worlds/`. |
+| `ros2/src/harp_ros` | The ROS 2 side. `walker_node` takes `/cmd_vel` and publishes `/odom` and `/tf`; Nav2's launch file and config; and the tools for recording test runs (`course`, `run_recorder`, `runs`). |
+| `ros2/pixi.toml`, `pixi.lock` | The pinned environment: ROS 2 Jazzy, Python 3.12, MuJoCo and Unitree's SDK. |
+| `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
+
+The robot is a Unitree G1 EDU with 29 joints. It walks and balances with
+NVIDIA's GR00T policy, and our controller talks to all 29 motors over the
+robot's low-level topics (`rt/lowstate`, `rt/lowcmd`). The same code drives
+both the sim and the real robot, and we try everything in the sim first.
 
 ## Goals and progress
 
@@ -47,20 +51,20 @@ with them and avoids obstacles, on open code we can read.
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
 - ✅ Sim: a simulated head lidar and boxes (`run_sim --lidar --box`).
-- ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) driving
-  `walker_node` through the courses (`run_sim --world`), up to the
+- ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) drives
+  `walker_node` through every course (`run_sim --world`), including the
   obstacle course with a table, pillars, a thin pole and an archway, without
-  touching anything; the robot's own body is filtered out of the cloud.
-- ⬜ Sim: more on obstacles and path following: closer margins around
-  obstacles, a collision-monitor stop, moving obstacles and people.
+  touching anything. The robot's own body is filtered out of the lidar.
+- ⬜ Sim: more on obstacles and path following: closer margins, a
+  collision-monitor stop, moving obstacles and people.
 - ⬜ Robot: real lidar data in ROS 2, then the same walk.
 
 ### Find people and walk up to them
 
 - Done when: it notices a person, walks up in one curve and stops about 1 m
   away, facing them.
-- ⬜ A person detector on the D435i camera: where people are, to within
-  about 0.3 m out to 4 m.
+- ⬜ A person detector on the D435i camera that places people to within
+  about 0.3 m, out to 4 m.
 - ⬜ Sim: a camera, or recorded camera data, to test with.
 - ✅ Building block: the curved move to a point and heading.
 - ⬜ Sim, then robot: walk up to a person.
@@ -75,33 +79,34 @@ with them and avoids obstacles, on open code we can read.
 
 ### Run safely on the real robot
 
-Needed before any "Robot" box above.
+This has to happen before any of the "Robot" boxes above.
 
 - ⛔ Find out whether HARP's safety layer sits between our code and the
-  motors, and route our commands through it if so.
+  motors, and if it does, send our commands through it.
 - ⬜ An e-stop besides the keyboard, e.g. on the remote.
-- ⬜ Check our robot: `mode_machine` 5, its hands, its ROS 2 version.
-- ⬜ A gantry procedure and a first session with someone on the rope.
+- ⬜ Check our robot: `mode_machine` 5, which hands it has, its ROS 2 version.
+- ⬜ A gantry procedure, and a first session with someone on the rope.
 
-## Setup (on your laptop)
+## Setup
 
-Runs on Apple Silicon Macs with macOS 14 or newer (tested on macOS 15). For
-Linux, add its platform to `ros2/pixi.toml`.
+So far we've run this on Apple Silicon Macs with macOS 14 or newer (tested
+on macOS 15). Linux should work once its platform is added to
+`ros2/pixi.toml`.
 
 ### 1. Install the tools
 
-You need git and [pixi](https://pixi.sh). Everything else (Python 3.12, ROS 2
-Jazzy, compilers, MuJoCo, onnxruntime, CycloneDDS) comes from pixi.
+All you need is git and [pixi](https://pixi.sh). Pixi brings in everything
+else: Python 3.12, ROS 2 Jazzy, compilers, MuJoCo, onnxruntime and CycloneDDS.
 
 ```bash
 xcode-select --install
 brew install pixi
 ```
 
-### 2. Make a folder for everything and clone this repo into it
+### 2. Make a folder and clone this repo into it
 
-The build looks for Unitree's code right next to this repo, so everything
-goes in one folder of its own:
+The build expects Unitree's code to sit right next to this repo, so it's
+easiest to give everything its own folder:
 
 ```
 harp/
@@ -116,9 +121,9 @@ mkdir harp && cd harp
 # clone this repo here
 ```
 
-Run step 3 from `harp/`.
-
 ### 3. Clone Unitree's SDK, G1 model and messages
+
+From inside `harp/`:
 
 ```bash
 git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git
@@ -132,10 +137,10 @@ git -C unitree_ros2 fetch --depth 1 origin 668d1ec5a05d1c38d3306bdca7d59f2ba3581
 git -C unitree_ros2 checkout 668d1ec5a05d1c38d3306bdca7d59f2ba3581a88
 ```
 
-The "detached HEAD" notes are expected, and so is a macOS warning that
-`terrain.STL` and `terrain.stl` collided.
+Don't worry about the "detached HEAD" messages, or a macOS warning that
+`terrain.STL` and `terrain.stl` collided. Both are expected.
 
-### 4. Install the environment and build the packages
+### 4. Install the environment and build
 
 ```bash
 cd stanford-harp-social-interaction/ros2
@@ -143,45 +148,50 @@ pixi install --locked
 pixi run build
 ```
 
-- `pixi install --locked` installs exactly the tested versions in `pixi.lock`
-  (a few GB, into `ros2/.pixi/`, ignored by git).
-- `pixi run build` builds our packages and Unitree's messages. Python edits
-  take effect right away; rebuild after adding a file or package.
-- Update versions (step 3's commits, `pixi.lock`) together, and re-test in the sim.
+`pixi install --locked` installs exactly the versions we tested with (a few
+GB, into `ros2/.pixi/`, which git ignores). `pixi run build` builds our
+packages and Unitree's messages. Python edits take effect right away, but
+you'll need to rebuild after adding a new file or package. If you update
+any versions (the commits in step 3 or `pixi.lock`), update them together
+and re-test in the sim.
 
 ## Run it in the sim
 
-Start every terminal with `pixi shell --as-is` in `ros2/`.
+Open each terminal in `ros2/` and start it with `pixi shell --as-is`.
 
-Terminal 1, the sim (a MuJoCo window opens):
+In the first terminal, start the sim. A MuJoCo window will open:
 
 ```bash
 ros2 run harp_sim run_sim
 ```
 
-Terminal 2, the controller:
+In a second terminal, start the controller:
 
 ```bash
 ros2 run harp_control walk
 ```
 
-The robot starts hanging from an elastic band. Start-up is the same for every
-controller below:
+The robot starts out hanging from an elastic band. Every controller below
+starts up the same way:
 
-1. Wait for "Stand pose reached" (3 s).
-2. MuJoCo window: press `8` a few times until the feet touch the floor.
-3. Terminal 2: press `]` to start the policy. It has to be running before step 4.
-4. MuJoCo window: press `9` to release the band, and give it a few seconds.
-5. Terminal 2: drive with `w`/`s`, `a`/`d` (sideways), `q`/`e` (turn), `z` (stop
-   moving); `o` stops, and the robot goes limp and sinks.
+1. Wait for "Stand pose reached" (about 3 s).
+2. In the MuJoCo window, press `8` a few times until the feet touch the floor.
+3. In terminal 2, press `]` to start the policy. It has to be running before
+   the next step.
+4. In the MuJoCo window, press `9` to release the band, and give the robot a
+   few seconds to settle.
+5. Now drive it from terminal 2: `w`/`s` forward and back, `a`/`d` sideways,
+   `q`/`e` to turn, `z` to stop moving. `o` stops the controller, and the
+   robot goes limp and sinks.
 
-Keys go to the window you clicked last: band keys `7`/`8`/`9` to MuJoCo, the
-rest to terminal 2. After `o`, restart both terminals to go again.
+Keys go to whichever window you clicked last, so the band keys (`7`/`8`/`9`)
+go to MuJoCo and everything else to terminal 2. After `o`, restart both
+terminals to go again.
 
 ## Planned moves: `move_distance`
 
-In terminal 2, in place of `walk`. Same start-up, then press `g` to start
-the moves, and `o` once it says "All moves done".
+Run this in terminal 2 instead of `walk`. Start-up is the same; then press
+`g` to start the moves, and `o` once it says "All moves done".
 
 ```bash
 ros2 run harp_control move_distance --distance 1.0 --speed 0.3
@@ -199,17 +209,18 @@ ros2 run harp_control move_distance --to 2 1 90 --speed 0.3
 ros2 run harp_control move_distance --to 2 1 0 --to 2 -1 0 --speed 0.3
 ```
 
-- The first walks 1 m. The second walks 2 m, turns left 90° and walks 2 m.
-- `--to X Y [HEADING]` walks to X m forward and Y m left in one smooth curve,
-  ending facing HEADING degrees (positive left): the third ends facing left,
-  as if walking up to someone. The fourth weaves left, then right, and ends
-  4 m straight ahead.
-- Moves repeat and mix, and run in order. Positive angles turn left.
-- In the sim they end within about 8 cm and 5° of the target.
+The first one walks 1 m. The second walks 2 m, turns 90° left, and walks
+another 2 m. `--to X Y [HEADING]` walks in one smooth curve to a point X m
+ahead and Y m to the left, ending up facing HEADING degrees (positive is
+left). So the third ends facing left, the way you'd walk up to someone, and
+the fourth weaves left, then right, and ends 4 m straight ahead. You can
+repeat and mix moves as much as you like; they run in order. In the sim they
+end within about 8 cm and 5° of the target.
 
 ## Drive it through ROS 2: `walker_node`
 
-The same GR00T walker, driven by any ROS 2 program, such as Nav2:
+`walker_node` is the same GR00T walker, but any ROS 2 program (like Nav2)
+can drive it:
 
 | | Topic or service | Type |
 |---|---|---|
@@ -219,8 +230,11 @@ The same GR00T walker, driven by any ROS 2 program, such as Nav2:
 | Out | `/joint_states`, `/imu`, `/harp/events` | the joints, the pelvis IMU, and events (policy on, fall, ...) for run logs |
 | Service | `/walker/start`, `/walker/stop` | `std_srvs/Trigger`, like `]` and `o` |
 
-Terminal 2: `ros2 run harp_ros walker_node`, then the usual start-up (`]` or
-`ros2 service call /walker/start std_srvs/srv/Trigger`). Terminal 3:
+In terminal 2, run `ros2 run harp_ros walker_node` and do the usual
+start-up (press `]`, or call
+`ros2 service call /walker/start std_srvs/srv/Trigger`). Then, from a third
+terminal, drive it with the keyboard, send it a fixed speed, or watch its
+odometry:
 
 ```bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
@@ -234,10 +248,10 @@ ros2 topic pub -r 10 -t 40 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.3}}"
 ros2 topic echo /odom --field pose.pose
 ```
 
-- Keyboard driving: hold the key down. `ros2 topic pub` walks 0.3 m/s for 4 s.
-- ROS 2 runs on DDS domain 2, separate from the robot's own topics (0 on the
-  robot, 1 in the sim). To see the sim's raw topics, prefix a command with
-  `ROS_DOMAIN_ID=1`.
+With the keyboard, hold the key down. The `ros2 topic pub` line walks at
+0.3 m/s for 4 s. Our ROS 2 traffic runs on DDS domain 2, separate from the
+robot's own topics (domain 0 on the robot, 1 in the sim). To look at the
+sim's raw topics, put `ROS_DOMAIN_ID=1` in front of the command.
 
 ## Boxes and the lidar in the sim
 
@@ -249,118 +263,122 @@ ros2 run harp_sim run_sim --lidar --box 2 0 --box 0 -3 0.3 1.0 2.0
 rviz2 -d $(ros2 pkg prefix harp_sim)/share/harp_sim/rviz/lidar.rviz
 ```
 
-- `--box X Y [W D H]` puts a box X m ahead and Y m left of the start
-  (default 0.5 m cube); repeatable.
-- `--lidar` publishes the head lidar (Livox MID-360) as a point cloud on
-  `/utlidar/cloud_livox_mid360` in `livox_frame`, the names Unitree uses on
-  the robot, at 10 Hz.
-- rviz2 needs `walker_node` running (above) for where the lidar sits on
-  the robot (upside down, as on the G1). Stand the robot up so the floor
-  lines up with the grid; drive it with teleop to walk toward the boxes.
-- The mount's numbers are in `harp_control/lidar_mount.py`, shared by the
-  sim's lidar and `walker_node`.
-- The lidar can't see the floor within about 1 m of the robot, and it sees
-  the robot's own shoulders and arms.
+`--box X Y [W D H]` puts a box X m ahead and Y m left of where the robot
+starts (a 0.5 m cube by default), and you can add as many as you want.
+`--lidar` turns on the head lidar (a Livox MID-360), which publishes a
+point cloud at 10 Hz on `/utlidar/cloud_livox_mid360` in `livox_frame`,
+the same names Unitree uses on the real robot.
+
+rviz2 needs `walker_node` running to know where the lidar sits on the
+robot (it's mounted upside down, like on the G1). Stand the robot up so the
+floor lines up with the grid, then drive it toward the boxes with teleop.
+Keep in mind that the lidar can't see the floor within about 1 m of the
+robot, and that it does see the robot's own shoulders and arms.
 
 ## Walk around obstacles with Nav2
 
-Terminal 1, a course (a MuJoCo window opens; it prints the course's goal):
+In terminal 1, start the sim with a course. The MuJoCo window opens and the
+sim prints the course's goal:
 
 ```bash
 ros2 run harp_sim run_sim --lidar --world obstacle_course
 ```
 
-Terminal 2: `ros2 run harp_ros walker_node`, then the usual start-up. Once
-GR00T is balancing on its own, terminal 3 (rviz2 opens):
+In terminal 2, run `ros2 run harp_ros walker_node` and do the usual
+start-up. Once GR00T is balancing on its own, start Nav2 in terminal 3
+(rviz2 opens with it). Nav2 needs `/odom`, so it has to come after the
+policy is running.
 
 ```bash
 ros2 launch harp_ros nav2.launch.py
 ```
 
-- In rviz2, wait until "Navigation" in the Navigation 2 panel is active
-  (a few seconds), then click "2D Goal Pose" and click-drag the goal and the
-  direction to face. The robot plans a path around what the lidar has seen
-  and walks it.
-- Courses, in order: `open_floor`, `one_box`, `slalom`, `obstacle_course`
-  (in `harp_sim/worlds/`, MuJoCo files you can copy and edit). Goals are in
-  meters from where the robot started (x ahead, y left).
-- The sim prints any contact between the robot and an obstacle; a run with
-  none never touched anything.
-- Start Nav2 after the policy runs: it needs `/odom`. Restart all three to go
-  again.
-- For a test whose results you keep, use `course` (next section): it does
-  all of this in one command and records the run.
+In rviz2, wait a few seconds for "Navigation" in the Navigation 2 panel to
+turn active. Then click "2D Goal Pose" and click-drag to set the goal and
+the direction to face. The robot plans a path around whatever the lidar has
+seen, and walks it.
+
+The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
+and `obstacle_course`. They're MuJoCo files in `harp_sim/worlds/`, so feel
+free to copy and edit them. Goals are in meters from where the robot
+started (x ahead, y left). The sim prints any contact between the robot and
+an obstacle, so if you don't see any, it never touched anything. To go
+again, restart all three terminals.
+
+If you want to keep the results, use `course` (next section) instead. It
+does all of this in one command and records the run.
 
 ## Test runs and logs
 
-One command runs a course test in the sim and records it; another compares
-runs:
+This runs a course test in the sim three times and records each run:
 
 ```bash
 ros2 run harp_ros course slalom --tag baseline --repeat 3
 ```
 
+And this compares the runs and plots their paths:
+
 ```bash
 ros2 run harp_ros runs compare --world slalom --plot paths.png
 ```
 
-- `course` starts the sim, `walker_node`, Nav2 and the course's goal by
-  itself (the MuJoCo and rviz2 windows open as usual), and stops when the
-  robot arrives, gives up or falls. Each repeat starts fresh. Ctrl-C stops it.
-- Each run gets its own folder in `runs/` (ignored by git): what ran
-  (`run.yaml`: settings, git commit, machine, note), what happened
-  (`events.csv`), the true and estimated paths, every program's output, and
-  `summary.json`: result and pass/fail, time, path length, closest distance
-  to an obstacle, contacts, Nav2 recoveries and replans, odometry error,
-  achieved against commanded speed, and lidar health.
-- `--tag` names what the run tests; `runs compare` groups runs by course and
-  tag, with mean and spread. `--plot` draws the true paths.
-- `--extras nav,lidar --extras-reason "why"` also records Nav2's plans and
-  costmaps, or the lidar, into a bag (`harp_ros/config/logging.yaml` lists
-  what can be recorded).
-- To record anything else (driving by hand, `move_distance`), start
-  `ros2 run harp_ros run_recorder --ros-args -p tag:=NAME` first; Ctrl-C on
-  it ends the run.
-- `runs check` gives each course's pass rate against its criteria
-  (`harp_sim/worlds/<course>.yaml`: success, time, clearance, contacts,
-  recoveries, end error), and which runs failed what.
-- `--tether`, `--floor-surface`, `--battery-percent`, `--people-nearby` and
-  `--lighting` record the conditions; `runs set RUN tether=gantry` edits them
-  afterwards.
-- `--replay --replay-reason "why"` also records what's needed to play the run
-  back into Nav2 later, with other settings
-  (`ros2 launch harp_ros replay.launch.py run:=RUN params_file:=FILE`). It's
-  large, so only when someone asks for it.
-- `runs list`, `runs show RUN`; `runs pin RUN` keeps a run's data for good.
-  Old runs are trimmed automatically (`logging.yaml`).
+`course` starts the sim, `walker_node`, Nav2 and the course's goal for you
+(the windows open as usual), and stops when the robot arrives, gives up or
+falls. Each repeat starts fresh, and Ctrl-C stops it.
+
+Every run gets its own folder in `runs/` (which git ignores). It has the
+settings, the git commit, what happened when, the true and estimated
+paths, every program's output, and a `summary.json` with the result and
+pass/fail, time, closest distance to an obstacle, contacts, Nav2
+recoveries, odometry error, speed tracking and lidar health.
+
+A few more things you can do:
+
+- `--tag` says what a run is testing. `runs compare` groups runs by course
+  and tag, and `runs check` shows pass rates against each course's criteria
+  in `harp_sim/worlds/<course>.yaml`.
+- To record anything that isn't a course (driving by hand, `move_distance`),
+  start `ros2 run harp_ros run_recorder --ros-args -p tag:=NAME` first.
+  Ctrl-C on it ends the run.
+- `--extras nav,lidar --extras-reason "why"` also saves Nav2's costmaps or
+  the lidar to a bag (see `harp_ros/config/logging.yaml`).
+- `--replay --replay-reason "why"` saves enough to replay the run into Nav2
+  later with different settings (`replay.launch.py`). These recordings are
+  large, so only make one when someone asks for it.
+- `runs list` and `runs show RUN` let you browse, `runs set RUN key=value`
+  records conditions such as `tether=gantry`, and `runs pin RUN` keeps a
+  run around for good. Older runs get trimmed automatically.
 
 ## On the real robot
 
-Our code drives the motors directly and keeps the robot up on its own. Read
-"Run safely on the real robot" in the goals before the first session.
+On the real robot, our code drives the motors directly and is the only
+thing keeping the robot up. Read "Run safely on the real robot" in the
+goals above before your first session.
 
-1. Hang the robot from a gantry, feet off the floor.
-2. Remote: L1+A (damping), then L2+R2 (debug mode). The scripts check for
-   debug mode and `mode_machine` 5 before they start.
-3. From a Mac on the robot's network (`192.168.123.x`), after `pixi shell --as-is`:
+1. Hang the robot from a gantry with its feet off the floor.
+2. On the remote, press L1+A (damping), then L2+R2 (debug mode). The scripts
+   check for debug mode and `mode_machine` 5 before they start.
+3. From a Mac on the robot's network (`192.168.123.x`), run `pixi shell --as-is`
+   and then:
 
 ```bash
 ros2 run harp_control walk --real --interface en0
 ```
 
-4. Stand pose, lower until the feet are on the floor, `]`, then slacken the
-   gantry, leaving the rope just loose enough to catch a fall.
+4. Wait for the stand pose, lower the robot until its feet are on the
+   floor, press `]`, then slacken the gantry, leaving the rope just loose
+   enough to catch a fall.
 
-- `--interface` is the laptop's interface on `192.168.123.x` (`ifconfig`
-  shows it). `move_distance` takes the same flags; `walker_node` takes
-  `--ros-args -p real:=true -p interface:=en0`.
-- `o`, Ctrl-C or any error damps every joint, so keep the robot supported.
+`--interface` is your laptop's network interface on `192.168.123.x`
+(`ifconfig` will show it). `move_distance` takes the same flags, and
+`walker_node` takes `--ros-args -p real:=true -p interface:=en0`. Pressing
+`o`, Ctrl-C, or any error damps every joint, so keep the robot supported.
 
 ## More detail
 
-Measured results, limits and design notes live in `context/` (start at
-`context/MEMORY.md`): ask Claude or Codex, which read it first, to explain
-or summarize anything here.
+Measured results, limits and design notes are in `context/` (start with
+`context/MEMORY.md`). Claude and Codex read it before they start, so you can
+ask either of them to explain or summarize anything here.
 
 ## Licenses
 

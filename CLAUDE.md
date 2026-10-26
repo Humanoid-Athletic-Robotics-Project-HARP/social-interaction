@@ -11,7 +11,7 @@ Use the `context/` folder in this repository for **all** memory in this project.
 ### Updating memory and the README
 
 Full rules: `context/readme-and-memory-guidelines.md` (read it before editing either).
-- Memories are direct facts and instructions. Each fact lives in one memory; others link to it with `[[name]]`. Dates are absolute.
+- Memories are short, current facts and instructions: the final state and findings worth keeping, not the history of changes. Each `description` says when to read it. Each fact lives in one memory; others link to it with `[[name]]`. Dates are absolute.
 - Each memory's front matter has `metadata.updated` (UTC only, `2026-10-26T21:30:00Z`, never written by hand) and `metadata.covers` (repo paths or globs it describes; `[]` for things outside the repo).
 - Before relying on a memory, run `python3 context/check_memory.py` once per session. It prints "All memory current" when nothing needs checking. Act only on listed memories your task relies on: read their covered files instead of trusting them, fix them if the task touches that topic, and leave unrelated ones alone.
 - After editing a memory, or confirming a listed one is still right, run `python3 context/check_memory.py --touch FILE`.
