@@ -5,7 +5,9 @@ metadata:
   type: reference
 ---
 
-**What we use:** `sim/run_sim.py`. It loads Unitree's G1 model (`unitree_mujoco/unitree_robots/g1/scene_29dof.xml`, cloned next to the repo) and speaks the robot's low-level topics. It reads `rt/lowcmd` and publishes `rt/lowstate` (unitree_hg) every 5 ms step, with `rpy` and `tick` filled in. It uses DDS domain 1 on loopback; the real robot uses 0. It has an elastic band with keys 7/8/9, and `--headless --auto-release` for scripted tests. There is no `sport` service in any MuJoCo option, so only our own controller ([[gr00t-wbc]]) walks in it.
+**What we use:** `sim/run_sim.py`. It loads Unitree's G1 model (`unitree_mujoco/unitree_robots/g1/scene_29dof.xml`, cloned next to the repo) and speaks the robot's low-level topics. It reads `rt/lowcmd` and publishes `rt/lowstate` (unitree_hg) every 5 ms step, with `rpy` and `tick` filled in. It uses DDS domain 1 on loopback; the real robot uses 0. It has an elastic band with keys 7/8/9, and `--auto-release` for scripted tests.
+
+**Always run it with the viewer** (`mjpython sim/run_sim.py`, plus `--auto-release` when scripting), never `--headless`, so the teammate can watch the robot move. A teammate asked for this on 2026-10-25. There is no `sport` service in any MuJoCo option, so only our own controller ([[gr00t-wbc]]) walks in it.
 
 **Why not unitree_mujoco's `simulate_python`** (found 2026-10-25):
 - Its bridge computes the PD torque once per received `rt/lowcmd`, on the DDS thread, and holds it. With GR00T this blew up the physics on landing. `run_sim.py` recomputes PD every step from the latest command, like NVIDIA's GR00T sim and the robot's motor drivers.

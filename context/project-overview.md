@@ -18,6 +18,8 @@ Draft goals, all still in the research phase as of 2026-10-24:
 
 **Current concrete goal:** make the robot walk a specific distance. Since 2026-10-25 we use an open policy, GR00T ([[gr00t-wbc]]), instead of Unitree's closed sport service. `move_distance.py` walks with `gr00t/walk.py` and its own leg odometry. It works in our sim (`sim/run_sim.py`, [[mujoco-sim]]) and hasn't been tried on the real robot. See [[feedback-minimal-setup]].
 
+**End goal and next movement goal** (a teammate, 2026-10-25): the robot should walk around, see people, walk up to them, talk to them and interact; mapping the surroundings may come later. Global odometry or positioning isn't required. The next movement goal is natural, human-like motion: reach a point relative to the robot (e.g. 2 m forward, 1 m left) in one smooth curved walk, turning while moving, so it can approach a person who is ahead and to one side. Keep `move_distance.py`'s discrete straight walks and in-place turns working alongside it. Done in the sim on branch `smooth-movement` (2026-10-25): `move_distance.py --to X Y [HEADING]` uses Park & Kuipers' control law (`smooth_control.py`, same law as Nav2's Graceful Controller) and ends within about 8 cm and 5°. ROS 2 isn't used anywhere yet; the team expects to move to Nav2 at some point.
+
 **Open question for the real robot:** the course's HARP safety layer (above) may have to sit between our controller and the motors. Find out before the first hardware run.
 
 **Why:** Everything is a draft. Expect the goals to change as research progresses.
