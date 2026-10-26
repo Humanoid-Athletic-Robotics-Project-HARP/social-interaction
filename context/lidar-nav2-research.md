@@ -42,6 +42,7 @@ Research done 2026-10-26 for the "Get around obstacles" goal ([[project-overview
 - automaticdai/unitree-g1-navigation (Apache-2.0, Humble, never run in a sim or on hardware): crop-box self-filter node (`sensor_adapter.py`) and a collision monitor config (`collision_monitor.yaml`), both worth borrowing ideas from.
 - No-map recipe: the Nav2 GPS tutorial (rolling global costmap, no static layer); `global_frame: odom` in bt_navigator and both costmaps.
 - For us: `obstacle_min_range` about 0.6 should do the self-filter with no extra node, since our body points are 0.11–0.56 m from the sensor and the nearest floor is about 0.9 m. Use VoxelLayer, whose 3D raytracing doesn't clear cells hidden in the blind ring.
+- Mapping packages on RoboStack Jazzy osx-arm64 (`pixi search`, 2026-10-26): slam-toolbox 2.8.5, nav2-amcl and nav2-map-server 1.3.13, octomap-server 2.3.1, rtabmap-ros 0.23.13. Not available: fast-lio, kiss-icp. Lidar-inertial odometry would also need per-point timestamps and a lidar IMU, which our sim lidar doesn't have.
 - Jazzy's `navigation_launch.py` also starts `route_server` (`ros-jazzy-nav2-route` is on RoboStack) as well as `docking_server` (not on RoboStack).
 
 Related: [[mujoco-sim]], [[ros2-mac]], [[g1-builtin-apis]], [[unitree-resources]]

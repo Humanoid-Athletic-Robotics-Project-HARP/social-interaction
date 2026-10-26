@@ -9,6 +9,7 @@
 - [Goals workflow](goals-workflow.md) — how to edit README "Goals and progress": wide unnumbered goals, bullets only, sim/robot status, update in the same commit; goal changes need the team
 - [Minimal setup](feedback-minimal-setup.md) — build only what the goal needs; prefer open code we can read over Unitree's closed services; ROS 2 adopted, add its pieces only as goals need them
 - [Memory style](feedback-memory-style.md) — memories are direct instructions and facts, not notes on one-off mistakes
+- [Nav2 in the sim](nav2-sim.md) — our Nav2 setup (launch, params, BT) and why; bugs fixed (tilted floor → live lidar TF, tabletop erased → floor-only clearing); course results; scripted course tests
 - [Lidar and Nav2 research](lidar-nav2-research.md) — MID-360 sim with mj_multiRay, boxes via MjSpec, real lidar (IP, topics, inverted mount, ~1 m floor blind ring), Nav2 packages on RoboStack (no STVL/docking), Graceful setup
 - [G1 official docs](g1-official-docs.md) — every Unitree G1 developer doc URL; PC2 IP/login; sensors (MID-360, D435i)
 - [G1 built-in APIs](g1-builtin-apis.md) — Unitree's G1 services (sport, arm, voice, motion_switcher, odometry, SLAM) with api ids and topics; mostly unavailable in debug mode

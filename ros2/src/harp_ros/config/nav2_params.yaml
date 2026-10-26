@@ -69,7 +69,7 @@ controller_server:
 #    lidar. Under 0.6 m is the robot's own shoulders and arms (0.11-0.56 m;
 #    the nearest floor is about 0.9 m away). Past 3 m, torso tilt makes floor
 #    points look like obstacles.
-#  - clearing: every point, floor included, so free space gets cleared.
+#  - clearing: rays that end on the floor, so free space gets cleared.
 #  - VoxelLayer raytraces in 3D, so an obstacle that moves into the blind ring
 #    near the feet (closer than about 0.9 m) stays marked.
 local_costmap:
@@ -113,8 +113,11 @@ local_costmap:
           data_type: "PointCloud2"
           marking: false
           clearing: true
+          # Only rays that end on the floor clear. Rays ending higher (walls,
+          # boxes) can skim just over a thin tabletop, through its 12.5 cm voxel,
+          # and erased the obstacle course's table.
           min_obstacle_height: -0.5
-          max_obstacle_height: 2.0
+          max_obstacle_height: 0.05
           raytrace_min_range: 0.0
           raytrace_max_range: 6.0
       inflation_layer:
@@ -166,8 +169,11 @@ global_costmap:
           data_type: "PointCloud2"
           marking: false
           clearing: true
+          # Only rays that end on the floor clear. Rays ending higher (walls,
+          # boxes) can skim just over a thin tabletop, through its 12.5 cm voxel,
+          # and erased the obstacle course's table.
           min_obstacle_height: -0.5
-          max_obstacle_height: 2.0
+          max_obstacle_height: 0.05
           raytrace_min_range: 0.0
           raytrace_max_range: 6.0
       inflation_layer:

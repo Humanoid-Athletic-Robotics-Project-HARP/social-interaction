@@ -14,8 +14,8 @@ with them and avoids obstacles, on open code we can read.
 | Path | What's in it |
 |---|---|
 | `ros2/src/harp_control` | Walking: the GR00T controller (`walk`), moves and curves to a point (`move_distance`), our leg odometry |
-| `ros2/src/harp_sim` | The MuJoCo sim of the G1 (`run_sim`), with boxes and the head lidar |
-| `ros2/src/harp_ros` | ROS 2 nodes: `walker_node`, `/cmd_vel` in, `/odom` and `/tf` out |
+| `ros2/src/harp_sim` | The MuJoCo sim of the G1 (`run_sim`), with the head lidar and obstacle courses (`worlds/`) |
+| `ros2/src/harp_ros` | ROS 2: `walker_node` (`/cmd_vel` in, `/odom` and `/tf` out) and Nav2 (`nav2.launch.py`, `config/`) |
 | `ros2/pixi.toml`, `pixi.lock` | The environment: ROS 2 Jazzy, Python 3.12, MuJoCo, Unitree's SDK, pinned |
 | `context/` | Shared notes for Claude and Codex: the detail behind this README |
 
@@ -26,7 +26,7 @@ with them and avoids obstacles, on open code we can read.
 | Goal | Sim | Robot | Next step |
 |---|---|---|---|
 | Move like a person | ✅ | ⬜ | Run it on the robot |
-| Get around obstacles | 🟡 | ⬜ | **Next:** Nav2 driving `walker_node` in the sim |
+| Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
 | Find people and walk up to them | ⬜ | ⬜ | Pick a person detector for the camera |
 | Talk with people | ⬜ | ⬜ | Make the speaker talk |
 | Run safely on the real robot | – | ⛔ | Settle how HARP's safety layer fits in |
@@ -47,8 +47,12 @@ with them and avoids obstacles, on open code we can read.
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
 - ✅ Sim: a simulated head lidar and boxes (`run_sim --lidar --box`).
-- ⬜ Sim: Nav2 (Graceful Controller, the same law as our curves) driving
-  `walker_node`, with a filter that removes the robot's own body from the cloud.
+- ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) driving
+  `walker_node` through the courses (`run_sim --world`), up to the
+  obstacle course with a table, pillars, a thin pole and an archway, without
+  touching anything; the robot's own body is filtered out of the cloud.
+- ⬜ Sim: more on obstacles and path following: closer margins around
+  obstacles, a collision-monitor stop, moving obstacles and people.
 - ⬜ Robot: real lidar data in ROS 2, then the same walk.
 
 ### Find people and walk up to them
@@ -211,7 +215,7 @@ The same GR00T walker, driven by any ROS 2 program (later Nav2):
 |---|---|---|
 | In | `/cmd_vel` | `geometry_msgs/Twist` (m/s, rad/s); stops 0.5 s after the last message |
 | Out | `/odom`, `/tf` | `nav_msgs/Odometry`, `odom` → `base_link` |
-| Out | `/tf_static` | `base_link` → `livox_frame`: where the head lidar sits |
+| Out | `/tf` | `base_link` → `livox_frame`: where the head lidar is, from the joints and IMU |
 | Service | `/walker/start`, `/walker/stop` | `std_srvs/Trigger`, like `]` and `o` |
 
 Terminal 2: `ros2 run harp_ros walker_node`, then the usual start-up (`]` or
@@ -256,6 +260,33 @@ rviz2 -d $(ros2 pkg prefix harp_sim)/share/harp_sim/rviz/lidar.rviz
   sim's lidar and `walker_node`.
 - The lidar can't see the floor within about 1 m of the robot, and it sees
   the robot's own shoulders and arms.
+
+## Walk around obstacles with Nav2
+
+Terminal 1, a course (a MuJoCo window opens; it prints the course's goal):
+
+```bash
+ros2 run harp_sim run_sim --lidar --world obstacle_course
+```
+
+Terminal 2: `ros2 run harp_ros walker_node`, then the usual start-up. Once
+GR00T is balancing on its own, terminal 3 (rviz2 opens):
+
+```bash
+ros2 launch harp_ros nav2.launch.py
+```
+
+- In rviz2, wait until "Navigation" in the Navigation 2 panel is active
+  (about 30 s), then click "2D Goal Pose" and click-drag the goal and the
+  direction to face. The robot plans a path around what the lidar has seen
+  and walks it.
+- Courses, in order: `open_floor`, `one_box`, `slalom`, `obstacle_course`
+  (in `harp_sim/worlds/`, MuJoCo files you can copy and edit). Goals are in
+  meters from where the robot started (x ahead, y left).
+- The sim prints any contact between the robot and an obstacle; a run with
+  none never touched anything.
+- Start Nav2 after the policy runs: it needs `/odom`. Restart all three to go
+  again.
 
 ## On the real robot
 
