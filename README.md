@@ -19,27 +19,95 @@ low-level DDS topics (`rt/lowstate` in, `rt/lowcmd` out).
 
 ## Setup (on your laptop)
 
-Tested on an Apple Silicon Mac with Python 3.12. Clone everything next to this
-repo:
+Tested on an Apple Silicon Mac with Python 3.12. Linux should work with the
+same steps (the loopback interface is `lo` instead of `lo0`, and the scripts
+pick the right one), but nobody has tried it yet. Windows doesn't work:
+`gr00t/walk.py` reads keys with `termios`, which only macOS and Linux have.
+
+### 1. Install the tools
+
+You need git, cmake, a C compiler, and **Python 3.12 or newer** (the pinned
+numpy needs it). The Mac's built-in `/usr/bin/python3` is 3.9, which is too
+old.
+
+- macOS: `xcode-select --install` (git and the compiler), then
+  `brew install cmake python@3.12` ([Homebrew](https://brew.sh)). Python from
+  python.org works too.
+- Linux (Ubuntu 24.04): `sudo apt install git cmake build-essential python3.12-venv`.
+
+Check that `python3.12 --version` and `cmake --version` both work.
+
+### 2. Make a folder for everything and clone this repo into it
+
+The scripts look for Unitree's code right next to this repo, so everything
+goes in one folder of its own (about 900 MB in all):
+
+```
+harp/
+├── stanford-harp-social-interaction/   this repo
+├── cyclonedds/                         DDS library, built from source
+├── unitree_sdk2_python/                Unitree's Python SDK
+├── unitree_mujoco/                     only for its G1 model files
+└── sim-venv/                           Python packages
+```
 
 ```bash
-cd ..
-git clone https://github.com/eclipse-cyclonedds/cyclonedds -b releases/0.10.x
+mkdir harp && cd harp
+# clone this repo here
+```
+
+Run steps 3 to 5 from `harp/`.
+
+### 3. Build CycloneDDS
+
+```bash
+git clone -b releases/0.10.x https://github.com/eclipse-cyclonedds/cyclonedds
+git -C cyclonedds checkout 5041f3560c088c99e5088b2b8520b69169621196
 cd cyclonedds && mkdir build install && cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=../install -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF
 cmake --build . --target install
 cd ../..
-git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git
-git clone --depth 1 https://github.com/unitreerobotics/unitree_mujoco.git
-python3 -m venv sim-venv && source sim-venv/bin/activate
-CYCLONEDDS_HOME=$PWD/cyclonedds/install pip install -e ./unitree_sdk2_python mujoco onnxruntime
 ```
+
+### 4. Clone Unitree's SDK and G1 model
+
+```bash
+git clone --depth 1 https://github.com/unitreerobotics/unitree_sdk2_python.git
+git -C unitree_sdk2_python fetch --depth 1 origin 814556d15970dd2ecf1c9984e845ca02ab07e206
+git -C unitree_sdk2_python checkout 814556d15970dd2ecf1c9984e845ca02ab07e206
+git clone --depth 1 https://github.com/unitreerobotics/unitree_mujoco.git
+git -C unitree_mujoco fetch --depth 1 origin 1eb6642e3f3fdfb7fb13a9794fd6a2dd93ea0e7d
+git -C unitree_mujoco checkout 1eb6642e3f3fdfb7fb13a9794fd6a2dd93ea0e7d
+```
+
+The checkouts print a "detached HEAD" note; that's expected. On a Mac, cloning
+`unitree_mujoco` also warns that `terrain.STL` and `terrain.stl` collided.
+That's a Go2-W file we don't use, so ignore it.
 
 `unitree_mujoco` is only needed for its G1 model files
 (`unitree_robots/g1/scene_29dof.xml`). We don't run its simulator, so its
 local fixes (the Linux-only timer patch, the `glfw` key fix, `config.py`) aren't
-needed for our scripts. On Linux, use the same steps; the loopback interface is
-`lo` instead of `lo0`, and the scripts pick the right one.
+needed for our scripts.
+
+### 5. Install the Python packages
+
+```bash
+python3.12 -m venv sim-venv
+CYCLONEDDS_HOME=$PWD/cyclonedds/install sim-venv/bin/pip install -e ./unitree_sdk2_python mujoco==3.17.0 onnxruntime==1.31.0 numpy==2.5.4
+```
+
+The commits and versions in steps 3 to 5 are the ones we tested. Newer ones
+can break things (MuJoCo 3.17 already broke a script in `unitree_mujoco`), so
+update them together and re-test in the sim.
+
+### 6. Go into the repo
+
+Every command from here on runs from inside this repo:
+
+```bash
+cd stanford-harp-social-interaction
+../sim-venv/bin/python -c "import mujoco, onnxruntime, unitree_sdk2py; print('Setup OK')"
+```
 
 ## Run it in the sim
 
@@ -268,7 +336,9 @@ the only thing keeping the robot up. Before the first run:
    check this and refuse to run while Unitree's controller is active.
 3. Run from the Jetson or a laptop on the robot's network (`192.168.123.x`).
    Install the same Python packages there; the scripts need the
-   `unitree_mujoco` clone next to this repo for leg odometry.
+   `unitree_mujoco` clone next to this repo for leg odometry. The Jetson
+   probably has Python 3.8, too old for the pinned versions, so it may need
+   older ones (untested).
 
 ```bash
 python3 gr00t/walk.py --real --interface eth0
