@@ -14,6 +14,7 @@ import os
 import mujoco
 import numpy as np
 
+from harp_control import lidar_mount
 from harp_control.gr00t.walk import NUM_MOTORS
 from harp_control.smooth_control import wrap_angle
 
@@ -21,6 +22,7 @@ from harp_control.smooth_control import wrap_angle
 # environment (ros2/pixi.toml) sets HARP_G1_SCENE to it.
 DEFAULT_SCENE = os.environ.get("HARP_G1_SCENE")
 FEET = ("left_ankle_roll_link", "right_ankle_roll_link")
+ANKLE_HEIGHT = 0.035      # m, ankle_roll_link above the sole, in the G1 model
 
 
 def yaw_of(quat):
@@ -35,6 +37,8 @@ class LegOdometry:
         self.model = mujoco.MjModel.from_xml_path(str(scene))
         self.data = mujoco.MjData(self.model)
         self.feet = [self.model.body(name).id for name in FEET]
+        self.lidar_parent = self.model.body(lidar_mount.PARENT).id
+        self.lidar_mount = lidar_mount.rotation()
         self.position = np.zeros(2)
         self.heading = 0.0        # sum of yaw changes, radians
         self.yaw = None
@@ -60,3 +64,18 @@ class LegOdometry:
             self.position -= feet[self.stance][:2] - self.last_feet[self.stance][:2]
         self.stance = 0 if feet[0][2] < feet[1][2] else 1
         self.last_feet = feet
+
+    def lidar_pose(self):
+        """The head lidar relative to base_link (the floor under the pelvis, turned
+        by the pelvis yaw) at the last update: translation (m) and quaternion
+        (x, y, z, w). Follows the torso's lean and sway and the pelvis height, so
+        floor points stay on the floor in the costmap."""
+        d = self.data
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        unyaw = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+        torso = d.xmat[self.lidar_parent].reshape(3, 3)
+        position = unyaw @ (d.xpos[self.lidar_parent] + torso @ lidar_mount.POSITION)
+        position[2] += ANKLE_HEIGHT - self.last_feet[self.stance][2]   # pelvis above the floor
+        quat = np.zeros(4)
+        mujoco.mju_mat2Quat(quat, (unyaw @ torso @ self.lidar_mount).ravel())
+        return position, (quat[1], quat[2], quat[3], quat[0])

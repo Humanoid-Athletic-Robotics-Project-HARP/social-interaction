@@ -16,13 +16,17 @@ command arrives the joints are limp. The robot starts hanging from a virtual
 elastic band on the torso. In the viewer: 7 shortens the band (raises the
 robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
 
---box X Y puts a fixed box on the floor, X m ahead and Y m left of where the
-robot starts; --lidar adds the head lidar (lidar.py) as a ROS 2 point cloud.
+--world NAME adds a course of obstacles from worlds/NAME.xml (or any MuJoCo
+file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
+X m ahead and Y m left of where the robot starts; --lidar adds the head lidar
+(lidar.py) as a ROS 2 point cloud. Whenever the robot touches an obstacle,
+the sim prints it, so a run that prints no contact never hit anything.
 
 Run from the ROS 2 environment (DDS domain 1 by default):
   ros2 run harp_sim run_sim
   ros2 run harp_sim run_sim --headless --auto-release 4
   ros2 run harp_sim run_sim --lidar --box 2 0 --box 3 -1 0.3 1.0 0.8
+  ros2 run harp_sim run_sim --lidar --world obstacle_course
 On macOS the viewer needs mjpython, so with the viewer it restarts itself
 under mjpython.
 """
@@ -101,13 +105,55 @@ class BoxArg(argparse.Action):
         setattr(namespace, self.dest, boxes)
 
 
-def load_model(scene, boxes):
-    """Unitree's G1 scene plus fixed boxes standing on the floor."""
+def world_path(name):
+    """A world file: a path, or the name of one of harp_sim's worlds/."""
+    if os.path.exists(name):
+        return name
+    from ament_index_python.packages import get_package_share_directory
+    path = os.path.join(get_package_share_directory("harp_sim"), "worlds", name + ".xml")
+    if not os.path.exists(path):
+        raise SystemExit(f"No world {name}: not a file, and not in {os.path.dirname(path)}")
+    return path
+
+
+def load_model(scene, boxes, world=None):
+    """Unitree's G1 scene plus a course (world file) and fixed boxes standing on the floor."""
     spec = mujoco.MjSpec.from_file(scene)
+    if world:
+        # Its worldbody's geoms and sites join ours, named course/...
+        spec.attach(mujoco.MjSpec.from_file(world_path(world)), prefix="course/",
+                    frame=spec.worldbody.add_frame())
     for i, (x, y, w, d, h) in enumerate(boxes):
         spec.worldbody.add_geom(name=f"box{i}", type=mujoco.mjtGeom.mjGEOM_BOX,
                                 size=[w / 2, d / 2, h / 2], pos=[x, y, h / 2], rgba=BOX_RGBA)
     return spec.compile()
+
+
+class ContactReport:
+    """Prints each time a robot body starts touching an obstacle (anything
+    fixed in the world except the floor). Contacts flicker on and off while
+    touching, so one with a gap under GAP seconds counts as the same touch."""
+
+    GAP = 1.0   # s
+
+    def __init__(self, model):
+        self.model = model
+        self.obstacles = {g for g in range(model.ngeom)
+                          if model.geom_bodyid[g] == 0 and model.geom(g).name != "floor"}
+        self.last_seen = {}   # (robot body, obstacle geom) -> sim time
+        self.count = 0
+
+    def check(self, data):
+        for c in data.contact[:data.ncon]:
+            for robot, obstacle in ((c.geom1, c.geom2), (c.geom2, c.geom1)):
+                body = self.model.geom_bodyid[robot]
+                if obstacle not in self.obstacles or body == 0:
+                    continue
+                if data.time - self.last_seen.get((body, obstacle), -math.inf) > self.GAP:
+                    self.count += 1
+                    print(f"Contact {self.count} at t={data.time:.1f} s: {self.model.body(body).name} "
+                          f"touched {self.model.geom(obstacle).name or f'geom {obstacle}'}", flush=True)
+                self.last_seen[(body, obstacle)] = data.time
 
 
 def sensor_slice(model, name):
@@ -126,6 +172,8 @@ def main():
                         help="after this long, lower the robot onto its feet and release the band")
     parser.add_argument("--duration", type=float, help="quit after this many seconds")
     parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
+    parser.add_argument("--world", metavar="NAME",
+                        help="a course of obstacles: worlds/NAME.xml in harp_sim, or a file path")
     parser.add_argument("--box", dest="boxes", action=BoxArg, nargs="+", metavar="NUM", default=[],
                         help="X Y [W D H]: a fixed box X m ahead and Y m left of the start, "
                              f"W x D x H m (default {' x '.join(map(str, BOX_SIZE))}); repeatable")
@@ -139,7 +187,8 @@ def main():
         os.environ[UNDER_MJPYTHON] = "1"
         os.execvp("mjpython", ["mjpython", "-m", "harp_sim.run_sim", *sys.argv[1:]])
 
-    model = load_model(args.scene, args.boxes)
+    model = load_model(args.scene, args.boxes, args.world)
+    contacts = ContactReport(model)
     model.opt.timestep = SIM_DT
     data = mujoco.MjData(model)
     nu = model.nu
@@ -188,6 +237,10 @@ def main():
               "re-attaches the band. Controller keys go to the controller's terminal.")
     if lidar is not None:
         print(f"Lidar: sensor_msgs/PointCloud2 on {LIDAR_TOPIC} (ROS 2), 10 Hz.")
+    for i in range(model.nsite):
+        if model.site(i).name.startswith("course/goal"):
+            x, y = model.site_pos[i][:2]
+            print(f"Course {model.site(i).name[len('course/'):]}: {x:+.1f} m ahead, {y:+.1f} m left of the start")
 
     start = time.monotonic()
     next_step = start
@@ -247,6 +300,7 @@ def main():
             state.mode_machine = MODE_MACHINE
             state.tick = (state.tick + round(SIM_DT * 1000)) % 2**32  # ms, like the robot
             state_pub.Write(state)
+            contacts.check(data)
             if lidar is not None and data.time >= next_scan:
                 lidar.scan(data.qpos)
                 next_scan += LIDAR_PERIOD

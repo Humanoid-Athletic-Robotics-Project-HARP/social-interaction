@@ -8,8 +8,9 @@ publishes where the robot estimates it is.
 
   Subscribes  /cmd_vel        geometry_msgs/Twist  linear.x, linear.y (m/s), angular.z (rad/s)
   Publishes   /odom           nav_msgs/Odometry    odom -> base_link, 50 Hz while the policy runs
-              /tf             odom -> base_link
-              /tf_static      base_link -> livox_frame, where the head lidar sits (lidar_mount)
+              /tf             odom -> base_link, and base_link -> livox_frame: where the
+                              head lidar is, from the joints and IMU (standing upright,
+                              lidar_mount, before the policy runs)
   Services    /walker/start   std_srvs/Trigger     start the policy (like ] in walk.py)
               /walker/stop    std_srvs/Trigger     damp every joint and quit (like o)
 
@@ -40,7 +41,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 from std_srvs.srv import Trigger
-from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
+from tf2_ros import TransformBroadcaster
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 from harp_control import lidar_mount
@@ -79,21 +80,25 @@ class WalkerNode(Node):
         self.tf = TransformBroadcaster(self)
         self.create_service(Trigger, "/walker/start", self.on_start)
         self.create_service(Trigger, "/walker/stop", self.on_stop)
-        self.publish_lidar_mount()
+        # Until the policy runs there is no leg odometry, so the lidar goes where
+        # it would be on a robot standing upright.
+        self.create_timer(0.1, self.publish_standing_lidar)
 
-    def publish_lidar_mount(self):
-        # Fixed, so sent once on /tf_static: for rviz2 now and Nav2 later.
-        self.static_tf = StaticTransformBroadcaster(self)
-        position, rotation = lidar_mount.from_base_link()
+    def lidar_transform(self, stamp, position, rotation):
         tf = TransformStamped()
-        tf.header.stamp = self.get_clock().now().to_msg()
+        tf.header.stamp = stamp
         tf.header.frame_id = "base_link"
         tf.child_frame_id = lidar_mount.FRAME
         t = tf.transform.translation
         t.x, t.y, t.z = map(float, position)
         r = tf.transform.rotation
-        r.x, r.y, r.z, r.w = rotation
-        self.static_tf.sendTransform(tf)
+        r.x, r.y, r.z, r.w = map(float, rotation)
+        return tf
+
+    def publish_standing_lidar(self):
+        if not self.walker.policy_on:
+            self.tf.sendTransform(self.lidar_transform(
+                self.get_clock().now().to_msg(), *lidar_mount.from_base_link()))
 
     def on_cmd_vel(self, msg):
         self.cmd = np.array([msg.linear.x, msg.linear.y, msg.angular.z], dtype=np.float32)
@@ -163,7 +168,9 @@ class WalkerNode(Node):
         tf.transform.translation.x, tf.transform.translation.y = float(x), float(y)
         r = tf.transform.rotation
         r.x, r.y, r.z, r.w = rotation
-        self.tf.sendTransform(tf)
+        # The lidar as it really sits: the torso leans and sways as GR00T balances
+        # and walks, and a fixed transform made the floor ahead look like obstacles.
+        self.tf.sendTransform([tf, self.lidar_transform(stamp, *self.odom.lidar_pose())])
 
 
 def main():

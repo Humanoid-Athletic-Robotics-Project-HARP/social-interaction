@@ -1,0 +1,47 @@
+<!-- Level 4: odd shapes between two side walls, with paths at least about
+     1.2 m wide. In order from the start: an L-shaped wall straight ahead, a
+     table (top at 0.75 m on thin legs), a cluster of round pillars, a thin
+     pole, a rotated block, and an archway whose beam (2.05 m) is above what
+     Nav2 counts as an obstacle, so the robot can walk under it to the goal.
+     ros2 run harp_sim run_sim --lidar --world obstacle_course -->
+<mujoco>
+  <default>
+    <geom type="box" rgba="0.8 0.5 0.2 1"/>
+  </default>
+  <worldbody>
+    <geom name="side_left" size="4.15 0.1 0.6" pos="4.95 3.3 0.6"/>
+    <geom name="side_right" size="4.15 0.1 0.6" pos="4.95 -3.3 0.6"/>
+
+    <!-- L-shaped wall: across the way ahead, then turning forward -->
+    <geom name="l_across" size="0.08 1.15 0.5" pos="2.0 -0.35 0.5"/>
+    <geom name="l_forward" size="0.6 0.08 0.5" pos="2.6 0.72 0.5"/>
+
+    <!-- table on the right: 1.2 x 0.7 m top at 0.75 m, four 3 cm legs -->
+    <geom name="table_top" size="0.6 0.35 0.02" pos="4.0 -2.0 0.75"/>
+    <geom name="table_leg_1" type="cylinder" size="0.015 0.365" pos="3.45 -1.7 0.365"/>
+    <geom name="table_leg_2" type="cylinder" size="0.015 0.365" pos="4.55 -1.7 0.365"/>
+    <geom name="table_leg_3" type="cylinder" size="0.015 0.365" pos="3.45 -2.3 0.365"/>
+    <geom name="table_leg_4" type="cylinder" size="0.015 0.365" pos="4.55 -2.3 0.365"/>
+
+    <!-- round pillars on the left -->
+    <geom name="pillar_1" type="cylinder" size="0.2 0.6" pos="3.9 1.9 0.6"/>
+    <geom name="pillar_2" type="cylinder" size="0.25 0.6" pos="4.9 2.6 0.6"/>
+    <geom name="pillar_3" type="cylinder" size="0.15 0.6" pos="5.2 1.4 0.6"/>
+
+    <!-- a 5 cm pole and a block turned 40 degrees in the middle -->
+    <geom name="thin_pole" type="cylinder" size="0.025 0.75" pos="4.6 -0.3 0.75"/>
+    <geom name="rotated_block" size="0.5 0.2 0.3" pos="5.9 -0.6 0.3" euler="0 0 40"/>
+
+    <!-- archway: posts 1.3 m apart, beam at 2.05 m -->
+    <geom name="arch_post_left" size="0.1 0.1 1.0" pos="6.9 2.4 1.0"/>
+    <geom name="arch_post_right" size="0.1 0.1 1.0" pos="6.9 0.9 1.0"/>
+    <geom name="arch_beam" size="0.1 0.85 0.05" pos="6.9 1.65 2.05"/>
+    <!-- wall the archway sits in, so the goal is reached through it -->
+    <geom name="back_wall_left" size="0.1 0.4 0.6" pos="6.9 2.9 0.6"/>
+    <geom name="back_wall_right" size="0.1 2.0 0.6" pos="6.9 -1.2 0.6"/>
+
+    <!-- closes the far end, so the course can't be walked around -->
+    <geom name="end_wall" size="0.1 3.4 0.6" pos="9.1 0 0.6"/>
+    <site name="goal" pos="7.8 1.65 0.01" size="0.15 0.01" type="cylinder" rgba="0.2 0.8 0.3 0.6"/>
+  </worldbody>
+</mujoco>

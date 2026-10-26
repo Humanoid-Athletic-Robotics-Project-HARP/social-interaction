@@ -17,3 +17,4 @@
 - [ROS 2 workspace](ros2-mac.md) — ros2/ is the one environment (pixi, RoboStack Jazzy, Python 3.12) and colcon workspace with harp_control/harp_sim/harp_ros; walker_node topics; ROS 2 on DDS domain 2; Mac-only and testing gotchas
 - [Off-robot testing](off-robot-testing.md) — how others test G1 code without the robot: own-controller vs sport split, sim options, gantry practice
 - [GR00T WBC](gr00t-wbc.md) — our walking controller, harp_control's gr00t/walk.py: policy I/O, which NVIDIA config, licenses, real-robot consequences
+- [RL ideas](rl-ideas.md) — brainstorm, not a goal yet: /cmd_vel-level RL (social nav, approaching people; cheap, start here) vs joint-level RL (gait style, gestures; needs NVIDIA GPU); tools, deployment path, bigger-scope ideas, order

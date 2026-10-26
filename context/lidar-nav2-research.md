@@ -32,4 +32,16 @@ Research done 2026-10-26 for the "Get around obstacles" goal ([[project-overview
 
 **Community G1 stacks** (none says it has been validated on hardware): automaticdai/unitree-g1-navigation (Humble, FAST-LIO2 + Nav2 + collision monitor, Unitree SDK walking), cristidragomir97/grove-g1 (Jazzy, own policy over `rt/lowcmd`, FAST-LIO2 + Nav2, sim-first; closest to ours), deepglint/FAST_LIO_LOCALIZATION_HUMANOID (`humble` branch, inverted-mount driver fix), norkraigh/Unitree-G1-SLAM (offline SLAM comparison, static TF roll 180°).
 
+**Reference Nav2 configs** (read 2026-10-26):
+- Closest match: **Adyansh04/grove-g1** (upstream of cristidragomir97's fork; BSD-3, Jazzy, MuJoCo, own G1 policy). It uses a map (static layer plus slam_toolbox/AMCL), so copy its local costmap and controller, not the global side. `workspace/src/g1_navigation/config/nav2_params.yaml` has:
+  - Controller: RotationShim + RPP, regulation off because the gait ignores commands under 0.15 m/s.
+  - Footprint and goals: `robot_radius 0.45`, goal tolerance 0.5, progress checker 0.5 m in 20 s.
+  - Costmap: VoxelLayer on the raw PointCloud2 (`z_resolution 0.125` × 16 voxels, so the voxel column contains the 1.22 m sensor), height band 0.08–1.80.
+  - Range limits: `obstacle_max_range 3.0`, because torso tilt makes far floor look like obstacles. `obstacle_min_range 0.6` is its self-filter.
+  - It starts each Nav2 server as its own node in `launch/nav2.launch.py`, because composed bringup hung.
+- automaticdai/unitree-g1-navigation (Apache-2.0, Humble, never run in a sim or on hardware): crop-box self-filter node (`sensor_adapter.py`) and a collision monitor config (`collision_monitor.yaml`), both worth borrowing ideas from.
+- No-map recipe: the Nav2 GPS tutorial (rolling global costmap, no static layer); `global_frame: odom` in bt_navigator and both costmaps.
+- For us: `obstacle_min_range` about 0.6 should do the self-filter with no extra node, since our body points are 0.11–0.56 m from the sensor and the nearest floor is about 0.9 m. Use VoxelLayer, whose 3D raytracing doesn't clear cells hidden in the blind ring.
+- Jazzy's `navigation_launch.py` also starts `route_server` (`ros-jazzy-nav2-route` is on RoboStack) as well as `docking_server` (not on RoboStack).
+
 Related: [[mujoco-sim]], [[ros2-mac]], [[g1-builtin-apis]], [[unitree-resources]]

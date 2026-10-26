@@ -1,0 +1,82 @@
+# rviz2 view for Nav2 (nav2.launch.py opens it). The world holds still: the
+# fixed frame is odom, where the robot started. Shows the lidar, the costmaps
+# (local: what's near; global: what it plans on), the plan and the footprint.
+# Toolbar "2D Goal Pose": click where to go, drag to set the facing.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: nav2_rviz_plugins/Navigation 2
+    Name: Navigation 2
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: odom
+      Cell Size: 1
+      Plane Cell Count: 20
+    - Class: rviz_default_plugins/Map
+      Name: Global costmap
+      Enabled: true
+      Topic:
+        Value: /global_costmap/costmap
+      Color Scheme: costmap
+      Alpha: 0.4
+    - Class: rviz_default_plugins/Map
+      Name: Local costmap
+      Enabled: true
+      Topic:
+        Value: /local_costmap/costmap
+      Color Scheme: costmap
+      Alpha: 0.6
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Lidar
+      Enabled: true
+      Topic:
+        Value: /utlidar/cloud_livox_mid360
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: AxisColor
+      Axis: Z
+      Use Fixed Frame: true
+      Autocompute Value Bounds: false
+      Min Value: 0
+      Max Value: 1.5
+    - Class: rviz_default_plugins/Path
+      Name: Plan
+      Enabled: true
+      Topic:
+        Value: /plan
+      Color: 25; 255; 0
+      Line Style: Billboards
+      Line Width: 0.04
+    - Class: rviz_default_plugins/Polygon
+      Name: Footprint
+      Enabled: true
+      Topic:
+        Value: /local_costmap/published_footprint
+      Color: 0; 200; 255
+    - Class: rviz_default_plugins/Axes
+      Name: base_link
+      Enabled: true
+      Reference Frame: base_link
+      Length: 0.5
+      Radius: 0.02
+  Global Options:
+    Fixed Frame: odom
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 12
+      Pitch: 1.1
+      Yaw: 3.14
+      Focal Point:
+        X: 3.5
+        Y: 0
+        Z: 0

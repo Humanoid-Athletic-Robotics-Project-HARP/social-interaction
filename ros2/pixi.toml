@@ -42,6 +42,18 @@ cmake = ">=4.4.4,<5"
 pkg-config = ">=0.29.2,<0.30"
 make = ">=4.4.1,<5"
 ninja = ">=1.13.2,<2"
+# Nav2, only the parts we use (RoboStack has no nav2-docking, so not the
+# navigation2 metapackage or nav2_bringup's launch files).
+ros-jazzy-nav2-bt-navigator = ">=1.3.13,<2"
+ros-jazzy-nav2-controller = ">=1.3.13,<2"
+ros-jazzy-nav2-planner = ">=1.3.13,<2"
+ros-jazzy-nav2-behaviors = ">=1.3.13,<2"
+ros-jazzy-nav2-lifecycle-manager = ">=1.3.13,<2"
+ros-jazzy-nav2-costmap-2d = ">=1.3.13,<2"
+ros-jazzy-nav2-navfn-planner = ">=1.3.13,<2"
+ros-jazzy-nav2-graceful-controller = ">=1.3.13,<2"
+ros-jazzy-nav2-rviz-plugins = ">=1.3.13,<2"
+ros-jazzy-nav2-simple-commander = ">=1.3.13,<2"
 
 [pypi-dependencies]
 # The versions we tested; mujoco's wheel also brings mjpython for the macOS viewer.

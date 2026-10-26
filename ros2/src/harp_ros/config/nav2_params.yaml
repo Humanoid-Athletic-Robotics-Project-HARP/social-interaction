@@ -1,0 +1,214 @@
+# Nav2 for the G1: go to a pose a few meters away around obstacles, seen by
+# the head lidar, with no map. Everything is in the odom frame of walker_node's
+# leg odometry, so goals are relative to where the policy started.
+#
+# Starting points: nav2_bringup's Jazzy params and Adyansh04/grove-g1 (a G1
+# with its own walking policy in MuJoCo). Reasons for our values are next to
+# them; details in context/lidar-nav2-research.md.
+
+bt_navigator:
+  ros__parameters:
+    global_frame: odom
+    robot_base_frame: base_link
+    odom_topic: /odom
+    transform_tolerance: 0.5
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    navigators: ["navigate_to_pose"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    # default_nav_to_pose_bt_xml (our behavior_trees/navigate.xml) is set by nav2.launch.py.
+
+controller_server:
+  ros__parameters:
+    controller_frequency: 10.0
+    enable_stamped_cmd_vel: false   # walker_node takes geometry_msgs/Twist
+    odom_topic: /odom
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5   # we never command sideways steps
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      # Turning in place and GR00T's slow start look like no progress for a while.
+      required_movement_radius: 0.3
+      movement_time_allowance: 20.0
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
+      # GR00T drifts about 0.1 m after it stops.
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.35
+    FollowPath:
+      # Park & Kuipers' law, the same as move_distance --to (smooth_control.py).
+      plugin: "nav2_graceful_controller::GracefulController"
+      transform_tolerance: 0.5
+      min_lookahead: 0.3
+      max_lookahead: 1.0
+      k_phi: 2.0
+      beta: 0.4
+      lambda: 2.0
+      # GR00T walks at about 85% of the command, and below |cmd| 0.05 it
+      # switches to standing still, so the minimums stay well above that.
+      v_linear_min: 0.1
+      v_linear_max: 0.3
+      v_angular_max: 0.6
+      v_angular_min_in_place: 0.3
+      slowdown_radius: 0.8
+      initial_rotation: true
+      initial_rotation_tolerance: 0.75
+      prefer_final_rotation: true
+      allow_backward: false
+      in_place_collision_resolution: 0.1
+
+# Both costmaps read the head lidar the same way:
+#  - marking: points 0.08-1.8 m above the floor, from 0.6 m to 3 m from the
+#    lidar. Under 0.6 m is the robot's own shoulders and arms (0.11-0.56 m;
+#    the nearest floor is about 0.9 m away). Past 3 m, torso tilt makes floor
+#    points look like obstacles.
+#  - clearing: every point, floor included, so free space gets cleared.
+#  - VoxelLayer raytraces in 3D, so an obstacle that moves into the blind ring
+#    near the feet (closer than about 0.9 m) stays marked.
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      global_frame: odom
+      robot_base_frame: base_link
+      transform_tolerance: 0.5
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      robot_radius: 0.4
+      track_unknown_space: true
+      plugins: ["voxel_layer", "inflation_layer"]
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: true
+        footprint_clearing_enabled: true
+        origin_z: 0.0
+        z_resolution: 0.125
+        z_voxels: 16   # 0-2 m, which has to include the lidar at 1.21 m
+        max_obstacle_height: 2.0
+        mark_threshold: 0
+        unknown_threshold: 16
+        publish_voxel_map: false
+        observation_sources: lidar_marking lidar_clearing
+        lidar_marking:
+          topic: /utlidar/cloud_livox_mid360
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          min_obstacle_height: 0.08
+          max_obstacle_height: 1.8
+          obstacle_min_range: 0.6
+          obstacle_max_range: 3.0
+        lidar_clearing:
+          topic: /utlidar/cloud_livox_mid360
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          min_obstacle_height: -0.5
+          max_obstacle_height: 2.0
+          raytrace_min_range: 0.0
+          raytrace_max_range: 6.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.8
+        cost_scaling_factor: 3.0
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      global_frame: odom
+      robot_base_frame: base_link
+      transform_tolerance: 0.5
+      update_frequency: 2.0
+      publish_frequency: 1.0
+      # No map: a window that moves with the robot, big enough for goals
+      # about 9 m away (it is centered on the robot).
+      rolling_window: true
+      width: 20
+      height: 20
+      resolution: 0.05
+      robot_radius: 0.4
+      track_unknown_space: true
+      plugins: ["voxel_layer", "inflation_layer"]
+      # The same lidar layer and inflation as the local costmap.
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: true
+        footprint_clearing_enabled: true
+        origin_z: 0.0
+        z_resolution: 0.125
+        z_voxels: 16   # 0-2 m, which has to include the lidar at 1.21 m
+        max_obstacle_height: 2.0
+        mark_threshold: 0
+        unknown_threshold: 16
+        publish_voxel_map: false
+        observation_sources: lidar_marking lidar_clearing
+        lidar_marking:
+          topic: /utlidar/cloud_livox_mid360
+          data_type: "PointCloud2"
+          marking: true
+          clearing: false
+          min_obstacle_height: 0.08
+          max_obstacle_height: 1.8
+          obstacle_min_range: 0.6
+          obstacle_max_range: 3.0
+        lidar_clearing:
+          topic: /utlidar/cloud_livox_mid360
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          min_obstacle_height: -0.5
+          max_obstacle_height: 2.0
+          raytrace_min_range: 0.0
+          raytrace_max_range: 6.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.8
+        cost_scaling_factor: 3.0
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.3
+      use_astar: false
+      allow_unknown: true   # plan through space the lidar hasn't seen yet
+
+behavior_server:
+  ros__parameters:
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    enable_stamped_cmd_vel: false
+    # Only turning and waiting: backing up is risky for a walking robot.
+    behavior_plugins: ["spin", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    local_frame: odom
+    global_frame: odom
+    robot_base_frame: base_link
+    transform_tolerance: 0.5
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 0.5
+    min_rotational_vel: 0.3
+    rotational_acc_lim: 1.0
+
+lifecycle_manager_navigation:
+  ros__parameters:
+    autostart: true
+    node_names: ["controller_server", "planner_server", "behavior_server", "bt_navigator"]
