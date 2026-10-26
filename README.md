@@ -214,6 +214,50 @@ It stops within 8 cm and 5° of the target by its own estimate. Moves took
 13–21 s, including the 1.5 s settle. Only the robot's own estimate guides it,
 so errors from earlier moves carry over, as in the example above.
 
+### Example: weave left, then right, with two curves
+
+The robot curves 1 m to the left over 2 m, straightens out facing forward
+again, then curves 1 m back to the right. It ends 4 m straight ahead of where
+it started, facing the way it started, without stopping to turn in place.
+
+Terminal 1:
+
+```bash
+../sim-venv/bin/mjpython sim/run_sim.py
+```
+
+Terminal 2:
+
+```bash
+../sim-venv/bin/python move_distance.py --to 2 1 0 --to 2 -1 0 --speed 0.3
+```
+
+| Step | Where | Do | You should see |
+|---|---|---|---|
+| 1 | terminal 2 | wait about 3 s | `Stand pose reached. Lower the robot onto its feet ...` |
+| 2 | MuJoCo window | press `8` about five times | the feet touch the floor |
+| 3 | terminal 2 | press `]` | `Policy on: GR00T is balancing. Release the band ...` |
+| 4 | MuJoCo window | press `9` once | terminal 1: `Band released: the robot is on its own` |
+| 5 | | wait a few seconds | the robot steadies itself |
+| 6 | terminal 2 | press `g` | a curve to the left that straightens out, a pause, then a curve to the right |
+| 7 | terminal 2 | press `o` when it says `All moves done` | `Stopped: all joints damped, so the robot sinks.` |
+
+Terminal 2 after step 6 (from a sim run on 2026-10-25):
+
+```
+[1/2] Walking to +2.00 m forward, +1.00 m left, ending facing +0 deg, at up to 0.30 m/s
+  Target (+2.00, +1.00) m facing +0 deg, estimated (+1.94, +0.96) m facing +3.2 deg
+[2/2] Walking to +2.00 m forward, -1.00 m left, ending facing +0 deg, at up to 0.30 m/s
+  Target (+2.00, -1.00) m facing +0 deg, estimated (+1.93, -1.03) m facing +4.8 deg
+All moves done. GR00T keeps balancing; support the robot, then press o to stop (it will sink).
+```
+
+In that run the robot really ended 3.93 m forward and 0.01 m to the left of
+where it started, facing 7° left (the sim's true position, from `--log`). The
+two moves took about 15 s each. To approach someone instead, give the final
+heading toward them: `--to 2 1 90` ends 2 m ahead and 1 m to the left, facing
+left.
+
 ## On the real robot (not tested yet)
 
 Running our own controller means turning Unitree's off, and then our code is
