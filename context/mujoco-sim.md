@@ -5,9 +5,11 @@ metadata:
   type: reference
 ---
 
-**What we use:** `sim/run_sim.py`. It loads Unitree's G1 model (`unitree_mujoco/unitree_robots/g1/scene_29dof.xml`, cloned next to the repo) and speaks the robot's low-level topics. It reads `rt/lowcmd` and publishes `rt/lowstate` (unitree_hg) every 5 ms step, with `rpy` and `tick` filled in. It uses DDS domain 1 on loopback; the real robot uses 0. It has an elastic band with keys 7/8/9, and `--auto-release` for scripted tests.
+**What we use:** `sim/run_sim.py`. It loads Unitree's G1 model (`unitree_mujoco/unitree_robots/g1/scene_29dof.xml`, cloned next to the repo) and speaks the robot's low-level topics. It reads `rt/lowcmd` and publishes `rt/lowstate` (unitree_hg) every 5 ms step, with `rpy` and `tick` filled in. It uses DDS domain 1 on loopback; the real robot uses 0. It has an elastic band with keys 7/8/9, and `--auto-release` for scripted tests. There is no `sport` service in any MuJoCo option, so only our own controller ([[gr00t-wbc]]) walks in it.
 
-**Always run it with the viewer** (`mjpython sim/run_sim.py`, plus `--auto-release` when scripting), never `--headless`, so the teammate can watch the robot move. A teammate asked for this on 2026-10-25. There is no `sport` service in any MuJoCo option, so only our own controller ([[gr00t-wbc]]) walks in it.
+**Always run it with the viewer** (`mjpython sim/run_sim.py`, plus `--auto-release` when scripting), never `--headless`, so the teammate can watch the robot move. A teammate asked for this on 2026-10-25.
+
+**Scripted tests** (how the `--to` results were measured, 2026-10-25): start `mjpython sim/run_sim.py --auto-release 9 --log`. Run the controller in a pseudo-terminal (Python `pty.fork`), because `TerminalKeys` reads keys from a real terminal. Pass its flags as separate arguments: one quoted string fails argparse. Press `]` once the logged pelvis z drops below 0.81 (feet down), wait about 6 s, then press `g`, and press `o` after `All moves done`. With `--auto-release` under about 9 s, the band can drop before the stand pose and `]`. If the controller exits, stop the sim, or the band releases a limp robot. For ground truth, take the last `--log` line before each move's `Target` report: the line nearest it can fall inside the next move.
 
 **Why not unitree_mujoco's `simulate_python`** (found 2026-10-25):
 - Its bridge computes the PD torque once per received `rt/lowcmd`, on the DDS thread, and holds it. With GR00T this blew up the physics on landing. `run_sim.py` recomputes PD every step from the latest command, like NVIDIA's GR00T sim and the robot's motor drivers.
