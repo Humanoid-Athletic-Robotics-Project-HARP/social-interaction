@@ -14,7 +14,7 @@ the project structure:
 |---|---|
 | `ros2/src/harp_control` | Walking. The GR00T controller (`walk`), planned moves and curves (`move_distance`), and our leg odometry. |
 | `ros2/src/harp_sim` | Our MuJoCo sim of the G1 (`run_sim`), including the head lidar and the obstacle courses in `worlds/`. |
-| `ros2/src/harp_ros` | The ROS 2 side. `walker_node` takes `/cmd_vel` and publishes `/odom` and `/tf`; Nav2's launch file and config. |
+| `ros2/src/harp_ros` | The ROS 2 side. `walker_node` takes `/cmd_vel` and publishes `/odom` and `/tf`; `lidar_relay` brings the robot's lidar into ROS 2; Nav2's launch file and config. |
 | `ros2/src/harp_eval` | Testing. Course tests in the sim (`course`), recording any run (`run_recorder`), comparing and checking runs (`runs`), and replaying a run into Nav2. |
 | `ros2/src/spatio_temporal_voxel_layer` | STVL, the Nav2 costmap layer that lets lidar marks fade once an obstacle has moved on. A copy of the upstream package, built from here; our changes and how to update it are in `HARP_PATCHES.md`. |
 | `ros2/pixi.toml`, `pixi.lock` | The pinned environment: ROS 2 Jazzy, Python 3.12, MuJoCo and Unitree's SDK. |
@@ -62,7 +62,8 @@ both the sim and the real robot, and we try everything in the sim first.
   costmaps forget where a person was once they've moved on (STVL), tested
   with a person crossing the robot's path (`crossing`) and one walking
   toward it (`oncoming`).
-- ⬜ Robot: real lidar data in ROS 2, then the same walk.
+- 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
+  `lidar_relay`, so far only in the sim (course runs go through it).
 
 ### Find people and walk up to them
 
@@ -272,7 +273,9 @@ rviz2 -d $(ros2 pkg prefix harp_sim)/share/harp_sim/rviz/lidar.rviz
 starts (a 0.5 m cube by default), and you can add as many as you want.
 `--lidar` turns on the head lidar (a Livox MID-360), which publishes a
 point cloud at 10 Hz on `/utlidar/cloud_livox_mid360` in `livox_frame`,
-the same names Unitree uses on the real robot.
+the same names Unitree uses on the real robot. `--lidar-dds` publishes it
+the way the robot does instead, and `ros2 run harp_ros lidar_relay` brings
+it into ROS 2; course tests run that way.
 
 rviz2 needs `walker_node` running to know where the lidar sits on the
 robot (it's mounted upside down, like on the G1). Stand the robot up so the
@@ -383,6 +386,9 @@ ros2 run harp_control walk --real --interface en0
 (`ifconfig` will show it). `move_distance` takes the same flags, and
 `walker_node` takes `--ros-args -p real:=true -p interface:=en0`. Pressing
 `o`, Ctrl-C, or any error damps every joint, so keep the robot supported.
+
+For Nav2, also run `ros2 run harp_ros lidar_relay --ros-args -p real:=true
+-p interface:=en0`, which brings the head lidar into ROS 2.
 
 ## More detail
 

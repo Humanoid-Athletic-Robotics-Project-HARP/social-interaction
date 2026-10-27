@@ -12,7 +12,7 @@
 - [GR00T WBC](gr00t-wbc.md) — when changing the walking controller or preparing it for the robot
 - [ROS 2 workspace](ros2-mac.md) — when building or changing ros2/, hitting pixi/macOS errors, or changing walker_node
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body
-- [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, adding mapping, or borrowing from other G1 stacks
+- [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, changing lidar_relay, adding mapping, or borrowing from other G1 stacks
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack
 - [G1 official docs](g1-official-docs.md) — for a Unitree doc page, or the robot's address, login and sensors
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM

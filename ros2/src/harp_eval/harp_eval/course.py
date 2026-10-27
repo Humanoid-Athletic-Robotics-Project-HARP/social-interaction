@@ -36,7 +36,8 @@ from harp_eval import run_summary
 from harp_eval.run_recorder import CONDITIONS, run_name
 
 # Each program's lines in launch.log, by the launch's process name, go to these files.
-LOG_FILES = {"run_sim": "sim.log", "walker_node": "walker.log", "run_recorder": "recorder.log",
+LOG_FILES = {"run_sim": "sim.log", "walker_node": "walker.log", "lidar_relay": "lidar_relay.log",
+             "run_recorder": "recorder.log",
              "course_goal": "goal.log", "rviz2": "rviz.log"}
 NAV2 = ("controller_server", "planner_server", "behavior_server", "bt_navigator",
         "lifecycle_manager")

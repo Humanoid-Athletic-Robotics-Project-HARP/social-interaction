@@ -3,7 +3,7 @@ name: ros2-mac
 description: Read when building or changing the ros2/ environment (pixi.toml, packages, executables), hitting a pixi or macOS library error, or changing walker_node
 metadata:
   type: reference
-  updated: 2026-10-27T21:31:55Z
+  updated: 2026-10-27T23:03:59Z
   covers: [ros2/pixi.toml, ros2/src/*/setup.py, ros2/src/*/package.xml, ros2/src/harp_ros/harp_ros/walker_node.py, ros2/src/spatio_temporal_voxel_layer/HARP_PATCHES.md, ros2/src/spatio_temporal_voxel_layer/spatio_temporal_voxel_layer/CMakeLists.txt]
 ---
 
@@ -11,7 +11,7 @@ metadata:
 
 **Always `pixi run --as-is ...` or `pixi shell --as-is`.** Plain `pixi run`/`pixi shell` reinstalls the editable `unitree_sdk2py` each time, and for about 0.25 s its import files are missing; a sim or node starting in that window dies with "No module named 'unitree_sdk2py'". Use plain `pixi install` / `pixi run build` only to change the environment, never while something else is starting.
 
-**Packages** (ament_python, `ros2/src/`): `harp_control` (GR00T walker, leg odometry, curves, `move_distance`, `runlog.py`; no ROS 2 dependencies), `harp_sim` (the sim, courses and criteria in `worlds/`), `harp_ros` (`walker_node`, Nav2 config and launch), `harp_eval` (course tests, run logging, replay; depends on the other three). `package.xml` uses the placeholder `todo@todo.todo`: no personal emails in the repo.
+**Packages** (ament_python, `ros2/src/`): `harp_control` (GR00T walker, leg odometry, curves, `move_distance`, `runlog.py`; no ROS 2 dependencies), `harp_sim` (the sim, courses and criteria in `worlds/`), `harp_ros` (`walker_node`, `lidar_relay`, Nav2 config and launch), `harp_eval` (course tests, run logging, replay; depends on the other three). `package.xml` uses the placeholder `todo@todo.todo`: no personal emails in the repo.
 - **STVL** (`ros2/src/spatio_temporal_voxel_layer`, C++, the Nav2 costmap layer whose marks fade, [[nav2-sim]]): a plain copy of upstream (no `.git`), not on RoboStack. Its `HARP_PATCHES.md` has the upstream commit, our two macOS patches to its CMakeLists.txt (Boost without `system`, no `--no-undefined` on Apple) and how to update it. Its deps are in `pixi.toml` (openvdb, laser-geometry, pcl-conversions, tf2-sensor-msgs, ament-cmake-vendor-package; about 26 MB download).
 
 **walker_node:** wraps the GR00T walker. `/cmd_vel` in (clipped to walk.py's limits, zeroed after `cmd_timeout` 0.5 s of silence); `/odom` and `/tf` (`odom` → `base_link`, planar, really a base_footprint) at 50 Hz, plus `base_link` → `livox_frame` from `LegOdometry.lidar_pose()` ([[nav2-sim]]); `/joint_states`, `/imu`, `/walker/policy`, `/harp/events`. Services `/walker/start` (refused before the stand pose), `/walker/stop` (damp and exit). `auto_start` (sim only) starts the policy on the sim's `feet_down` event. rclpy spins in a thread with `SignalHandlerOptions.NO` so Ctrl-C reaches the walker loop and damps.
@@ -27,5 +27,7 @@ metadata:
 **Build (`pixi run build`):** colcon with `--merge-install --symlink-install` over our packages and `unitree_ros2`'s messages. Symlink install means Python edits need no rebuild. It also symlinks `libunitree_*.dylib` and `libspatio_temporal_voxel_layer__*.dylib` into the env's `lib/`, because ROS finds type-support libraries through `DYLD_LIBRARY_PATH`, which pixi and SIP strip on macOS ("Could not load library libunitree_hg__rosidl_typesupport_introspection_c.dylib"). **Any package we build that defines messages or services needs the same link.** Without it STVL fails as "Failed to initialize costmap plugin stvl_layer! could not create service: type_support is null", Nav2's bringup aborts, and the robot stands still. Rerun the build after reinstalling the environment.
 - Deleting or renaming a file a package installs (a world, a config) leaves dangling links, and the next build fails with "can't copy …: doesn't exist or not a regular file". Remove `build/<package>` and the dead link under `install/share/<package>/`, then build again.
 - CMake args: `CMAKE_MODULE_PATH=$CONDA_PREFIX/lib/cmake/OpenVDB` so STVL's `openvdb_vendor` finds the env's OpenVDB (it only looks in Linux paths, and would otherwise download and build OpenVDB 10); `CMAKE_IGNORE_PREFIX_PATH=/opt/homebrew` so CMake doesn't pick up Homebrew's Boost.
+
+**Exiting a node that reads through unitree_sdk2py** (`lidar_relay`): catch `ExternalShutdownException` from `rclpy.spin` and `Close()` the SDK subscriber before returning. With the reader still open, the interpreter hangs in garbage collection and launch has to SIGKILL it after 15 s.
 
 **Harmless:** "Failed to parse type hash" warnings (unitree_sdk2py isn't a ROS 2 publisher); rviz2's GLSL "Sampler error" for Map displays on the Mac.

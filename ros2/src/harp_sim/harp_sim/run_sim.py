@@ -19,8 +19,9 @@ robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
 --world NAME adds a course of obstacles from worlds/NAME.xml (or any MuJoCo
 file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
 X m ahead and Y m left of where the robot starts; --lidar adds the head lidar
-(lidar.py) as a ROS 2 point cloud. A world can also have obstacles that walk
-back and forth, such as a person crossing (movers.py). Whenever the robot
+(lidar.py) as a ROS 2 point cloud, or with --lidar-dds as the robot's lidar
+service publishes it (for harp_ros's lidar_relay). A world can also have
+obstacles that walk back and forth, such as a person crossing (movers.py). Whenever the robot
 touches an obstacle,
 the sim prints it, so a run that prints no contact never hit anything.
 
@@ -205,8 +206,12 @@ def main():
                              f"W x D x H m (default {' x '.join(map(str, BOX_SIZE))}); repeatable")
     parser.add_argument("--lidar", action="store_true",
                         help="simulate the head lidar and publish it as a ROS 2 point cloud")
+    parser.add_argument("--lidar-dds", action="store_true",
+                        help="simulate the head lidar and publish it as the robot does: "
+                             "rt/utlidar/cloud_livox_mid360 on --domain, for lidar_relay")
     # ros2 launch adds --ros-args to Node actions; those are for rclpy.
     args = parser.parse_args(remove_ros_args(sys.argv)[1:])
+    args.lidar = args.lidar or args.lidar_dds
     if not args.scene:
         parser.error("no G1 model: pass --scene, or set HARP_G1_SCENE (the ROS 2 environment does)")
     if sys.platform == "darwin" and not args.headless and not os.environ.get(UNDER_MJPYTHON):
@@ -262,17 +267,16 @@ def main():
     info_pub.publish(String(data=json.dumps({
         "scene": args.scene, "world": args.world, "boxes": args.boxes, "goal": goal,
         "movers": movers.names,
-        "auto_release": args.auto_release, "hold_band": args.hold_band, "lidar": args.lidar, "headless": args.headless,
+        "auto_release": args.auto_release, "hold_band": args.hold_band, "lidar": args.lidar, "lidar_dds": args.lidar_dds, "headless": args.headless,
         "argv": remove_ros_args(sys.argv)[1:]})))
     next_truth = 0.0
 
+    ChannelFactoryInitialize(args.domain, args.interface)
     lidar = None
     if args.lidar:
-        from harp_sim.lidar import PERIOD as LIDAR_PERIOD, TOPIC as LIDAR_TOPIC, SimLidar
-        lidar = SimLidar(model)
+        from harp_sim.lidar import PERIOD as LIDAR_PERIOD, ROBOT_TOPIC, TOPIC, SimLidar
+        lidar = SimLidar(model, dds=args.lidar_dds)
         next_scan = 0.0
-
-    ChannelFactoryInitialize(args.domain, args.interface)
     state_pub = ChannelPublisher("rt/lowstate", LowState_)
     state_pub.Init()
     latest_cmd = [None]
@@ -298,7 +302,8 @@ def main():
         print("MuJoCo window keys: 8 lowers the robot, 7 raises it, 9 releases or "
               "re-attaches the band. Controller keys go to the controller's terminal.")
     if lidar is not None:
-        print(f"Lidar: sensor_msgs/PointCloud2 on {LIDAR_TOPIC} (ROS 2), 10 Hz.")
+        print(f"Lidar: PointCloud2 on {ROBOT_TOPIC} (DDS domain {args.domain}, for lidar_relay), 10 Hz."
+              if args.lidar_dds else f"Lidar: sensor_msgs/PointCloud2 on {TOPIC} (ROS 2), 10 Hz.")
     for i in range(model.nsite):
         if model.site(i).name.startswith("course/goal"):
             x, y = model.site_pos[i][:2]

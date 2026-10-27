@@ -20,11 +20,12 @@ setup(
     zip_safe=False,
     maintainer="HARP Human Interaction team",
     maintainer_email="todo@todo.todo",
-    description="ROS 2 for the G1: walker_node (/cmd_vel in, /odom and /tf out) and Nav2 (nav2.launch.py).",
+    description="ROS 2 for the G1: walker_node (/cmd_vel in, /odom and /tf out), lidar_relay (the robot's lidar into our ROS 2 domain) and Nav2 (nav2.launch.py).",
     license="TODO",
     entry_points={
         "console_scripts": [
             "walker_node = harp_ros.walker_node:main",
+            "lidar_relay = harp_ros.lidar_relay:main",
         ],
     },
 )

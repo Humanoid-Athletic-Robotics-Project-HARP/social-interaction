@@ -4,8 +4,10 @@ all recorded by run_recorder. Start it with the course command, which makes
 the run folder first and can repeat it:
   ros2 run harp_eval course slalom --tag rangecut --repeat 3
 
-Order: the recorder, sim, walker_node and course_goal start together. The sim
-lowers the robot after 15 s (time for walker_node to reach its stand pose);
+Order: the recorder, sim, walker_node, lidar_relay and course_goal start
+together. The sim publishes its lidar as the robot does (--lidar-dds) and
+lidar_relay brings it into ROS 2, so the run uses the robot's lidar path.
+The sim lowers the robot after 15 s (time for walker_node to reach its stand pose);
 walker_node starts the policy by itself on the sim's "feet down" (auto_start);
 Nav2 starts once walker_node prints "Policy on". The band stays on until
 course_goal asks for its release (Nav2 active, and other course runs ready:
@@ -47,11 +49,13 @@ def generate_launch_description():
                         "lidar_rate": PythonExpression(["float('", arg("lidar_rate"), "' or 0)"]),
                         "summarize": False}])
     sim = Node(package="harp_sim", executable="run_sim", output="both",
-               arguments=["--lidar", "--world", arg("world"), "--auto-release", AUTO_RELEASE, "--hold-band", "--log",
+               arguments=["--lidar-dds", "--world", arg("world"), "--auto-release", AUTO_RELEASE, "--hold-band", "--log",
                           "--domain", arg("sim_domain")])
     walker = Node(package="harp_ros", executable="walker_node", name="walker", output="both",
                   parameters=[{"auto_start": True,
                                "domain": ParameterValue(arg("sim_domain"), value_type=int)}])
+    relay = Node(package="harp_ros", executable="lidar_relay", name="lidar_relay", output="both",
+                 parameters=[{"domain": ParameterValue(arg("sim_domain"), value_type=int)}])
     goal = Node(package="harp_eval", executable="course_goal", name="course_goal", output="both",
                 parameters=[{"goal": arg("goal"), "timeout": arg("timeout")}])
 
@@ -84,7 +88,7 @@ def generate_launch_description():
           ("replay_reason", "replay_dir", "lidar_fields", "floor_surface", "tether",
            "battery_percent", "people_nearby", "lighting")],
         SetEnvironmentVariable("PYTHONUNBUFFERED", "1"),
-        recorder, sim, walker, goal,
+        recorder, sim, walker, relay, goal,
         RegisterEventHandler(OnProcessIO(target_action=walker, on_stdout=start_nav2)),
         RegisterEventHandler(OnProcessExit(target_action=goal, on_exit=[EmitEvent(event=Shutdown(
             reason="course_goal finished"))])),
