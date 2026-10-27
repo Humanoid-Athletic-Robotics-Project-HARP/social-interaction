@@ -1,14 +1,14 @@
 """Look through recorded runs (runs/, see run_recorder.py) and compare them.
 
-  ros2 run harp_ros runs list [--world slalom] [--tag rangecut] [--last 20]
-  ros2 run harp_ros runs show RUN            # summary.json of one run (name or unique part)
-  ros2 run harp_ros runs compare --world slalom [--tag a --tag b] [--plot paths.png]
-  ros2 run harp_ros runs check [--world slalom] [--tag a]   # pass rate against the course criteria
-  ros2 run harp_ros runs resummarize RUN... | --all # recompute summaries (after adding a metric)
-  ros2 run harp_ros runs set RUN tether=gantry floor_surface=carpet battery_percent=80
+  ros2 run harp_eval runs list [--world slalom] [--tag rangecut] [--last 20]
+  ros2 run harp_eval runs show RUN            # summary.json of one run (name or unique part)
+  ros2 run harp_eval runs compare --world slalom [--tag a --tag b] [--plot paths.png]
+  ros2 run harp_eval runs check [--world slalom] [--tag a]   # pass rate against the course criteria
+  ros2 run harp_eval runs resummarize RUN... | --all # recompute summaries (after adding a metric)
+  ros2 run harp_eval runs set RUN tether=gantry floor_surface=carpet battery_percent=80
                                  manual.end_position_measured="2.95 0.10" note="..."
-  ros2 run harp_ros runs pin RUN / unpin RUN        # pinned runs are never pruned
-  ros2 run harp_ros runs prune [--dry-run]          # apply the retention limits in logging.yaml
+  ros2 run harp_eval runs pin RUN / unpin RUN        # pinned runs are never pruned
+  ros2 run harp_eval runs prune [--dry-run]          # apply the retention limits in logging.yaml
 """
 
 import argparse
@@ -17,8 +17,8 @@ import statistics
 import sys
 
 from harp_control import runlog
-from harp_ros import run_summary
-from harp_ros.run_recorder import load_config
+from harp_eval import run_summary
+from harp_eval.run_recorder import load_config
 
 
 def summaries(world=None, tags=None, last=None):
@@ -173,7 +173,7 @@ def cmd_check(args):
 
 def cmd_set(args):
     """Edit run.yaml fields afterwards: conditions by name, or dotted keys (manual.video)."""
-    from harp_ros.run_recorder import CONDITIONS
+    from harp_eval.run_recorder import CONDITIONS
     run = find_run(args.run)
     meta = run_summary.read_meta(run)
     for item in args.values:

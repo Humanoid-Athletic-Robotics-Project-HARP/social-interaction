@@ -20,15 +20,11 @@ setup(
     zip_safe=False,
     maintainer="HARP Human Interaction team",
     maintainer_email="todo@todo.todo",
-    description="ROS 2 for the G1: walker_node (/cmd_vel in, /odom and /tf out), Nav2 (nav2.launch.py), and run logging and course tests (run_recorder, course, runs).",
+    description="ROS 2 for the G1: walker_node (/cmd_vel in, /odom and /tf out) and Nav2 (nav2.launch.py).",
     license="TODO",
     entry_points={
         "console_scripts": [
             "walker_node = harp_ros.walker_node:main",
-            "run_recorder = harp_ros.run_recorder:main",
-            "course = harp_ros.course:main",
-            "course_goal = harp_ros.course_goal:main",
-            "runs = harp_ros.runs:main",
         ],
     },
 )

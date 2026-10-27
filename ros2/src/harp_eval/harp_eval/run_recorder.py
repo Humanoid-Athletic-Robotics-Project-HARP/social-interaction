@@ -11,9 +11,9 @@ publish; this node writes. What it records is in config/logging.yaml.
 
 course (the course test command) starts it from course.launch.py. On its own,
 for any session (driving by hand, move_distance, the real robot):
-  ros2 run harp_ros run_recorder --ros-args -p tag:=teleop -p note:="first try"
-  ros2 run harp_ros run_recorder --ros-args -p kind:=robot -p tether:=gantry -p floor_surface:=carpet
-  ros2 run harp_ros run_recorder --ros-args -p extras:=nav,lidar -p extras_reason:="why"
+  ros2 run harp_eval run_recorder --ros-args -p tag:=teleop -p note:="first try"
+  ros2 run harp_eval run_recorder --ros-args -p kind:=robot -p tether:=gantry -p floor_surface:=carpet
+  ros2 run harp_eval run_recorder --ros-args -p extras:=nav,lidar -p extras_reason:="why"
 Ctrl-C ends the run and writes summary.json. Programs without ROS
 (move_distance, walk) find the run through runs/ACTIVE (harp_control.runlog).
 
@@ -47,7 +47,7 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import String
 
 from harp_control import runlog
-from harp_ros import run_summary
+from harp_eval import run_summary
 
 SCHEMA = 2
 DIFF_LIMIT = 1_000_000    # bytes of uncommitted diff kept in git.diff
@@ -71,7 +71,7 @@ def run_name(kind, world, tag, when=None):
 
 
 def load_config():
-    path = Path(get_package_share_directory("harp_ros")) / "config" / "logging.yaml"
+    path = Path(get_package_share_directory("harp_eval")) / "config" / "logging.yaml"
     return path, yaml.safe_load(path.read_text())
 
 

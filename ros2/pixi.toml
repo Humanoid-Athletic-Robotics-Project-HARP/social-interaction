@@ -31,7 +31,7 @@ CYCLONEDDS_HOME = "$CONDA_PREFIX"
 # Unitree's G1 model (unitree_mujoco, cloned next to this repo), for the sim
 # and the leg odometry.
 HARP_G1_SCENE = "$PIXI_PROJECT_ROOT/../../unitree_mujoco/unitree_robots/g1/scene_29dof.xml"
-# Recorded runs (harp_ros run_recorder): runs/ at the repo root, gitignored.
+# Recorded runs (harp_eval run_recorder): runs/ at the repo root, gitignored.
 HARP_RUNS_DIR = "$PIXI_PROJECT_ROOT/../runs"
 RMW_IMPLEMENTATION = "rmw_cyclonedds_cpp"
 ROS_DOMAIN_ID = "2"

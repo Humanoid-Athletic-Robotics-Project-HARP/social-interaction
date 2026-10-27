@@ -3,8 +3,8 @@ name: feedback-minimal-setup
 description: Read before adding new nodes, packages, messages or tooling — build only what the current goal needs, prefer open code
 metadata:
   type: feedback
-  updated: 2026-10-27T06:29:20Z
-  covers: [ros2/src/harp_ros/setup.py, ros2/src/harp_ros/launch/*.py]
+  updated: 2026-10-27T21:31:55Z
+  covers: [ros2/src/harp_ros/setup.py, ros2/src/harp_ros/launch/*.py, ros2/src/harp_eval/setup.py, ros2/src/harp_eval/launch/*.py]
 ---
 
 Build only what the current goal needs. No architecture ahead of decisions: no node skeletons, custom messages or deploy tooling until a goal requires them. Start from an official example, add the smallest amount of our own code, and explain what each piece is for. When a goal is reached, ask before expanding the structure.

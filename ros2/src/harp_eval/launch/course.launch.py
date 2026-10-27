@@ -2,7 +2,7 @@
 lidar and a course, walker_node, Nav2 (rviz2 window) and the course's goal,
 all recorded by run_recorder. Start it with the course command, which makes
 the run folder first and can repeat it:
-  ros2 run harp_ros course slalom --tag rangecut --repeat 3
+  ros2 run harp_eval course slalom --tag rangecut --repeat 3
 
 Order: the recorder, sim, walker_node and course_goal start together. The sim
 lowers the robot after 15 s (time for walker_node to reach its stand pose);
@@ -39,7 +39,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory("harp_ros"), "launch", "nav2.launch.py")),
         launch_arguments={"rviz": arg("rviz"), "params_file": arg("nav2_params_file")}.items())
-    recorder = Node(package="harp_ros", executable="run_recorder", name="run_recorder",
+    recorder = Node(package="harp_eval", executable="run_recorder", name="run_recorder",
                     output="both", sigterm_timeout="15", parameters=[{
                         # As text, or "80" (battery_percent) would arrive as a number.
                         **{name: ParameterValue(arg(name), value_type=str) for name in RECORDER_ARGS},
@@ -52,7 +52,7 @@ def generate_launch_description():
     walker = Node(package="harp_ros", executable="walker_node", name="walker", output="both",
                   parameters=[{"auto_start": True,
                                "domain": ParameterValue(arg("sim_domain"), value_type=int)}])
-    goal = Node(package="harp_ros", executable="course_goal", name="course_goal", output="both",
+    goal = Node(package="harp_eval", executable="course_goal", name="course_goal", output="both",
                 parameters=[{"goal": arg("goal"), "timeout": arg("timeout")}])
 
     started = []

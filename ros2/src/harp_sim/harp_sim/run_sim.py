@@ -24,7 +24,7 @@ back and forth, such as a person crossing (movers.py). Whenever the robot
 touches an obstacle,
 the sim prints it, so a run that prints no contact never hit anything.
 
-For run logging (harp_ros run_recorder) it also publishes on ROS 2:
+For run logging (harp_eval run_recorder) it also publishes on ROS 2:
   /sim/qpos     std_msgs/Float64MultiArray  [sim time, qpos...], the true pose, 20 Hz
   /sim/info     std_msgs/String (JSON, latched)  scene, world, boxes, course goal, flags
   /harp/events  std_msgs/String (JSON, latched)  feet down, band released, contacts, lag

@@ -14,7 +14,9 @@ the project structure:
 |---|---|
 | `ros2/src/harp_control` | Walking. The GR00T controller (`walk`), planned moves and curves (`move_distance`), and our leg odometry. |
 | `ros2/src/harp_sim` | Our MuJoCo sim of the G1 (`run_sim`), including the head lidar and the obstacle courses in `worlds/`. |
-| `ros2/src/harp_ros` | The ROS 2 side. `walker_node` takes `/cmd_vel` and publishes `/odom` and `/tf`; Nav2's launch file and config; and the tools for recording test runs (`course`, `run_recorder`, `runs`). |
+| `ros2/src/harp_ros` | The ROS 2 side. `walker_node` takes `/cmd_vel` and publishes `/odom` and `/tf`; Nav2's launch file and config. |
+| `ros2/src/harp_eval` | Testing. Course tests in the sim (`course`), recording any run (`run_recorder`), comparing and checking runs (`runs`), and replaying a run into Nav2. |
+| `ros2/src/spatio_temporal_voxel_layer` | STVL, the Nav2 costmap layer that lets lidar marks fade once an obstacle has moved on. A copy of the upstream package, built from here; our changes and how to update it are in `HARP_PATCHES.md`. |
 | `ros2/pixi.toml`, `pixi.lock` | The pinned environment: ROS 2 Jazzy, Python 3.12, MuJoCo and Unitree's SDK. |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
@@ -318,13 +320,13 @@ does all of this in one command and records the run.
 This runs a course test in the sim three times and records each run:
 
 ```bash
-ros2 run harp_ros course slalom --tag baseline --repeat 3
+ros2 run harp_eval course slalom --tag baseline --repeat 3
 ```
 
 And this compares the runs and plots their paths:
 
 ```bash
-ros2 run harp_ros runs compare --world slalom --plot paths.png
+ros2 run harp_eval runs compare --world slalom --plot paths.png
 ```
 
 `course` starts the sim, `walker_node`, Nav2 and the course's goal for you
@@ -346,10 +348,10 @@ A few more things you can do:
   `harp_ros/config/nav2_params.yaml`, to compare them (give each its own
   `--tag`).
 - To record anything that isn't a course (driving by hand, `move_distance`),
-  start `ros2 run harp_ros run_recorder --ros-args -p tag:=NAME` first.
+  start `ros2 run harp_eval run_recorder --ros-args -p tag:=NAME` first.
   Ctrl-C on it ends the run.
 - `--extras nav,lidar --extras-reason "why"` also saves Nav2's costmaps or
-  the lidar to a bag (see `harp_ros/config/logging.yaml`).
+  the lidar to a bag (see `harp_eval/config/logging.yaml`).
 - `--replay --replay-reason "why"` saves enough to replay the run into Nav2
   later with different settings (`replay.launch.py`). These recordings are
   large, so only make one when someone asks for it.
@@ -397,3 +399,6 @@ In `ros2/src/harp_control/harp_control/gr00t/`:
   (Apache-2.0, `LICENSE-GR00T-WholeBodyControl.txt`).
 - The G1 model comes from Unitree's unitree_mujoco (BSD-3), cloned next to
   this repo.
+
+`ros2/src/spatio_temporal_voxel_layer/` is Steve Macenski's STVL, under
+LGPL-2.1 (`LICENSE`). Its `openvdb_vendor` builds OpenVDB, which is MPL-2.0.

@@ -3,8 +3,8 @@ name: lidar-nav2-research
 description: Read when bringing up the real G1 lidar, adding mapping/localization, or looking for other G1 Nav2 setups to borrow from
 metadata:
   type: reference
-  updated: 2026-10-26T22:40:10Z
-  covers: []
+  updated: 2026-10-27T21:55:41Z
+  covers: [ros2/pixi.toml]
 ---
 
 Research, not yet tried on hardware. What we built from it: [[nav2-sim]], [[mujoco-sim]].
@@ -13,6 +13,7 @@ Research, not yet tried on hardware. What we built from it: [[nav2-sim]], [[mujo
 
 **On the G1** (Unitree `lidar_Instructions`, `lidar_services_interface`):
 - Lidar at 192.168.123.120. Either Unitree's built-in service (PointCloud2 on `rt/utlidar/cloud_livox_mid360`, 10 Hz, `livox_frame`; IMU on `rt/utlidar/imu_livox_mid360`) or our own `livox_ros_driver2` (re-points the lidar's host IP, so pick one). Whether the built-in service runs in debug mode is unknown: `ros2 topic list` on the robot.
+- **Our Nav2 can't see it yet.** The pixi environment puts ROS 2 on domain 2 and pins CycloneDDS to `lo0` for every domain ([[ros2-mac]]), while the built-in service publishes on domain 0 over the robot's network. Options: `livox_ros_driver2` on the laptop (reads the lidar over UDP, so domains don't matter; remap to `/utlidar/cloud_livox_mid360` and `livox_frame`), or a relay from domain 0 to 2 in its own process (one process can't host ROS 2 and unitree_sdk2py on one domain), whose domain 0 side needs CycloneDDS on the robot's interface, not `lo0`.
 - **Mounted upside down.** `g1_29dof_rev_1_0.urdf`: `mid360_joint` at (0.0003, 0, 0.428434) on `torso_link`, rpy (π, 0.0511, 0). The older `g1_29dof.urdf` (which our sim matches) has (0.0003, 0, 0.40618), pitch 0.0401, no flip. Check our robot's revision and real mount. deepglint's driver fork also rotates the IMU (stock rotates only points).
 - **Blind ring:** the floor and low obstacles within about 0.9–1.1 m are never seen, so the costmap must remember them.
 

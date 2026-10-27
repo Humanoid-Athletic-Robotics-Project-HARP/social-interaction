@@ -1,5 +1,5 @@
 """Run logging for our programs: events and samples that end up in the run
-folder (runs/<run>/), next to what run_recorder (harp_ros) records from ROS.
+folder (runs/<run>/), next to what run_recorder (harp_eval) records from ROS.
 
   runlog.event("walker", "policy_on")
   runlog.event("move_distance", "move_done", target=1.0, estimate=0.98)

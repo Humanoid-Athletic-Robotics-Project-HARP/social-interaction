@@ -33,7 +33,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
 from harp_control import runlog
-from harp_ros.course import set_state, starting
+from harp_eval.course import set_state, starting
 
 SETTLE = 3.0              # s to wait after the result, so the robot comes to rest on record
 NAV2_START = 60.0         # s after the policy starts for Nav2 to be active (it takes about 5)

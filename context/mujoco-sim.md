@@ -3,7 +3,7 @@ name: mujoco-sim
 description: Read before running the sim (always with the viewer and rviz2 in windows) or changing run_sim.py, its lidar, boxes, courses or the lidar mount
 metadata:
   type: reference
-  updated: 2026-10-27T08:26:52Z
+  updated: 2026-10-27T21:32:08Z
   covers: [ros2/src/harp_sim/harp_sim/run_sim.py, ros2/src/harp_sim/harp_sim/lidar.py, ros2/src/harp_sim/harp_sim/movers.py, ros2/src/harp_control/harp_control/lidar_mount.py]
 ---
 

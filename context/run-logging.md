@@ -3,16 +3,16 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-27T07:59:08Z
-  covers: [ros2/src/harp_ros/harp_ros/run_recorder.py, ros2/src/harp_ros/harp_ros/run_summary.py, ros2/src/harp_ros/harp_ros/runs.py, ros2/src/harp_ros/harp_ros/course.py, ros2/src/harp_ros/harp_ros/course_goal.py, ros2/src/harp_ros/launch/course.launch.py, ros2/src/harp_ros/launch/replay.launch.py, ros2/src/harp_ros/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
+  updated: 2026-10-27T21:31:55Z
+  covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 
 **Record every test whose numbers matter.** Results cited in `context/` name their run folder, and that run is pinned (`runs pin RUN`). Usage and examples: README "Test runs and logs"; flags: `--help`.
 
 **Which tool**
-- Nav2 course test: `pixi run --as-is ros2 run harp_ros course WORLD --tag T [--repeat N]`. Prints a summary ending in PASS/FAIL. Each repeat restarts everything (costmaps and odometry start where the policy starts). About 1–2.5 min per run. Run it in a Terminal-panel tab; the windows open.
+- Nav2 course test: `pixi run --as-is ros2 run harp_eval course WORLD --tag T [--repeat N]`. Prints a summary ending in PASS/FAIL. Each repeat restarts everything (costmaps and odometry start where the policy starts). About 1–2.5 min per run. Run it in a Terminal-panel tab; the windows open.
 - Several `course` commands can run at once in different tabs: each claims its own DDS domains ([[ros2-mac]]), and run folders, `index.csv` and logs don't collide. They start up together and walk together: the lock's state goes waiting → starting → ready → walking; a run waits to start (and to summarize) while another robot walks, and `course_goal` asks the sim to release the band (`release_band` event, `run_sim --hold-band`) once Nav2 is active, no other run is still starting, and its sim has gone 5 s without lag. **Not usable on a MacBook Air (8 cores, 16 GB) as of 2026-10-27:** a start-up while another robot walked made it fall, and two start-ups together ran both sims at about 2/3 real time for 15 s, so the hanging v2 robot's walker stopped on a 504 ms gap in `rt/lowstate`; the STVL robot then walked alone with no lag. Two robots have never walked at once there. Run pairs one at a time; try parallel on a bigger machine. Those runs are tagged `*-parallel` and `*-together`.
-- Anything else (driving by hand, `walk`, `move_distance`, the real robot): start `ros2 run harp_ros run_recorder --ros-args -p tag:=T` first, then the programs; Ctrl-C on the recorder ends the run.
+- Anything else (driving by hand, `walk`, `move_distance`, the real robot): start `ros2 run harp_eval run_recorder --ros-args -p tag:=T` first, then the programs; Ctrl-C on the recorder ends the run.
 - `runs check` (pass rate against `harp_sim/worlds/<world>.yaml`; missing values fail), `runs compare` (mean ± sd per world and tag; `--plot` draws true paths), `runs list/show/set/pin/resummarize/prune`. `runs/index.csv` has one line per run.
 - `--tag` is what `runs compare` groups by, with the world: one tag per setting being compared.
 - To compare Nav2 settings, give each run its file with `course ... --params FILE` (copied into the run as `nav2_params.yaml`) rather than editing the repo's `nav2_params.yaml` between runs. Alternate the settings run by run (one A, one B, check both, repeat), so a problem shows up after one pair and slow drift (heat, background load) hits both equally.
@@ -28,9 +28,9 @@ metadata:
 
 **summary.json** (`run_summary.py`, one function per metric): outcome, time, path, end error, odometry vs truth, contacts, closest true clearance (`mj_geomDistance`; moving obstacles placed by `truth.npz`'s `sim_t`, [[mujoco-sim]]), recoveries/replans/failures from the behaviour-tree log, achieved vs commanded speed, lidar health, pass/fail. Add a metric there and `runs resummarize --all`.
 
-**Extras and retention** are configured in `harp_ros/config/logging.yaml` (a new topic is one entry). Keep extras off unless they answer a question: disks are small.
+**Extras and retention** are configured in `harp_eval/config/logging.yaml` (a new topic is one entry). Keep extras off unless they answer a question: disks are small.
 
-**Replay recording: only when a person explicitly asks**, never by default or on an agent's initiative. It records lidar, TF, odom and more (about 85 MB/min) so Nav2 can be re-run on a laptop with other params: `course ... --replay --replay-reason "why"`, then `ros2 launch harp_ros replay.launch.py run:=RUN params_file:=FILE [record:=true tag:=T]`. Its size and disk limits are in `logging.yaml`. Example pair: `2026-10-26_21-15-37Z_sim_one_box_replay-test` (pinned).
+**Replay recording: only when a person explicitly asks**, never by default or on an agent's initiative. It records lidar, TF, odom and more (about 85 MB/min) so Nav2 can be re-run on a laptop with other params: `course ... --replay --replay-reason "why"`, then `ros2 launch harp_eval replay.launch.py run:=RUN params_file:=FILE [record:=true tag:=T]`. Its size and disk limits are in `logging.yaml`. Example pair: `2026-10-26_21-15-37Z_sim_one_box_replay-test` (pinned).
 
 **Gotchas**
 - Launch arguments can't be empty (`extras:=` errors); `course` omits unset ones.

@@ -10,5 +10,5 @@ __pycache__/
 # Secrets
 .env
 
-# Recorded runs (harp_ros run_recorder), kept per machine
+# Recorded runs (harp_eval run_recorder), kept per machine
 runs/

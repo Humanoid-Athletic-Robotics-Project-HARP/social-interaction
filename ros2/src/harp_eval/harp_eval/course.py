@@ -1,8 +1,8 @@
 """Run a recorded course test in the sim, once or several times:
-  ros2 run harp_ros course slalom --tag rangecut --repeat 3 --note "baseline"
-  ros2 run harp_ros course obstacle_course --extras nav --extras-reason "why it hesitates"
-  ros2 run harp_ros course open_floor --goal 3 2 90 --no-rviz
-  ros2 run harp_ros course one_box --replay --replay-reason "tune costmaps offline"
+  ros2 run harp_eval course slalom --tag rangecut --repeat 3 --note "baseline"
+  ros2 run harp_eval course obstacle_course --extras nav --extras-reason "why it hesitates"
+  ros2 run harp_eval course open_floor --goal 3 2 90 --no-rviz
+  ros2 run harp_eval course one_box --replay --replay-reason "tune costmaps offline"
 
 --replay records enough to play the run back into Nav2 later (replay.launch.py).
 It is big (about 110 MB/min in the sim), so use it only when a person asks for
@@ -15,7 +15,7 @@ several course commands can run at once, in different terminals; they start up
 together and then walk together. This command only
 makes the folder, points ROS's logs into it (so it holds every program's
 printed output), runs course.launch.py, and writes the summary afterwards.
-Compare runs with: ros2 run harp_ros runs compare --world slalom
+Compare runs with: ros2 run harp_eval runs compare --world slalom
 """
 
 import argparse
@@ -32,8 +32,8 @@ import time
 from pathlib import Path
 
 from harp_control import runlog
-from harp_ros import run_summary
-from harp_ros.run_recorder import CONDITIONS, run_name
+from harp_eval import run_summary
+from harp_eval.run_recorder import CONDITIONS, run_name
 
 # Each program's lines in launch.log, by the launch's process name, go to these files.
 LOG_FILES = {"run_sim": "sim.log", "walker_node": "walker.log", "run_recorder": "recorder.log",
@@ -178,7 +178,7 @@ def main():
     if args.goal and len(args.goal) not in (2, 3):
         parser.error("--goal takes X Y or X Y YAW_DEG")
 
-    command = " ".join(["ros2 run harp_ros course", *map(shlex.quote, sys.argv[1:])])
+    command = " ".join(["ros2 run harp_eval course", *map(shlex.quote, sys.argv[1:])])
     runs = runlog.runs_dir()
     for i in range(args.repeat):
         when = datetime.datetime.now(datetime.timezone.utc)
@@ -203,7 +203,7 @@ def main():
                   "sim_domain": sim_domain,
                   **{name: getattr(args, name) for name in CONDITIONS}}
         # Launch arguments can't be empty, so unset ones keep the launch file's defaults.
-        launch = ["ros2", "launch", "harp_ros", "course.launch.py",
+        launch = ["ros2", "launch", "harp_eval", "course.launch.py",
                   *(f"{k}:={v}" for k, v in values.items() if v != "")]
         # Ctrl-C reaches the launch too (same terminal); let it shut down, then stop repeating.
         interrupted = []
@@ -222,7 +222,7 @@ def main():
         if interrupted:
             print("Interrupted: no more repeats.")
             break
-    print(f"\nCompare: ros2 run harp_ros runs compare --world {args.world}"
+    print(f"\nCompare: ros2 run harp_eval runs compare --world {args.world}"
           + (f" --tag {args.tag}" if args.tag else ""))
 
 

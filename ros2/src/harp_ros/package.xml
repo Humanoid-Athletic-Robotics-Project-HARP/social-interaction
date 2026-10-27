@@ -18,9 +18,9 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <!-- nav2.launch.py -->
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>
@@ -33,12 +33,6 @@
   <exec_depend>nav2_planner</exec_depend>
   <exec_depend>nav2_rviz_plugins</exec_depend>
   <exec_depend>rviz2</exec_depend>
-  <!-- run logging and course tests -->
-  <exec_depend>harp_sim</exec_depend>
-  <exec_depend>nav2_simple_commander</exec_depend>
-  <exec_depend>rosbag2_py</exec_depend>
-  <exec_depend>rosidl_runtime_py</exec_depend>
-  <exec_depend>python3-yaml</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

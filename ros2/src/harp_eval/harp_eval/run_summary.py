@@ -330,7 +330,8 @@ def summarize(run):
     t0, t1 = window(events)
     s = {"summary_version": SUMMARY_VERSION, "run": run.name, "kind": meta.get("kind"),
          "world": meta.get("world"), "tag": meta.get("tag"), "started": meta.get("started"),
-         "course_run": "harp_ros course" in (meta.get("command") or "")
+         # Runs recorded before course moved to harp_eval say "harp_ros course".
+         "course_run": any(f"{p} course" in (meta.get("command") or "") for p in ("harp_eval", "harp_ros"))
                        or first(events, "goal", "goal_sent") is not None,
          "outcome": result, "reason": reason,
          "duration_s": round(t1 - t0, 1) if t0 and t1 else None}

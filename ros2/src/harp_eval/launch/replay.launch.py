@@ -1,7 +1,7 @@
 """Play a recorded run back into Nav2, to try Nav2 settings on the same
 recorded lidar, /tf and /odom without the robot:
-  ros2 launch harp_ros replay.launch.py run:=2026-10-27_10-00-00_robot_hall_tuning
-  ros2 launch harp_ros replay.launch.py run:=RUN params_file:=/path/to/other_params.yaml record:=true tag:=inflation1.0
+  ros2 launch harp_eval replay.launch.py run:=2026-10-27_10-00-00_robot_hall_tuning
+  ros2 launch harp_eval replay.launch.py run:=RUN params_file:=/path/to/other_params.yaml record:=true tag:=inflation1.0
 
 The run must have been recorded with a replay recording (course --replay
 --replay-reason ..., or run_recorder replay:=true replay_reason:=...). run is
@@ -69,7 +69,7 @@ def actions(context):
     out = [play, nav2, RegisterEventHandler(OnProcessExit(target_action=play, on_exit=[
         EmitEvent(event=Shutdown(reason="the recording ended"))]))]
     if get("record") == "true":
-        out.append(Node(package="harp_ros", executable="run_recorder", name="run_recorder",
+        out.append(Node(package="harp_eval", executable="run_recorder", name="run_recorder",
                         output="both", sigterm_timeout="15", parameters=[{
                             "kind": "replay", "tag": get("tag"), "extras": "nav",
                             "extras_reason": "compare Nav2 settings on a replayed run",
