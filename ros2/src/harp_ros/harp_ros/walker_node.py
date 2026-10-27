@@ -75,6 +75,9 @@ class WalkerNode(Node):
         self.declare_parameter("scene", DEFAULT_SCENE or "")
         self.declare_parameter("cmd_timeout", 0.5)
         self.declare_parameter("auto_start", False)
+        # DDS domain of the robot's own topics: -1 is the robot's 0 with real:=true, the sim's
+        # 1 otherwise. course gives each run its own, so several can run at once.
+        self.declare_parameter("domain", -1)
         self.auto_start = self.get_parameter("auto_start").value
         self.feet_down = False          # the sim reported its feet on the floor (auto_start)
         self.cmd_timeout = self.get_parameter("cmd_timeout").value
@@ -254,7 +257,10 @@ def main():
         rclpy.shutdown()
         return 1
 
-    ChannelFactoryInitialize(0 if real else 1, interface or ("lo0" if sys.platform == "darwin" else "lo"))
+    domain = node.get_parameter("domain").value
+    if domain < 0:
+        domain = 0 if real else 1
+    ChannelFactoryInitialize(domain, interface or ("lo0" if sys.platform == "darwin" else "lo"))
     if real:
         check_unitree_controller_off()
     walker = Walker(real=real)

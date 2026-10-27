@@ -9,7 +9,10 @@ It is big (about 110 MB/min in the sim), so use it only when a person asks for
 it, with a reason; it is never part of --extras.
 
 Each run gets its own folder under runs/ and starts from a fresh sim (the
-costmaps and leg odometry start where the policy starts). This command only
+costmaps and leg odometry start where the policy starts). Each run also
+claims its own pair of DDS domains (the sim's robot topics, and ROS 2), so
+several course commands can run at once, in different terminals; they start up
+together and then walk together. This command only
 makes the folder, points ROS's logs into it (so it holds every program's
 printed output), runs course.launch.py, and writes the summary afterwards.
 Compare runs with: ros2 run harp_ros runs compare --world slalom
@@ -17,11 +20,16 @@ Compare runs with: ros2 run harp_ros runs compare --world slalom
 
 import argparse
 import datetime
+import fcntl
 import os
+import random
 import shlex
 import signal
 import subprocess
 import sys
+import tempfile
+import time
+from pathlib import Path
 
 from harp_control import runlog
 from harp_ros import run_summary
@@ -32,6 +40,89 @@ LOG_FILES = {"run_sim": "sim.log", "walker_node": "walker.log", "run_recorder": 
              "course_goal": "goal.log", "rviz2": "rviz.log"}
 NAV2 = ("controller_server", "planner_server", "behavior_server", "bt_navigator",
         "lifecycle_manager")
+# DDS domains for runs: pairs (sim robot topics, ROS 2) from 10/11 up to 98/99. A
+# process can't use one domain for both (CycloneDDS), the robot uses 0 and a sim
+# started by hand 1 and 2. Domain ids map to UDP ports (7400 + 250 per domain),
+# and above about 101 they reach the ports Linux hands out to programs.
+FIRST_DOMAIN, SLOTS = 10, 45
+LOCKS = Path(tempfile.gettempdir()) / "harp-dds-domains"
+# Runs start up together, then walk together. A run's busiest part is its
+# start-up (the windows open, then Nav2 and rviz2 start; with STVL its Nav2 takes
+# about 18 s alone), and a start-up while another robot walked lagged that sim up
+# to 300 ms and made the robot fall. Lag while the band holds the robot is harmless.
+# So the lock's state goes waiting -> starting -> ready -> walking: a run waits to
+# start while any other walks; once its Nav2 is active, course_goal marks it ready
+# and asks for the band's release only when no other run is still starting (for at
+# most MAX_START s) and its own sim has stopped lagging (see course_goal.py).
+MAX_START = 120.0
+
+
+def read_lock(lock):
+    """(pid, claimed, state, began) from a slot's lock file; None if it's free."""
+    try:
+        pid, claimed, state, began = lock.read_text().split()
+        os.kill(int(pid), 0)
+        return int(pid), float(claimed), state, float(began)
+    except (FileNotFoundError, ValueError):
+        return None
+    except ProcessLookupError:
+        lock.unlink(missing_ok=True)   # left by a process that died
+        return None
+
+
+def write_lock(lock, claimed, state, began=0.0):
+    tmp = lock.with_suffix(".tmp")
+    tmp.write_text(f"{os.getpid()} {claimed} {state} {began}")
+    os.replace(tmp, lock)
+
+
+def set_state(lock, state):
+    """Changes the state only (course_goal, another process, uses it too)."""
+    pid, claimed, _, began = lock.read_text().split()
+    tmp = lock.with_suffix(".tmp")
+    tmp.write_text(f"{pid} {claimed} {state} {began}")
+    os.replace(tmp, lock)
+
+
+def others(lock):
+    """The other course runs' (pid, claimed, state, began)."""
+    return [o for o in (read_lock(p) for p in LOCKS.glob("slot-*") if p != lock) if o]
+
+
+def starting(lock):
+    """The other runs still starting up (course_goal waits for them before the release)."""
+    return [o for o in others(lock) if o[2] == "starting" and time.time() - o[3] < MAX_START]
+
+
+def claim_domains():
+    """A free (sim, ROS 2) domain pair, held by a lock file with our pid."""
+    LOCKS.mkdir(exist_ok=True)
+    with open(LOCKS / "schedule", "a") as schedule:
+        fcntl.flock(schedule, fcntl.LOCK_EX)   # one course at a time picks a slot
+        free = [slot for slot in range(SLOTS) if read_lock(LOCKS / f"slot-{slot}") is None]
+        if not free:
+            raise SystemExit(f"No free DDS domains: {SLOTS} course runs at once? Locks are in {LOCKS}.")
+        slot = random.choice(free)
+        lock = LOCKS / f"slot-{slot}"
+        write_lock(lock, time.time(), "waiting")
+    return lock, FIRST_DOMAIN + 2 * slot, FIRST_DOMAIN + 2 * slot + 1
+
+
+def wait_while_walking(lock, then):
+    """Waits while another run's robot walks, so neither a start-up nor a summary
+    lags it; then (under the schedule lock) sets our state to then, if given."""
+    said = False
+    while True:
+        with open(LOCKS / "schedule", "a") as schedule:
+            fcntl.flock(schedule, fcntl.LOCK_EX)
+            if not any(o[2] == "walking" for o in others(lock)):
+                if then:
+                    write_lock(lock, read_lock(lock)[1], then, time.time())
+                return
+        if not said:
+            print("    Waiting for the other course runs' robots to finish walking.", flush=True)
+            said = True
+        time.sleep(2)
 
 
 def split_launch_log(run):
@@ -68,6 +159,8 @@ def main():
                         help="X Y [YAW_DEG] in odom, instead of the course's goal")
     parser.add_argument("--timeout", type=float, default=240.0, help="s to wait for Nav2's result")
     parser.add_argument("--no-rviz", action="store_true")
+    parser.add_argument("--params", default="", metavar="FILE",
+                        help="Nav2 parameters instead of harp_ros's nav2_params.yaml (copied into the run)")
     for name in CONDITIONS:
         parser.add_argument("--" + name.replace("_", "-"), default="", help="run condition, in run.yaml")
     parser.add_argument("--replay", action="store_true",
@@ -88,11 +181,17 @@ def main():
     command = " ".join(["ros2 run harp_ros course", *map(shlex.quote, sys.argv[1:])])
     runs = runlog.runs_dir()
     for i in range(args.repeat):
-        name = run_name("sim", args.world, args.tag, datetime.datetime.now(datetime.timezone.utc))
-        run = runs / name
+        when = datetime.datetime.now(datetime.timezone.utc)
+        while (runs / run_name("sim", args.world, args.tag, when)).exists():
+            when += datetime.timedelta(seconds=1)   # another course started this second
+        run = runs / run_name("sim", args.world, args.tag, when)
         (run / "ros_logs").mkdir(parents=True)
-        print(f"\n=== Run {i + 1}/{args.repeat}: {run}", flush=True)
-        env = dict(os.environ, ROS_LOG_DIR=str(run / "ros_logs"), HARP_RUN_DIR=str(run))
+        lock, sim_domain, ros_domain = claim_domains()
+        print(f"\n=== Run {i + 1}/{args.repeat}: {run}\n    DDS domains: sim {sim_domain}, "
+              f"ROS 2 {ros_domain}", flush=True)
+        wait_while_walking(lock, "starting")
+        env = dict(os.environ, ROS_LOG_DIR=str(run / "ros_logs"), HARP_RUN_DIR=str(run),
+                   ROS_DOMAIN_ID=str(ros_domain), HARP_DDS_LOCK=str(lock))
         values = {"world": args.world, "run_dir": run, "tag": args.tag, "note": args.note,
                   "extras": args.extras, "extras_reason": args.extras_reason, "command": command,
                   "timeout": args.timeout, "rviz": "false" if args.no_rviz else "true",
@@ -100,6 +199,8 @@ def main():
                   "replay": "true" if args.replay else "", "replay_reason": args.replay_reason,
                   "replay_dir": args.replay_dir, "lidar_fields": args.lidar_fields,
                   "lidar_rate": args.lidar_rate or "",
+                  "nav2_params_file": os.path.abspath(args.params) if args.params else "",
+                  "sim_domain": sim_domain,
                   **{name: getattr(args, name) for name in CONDITIONS}}
         # Launch arguments can't be empty, so unset ones keep the launch file's defaults.
         launch = ["ros2", "launch", "harp_ros", "course.launch.py",
@@ -111,6 +212,8 @@ def main():
             code = subprocess.call(launch, env=env)
         finally:
             signal.signal(signal.SIGINT, previous)
+            lock.unlink(missing_ok=True)
+        wait_while_walking(lock, None)
         split_launch_log(run)
         if (run / "run.yaml").exists():
             print(run_summary.one_screen(run_summary.summarize(run)), flush=True)

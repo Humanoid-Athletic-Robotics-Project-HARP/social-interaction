@@ -15,8 +15,9 @@ arms show up as points and shadow what is behind them. Filtering them out is
 the job of whatever reads the cloud. The head shell around the lidar is
 skipped.
 
-The rays are cast on a thread with its own copy of the robot's pose
-(mj_multiRay releases the GIL), so a scan never delays a physics step.
+The rays are cast on a thread with its own copy of the robot's pose and the
+moving obstacles' positions (mj_multiRay releases the GIL), so a scan never
+delays a physics step.
 """
 
 import threading
@@ -63,18 +64,18 @@ class SimLidar:
         self.wake = threading.Condition()
         threading.Thread(target=self.run, daemon=True).start()
 
-    def scan(self, qpos):
+    def scan(self, data):
         """Called by the physics loop every PERIOD; skipped if the last scan isn't done."""
         with self.wake:
             if self.pose is None:
-                self.pose = qpos.copy()
+                self.pose = (data.qpos.copy(), data.mocap_pos.copy())
                 self.wake.notify()
 
     def run(self):
         while rclpy.ok():
             with self.wake:
                 self.wake.wait_for(lambda: self.pose is not None)
-                self.data.qpos[:] = self.pose
+                self.data.qpos[:], self.data.mocap_pos[:] = self.pose
             try:
                 self.publish(self.cast())
             except Exception:

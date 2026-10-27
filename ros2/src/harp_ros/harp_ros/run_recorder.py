@@ -236,7 +236,10 @@ class RunRecorder(Node):
                            "lidar_rate": p["lidar_rate"] or replay["lidar_rate"],
                            "free_gb_at_start": round(free, 1)}
 
-        (runs / runlog.ACTIVE).write_text(f"{self.dir.name} {os.getpid()}\n")
+        if not p["run_dir"]:
+            # For programs without ROS started by hand. course gives its programs the run
+            # folder (HARP_RUN_DIR) instead, so runs at the same time don't share this.
+            (runs / runlog.ACTIVE).write_text(f"{self.dir.name} {os.getpid()}\n")
         self.started = time.time()
         shutil.copy(config_path, self.dir / "logging.yaml")
         # The Nav2 parameters this run used: ours, or another file (replay.launch.py).

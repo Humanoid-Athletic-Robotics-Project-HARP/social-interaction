@@ -7,6 +7,7 @@ is a small function of the run folder, so a new one is added here and
 
 import csv
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -67,7 +68,8 @@ def outcome(events):
         return "fell", "the walker detected a fall"
     if goal:
         status = goal["details"].get("status", "")
-        return {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out"}.get(status, "failed"), status
+        return {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out",
+                "NAV2_NOT_ACTIVE": "error"}.get(status, "failed"), status
     if first(events, "move_distance", "all_moves_done"):
         return "succeeded", "all moves done"
     error = first(events, "move_distance", "error") or first(events, "walker", "error")
@@ -241,9 +243,12 @@ def lidar_quality(stats):
             "lidar_gaps": int((dt > LIDAR_GAP).sum()), "lidar_gap_max_s": round(float(dt.max()), 2)}
 
 
-def clearances(meta, qpos):
-    """Closest true distance from the robot's collision geoms to each obstacle (sim only)."""
+def clearances(meta, qpos, sim_t=None, events=()):
+    """Closest true distance from the robot's collision geoms to each obstacle (sim only).
+    Moving obstacles are placed where they were at each sim time, from the sim's
+    mover_start events."""
     import mujoco
+    from harp_sim.movers import Movers, obstacle_geoms
     from harp_sim.run_sim import load_model
     sim = meta.get("sim") or {}
     if not sim.get("scene"):
@@ -251,16 +256,22 @@ def clearances(meta, qpos):
     boxes = [tuple(b) for b in sim.get("boxes") or []]
     model = load_model(sim["scene"], boxes, sim.get("world"))
     data = mujoco.MjData(model)
-    robot = [g for g in range(model.ngeom) if model.geom_bodyid[g] != 0 and model.geom_contype[g]]
-    obstacles = [g for g in range(model.ngeom)
-                 if model.geom_bodyid[g] == 0 and model.geom(g).name != "floor"]
+    movers = Movers(model, {e["details"]["mover"]: e["details"]["starts_at"] for e in events
+                            if e["source"] == "sim" and e["event"] == "mover_start"})
+    if movers.names and sim_t is None:
+        return None   # can't tell where the movers were
+    obstacles = obstacle_geoms(model)
+    robot = [g for g in range(model.ngeom) if model.geom_bodyid[g] != 0 and model.geom_contype[g]
+             and g not in obstacles]
     if not obstacles:
         return {"closest_m": None, "near_share": 0.0, "per_obstacle": {}}
     best = {g: CLEARANCE_MAX for g in obstacles}
     near = []
     fromto = np.zeros(6)
-    for q in qpos:
+    for i, q in enumerate(qpos):
         data.qpos[:] = q
+        if sim_t is not None:
+            movers.apply(data, sim_t[i])
         mujoco.mj_kinematics(model, data)
         closest = CLEARANCE_MAX
         for o in obstacles:
@@ -372,7 +383,8 @@ def summarize(run):
             if align:
                 s.update(odometry(truth, odom, align, end))
             step = max(1, int(round(CLEARANCE_PERIOD / np.median(np.diff(truth["t"])))))
-            c = clearances(meta, qpos[::step])
+            sim_t = truth["sim_t"][inside][::step] if "sim_t" in truth else None
+            c = clearances(meta, qpos[::step], sim_t, events)
             if c:
                 s.update(c)
     measured = (meta.get("manual") or {}).get("end_position_measured")
@@ -449,10 +461,13 @@ def rebuild_index(runs):
                      "end_error_m": s.get("end_error_m"), "closest_m": s.get("closest_m"),
                      "contacts": s.get("contacts"), "recoveries": s.get("recoveries"),
                      "pinned": meta.get("pinned"), "note": meta.get("note")})
-    with open(Path(runs) / "index.csv", "w", newline="") as f:
+    # Written whole and swapped in, so runs finishing at the same time can't interleave it.
+    tmp = Path(runs) / f".index.csv.{os.getpid()}"
+    with open(tmp, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
+    os.replace(tmp, Path(runs) / "index.csv")
 
 
 def size(path):

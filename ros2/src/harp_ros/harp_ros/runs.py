@@ -101,6 +101,7 @@ def plot(groups, out):
     import matplotlib.pyplot as plt
     import mujoco
     import numpy as np
+    from harp_sim.movers import Movers
     from harp_sim.run_sim import load_model
 
     worlds = sorted({w for w, _ in groups}, key=str)
@@ -121,6 +122,10 @@ def plot(groups, out):
                                        sim.get("world"))
                     data = mujoco.MjData(model)
                     mujoco.mj_kinematics(model, data)
+                    movers = Movers(model)
+                    for start, end in zip(movers.start, movers.end):
+                        ax.plot([start[0], end[0]], [start[1], end[1]], color="0.5", ls="--",
+                                lw=2, label="moving obstacle's track")
                     for g in range(model.ngeom):
                         if model.geom_bodyid[g] != 0 or model.geom(g).name == "floor":
                             continue

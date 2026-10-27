@@ -19,13 +19,17 @@ robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
 --world NAME adds a course of obstacles from worlds/NAME.xml (or any MuJoCo
 file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
 X m ahead and Y m left of where the robot starts; --lidar adds the head lidar
-(lidar.py) as a ROS 2 point cloud. Whenever the robot touches an obstacle,
+(lidar.py) as a ROS 2 point cloud. A world can also have obstacles that walk
+back and forth, such as a person crossing (movers.py). Whenever the robot
+touches an obstacle,
 the sim prints it, so a run that prints no contact never hit anything.
 
 For run logging (harp_ros run_recorder) it also publishes on ROS 2:
   /sim/qpos     std_msgs/Float64MultiArray  [sim time, qpos...], the true pose, 20 Hz
   /sim/info     std_msgs/String (JSON, latched)  scene, world, boxes, course goal, flags
   /harp/events  std_msgs/String (JSON, latched)  feet down, band released, contacts, lag
+With --hold-band (course tests) the band stays on after the feet are down until
+a release_band event arrives on /harp/events from course_goal.
 
 Run from the ROS 2 environment (DDS domain 1 by default):
   ros2 run harp_sim run_sim
@@ -59,6 +63,7 @@ from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
 
 from harp_control import runlog
+from harp_sim.movers import Movers, obstacle_geoms
 
 # Unitree's G1 model (unitree_mujoco, cloned next to this repo). The ROS 2
 # environment (ros2/pixi.toml) sets HARP_G1_SCENE to it.
@@ -147,15 +152,14 @@ def load_model(scene, boxes, world=None):
 
 class ContactReport:
     """Prints each time a robot body starts touching an obstacle (anything
-    fixed in the world except the floor). Contacts flicker on and off while
+    fixed in the world except the floor, or a mover). Contacts flicker on and off while
     touching, so one with a gap under GAP seconds counts as the same touch."""
 
     GAP = 1.0   # s
 
     def __init__(self, model):
         self.model = model
-        self.obstacles = {g for g in range(model.ngeom)
-                          if model.geom_bodyid[g] == 0 and model.geom(g).name != "floor"}
+        self.obstacles = set(obstacle_geoms(model))
         self.last_seen = {}   # (robot body, obstacle geom) -> sim time
         self.count = 0
 
@@ -163,7 +167,7 @@ class ContactReport:
         for c in data.contact[:data.ncon]:
             for robot, obstacle in ((c.geom1, c.geom2), (c.geom2, c.geom1)):
                 body = self.model.geom_bodyid[robot]
-                if obstacle not in self.obstacles or body == 0:
+                if obstacle not in self.obstacles or robot in self.obstacles or body == 0:
                     continue
                 if data.time - self.last_seen.get((body, obstacle), -math.inf) > self.GAP:
                     self.count += 1
@@ -189,6 +193,9 @@ def main():
     parser.add_argument("--headless", action="store_true", help="no viewer window")
     parser.add_argument("--auto-release", type=float, metavar="SECONDS",
                         help="after this long, lower the robot onto its feet and release the band")
+    parser.add_argument("--hold-band", action="store_true",
+                        help="with --auto-release: keep the band on, feet down, until a release_band "
+                             "event on /harp/events (course_goal sends it)")
     parser.add_argument("--duration", type=float, help="quit after this many seconds")
     parser.add_argument("--log", action="store_true", help="print the pelvis pose every second")
     parser.add_argument("--world", metavar="NAME",
@@ -211,6 +218,8 @@ def main():
     contacts = ContactReport(model)
     model.opt.timestep = SIM_DT
     data = mujoco.MjData(model)
+    movers = Movers(model)
+    movers.apply(data, 0.0)
     nu = model.nu
     joints = [model.actuator_trnid[i, 0] for i in range(nu)]
     qadr = np.array([model.jnt_qposadr[j] for j in joints])
@@ -227,6 +236,23 @@ def main():
     node = rclpy.create_node("sim")
     latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
     events_pub = node.create_publisher(String, "/harp/events", latched)
+    # Moving obstacles set off with the course test's goal (movers.py); --hold-band
+    # releases the band when course_goal asks.
+    goal_sent, release_asked = [], []
+
+    def on_event(msg):
+        if '"goal_sent"' in msg.data:
+            goal_sent.append(True)
+        elif '"release_band"' in msg.data:
+            release_asked.append(True)
+    node.create_subscription(String, "/harp/events", on_event, latched)
+
+    def spin():
+        try:
+            rclpy.spin(node)
+        except Exception:
+            pass                  # ROS shut down while the sim quits
+    threading.Thread(target=spin, daemon=True).start()
     runlog.attach(lambda text: events_pub.publish(String(data=text)))
     truth_pub = node.create_publisher(Float64MultiArray, "/sim/qpos", 10)
     info_pub = node.create_publisher(String, "/sim/info", QoSProfile(
@@ -235,7 +261,8 @@ def main():
                  if model.site(i).name == "course/goal"), None)
     info_pub.publish(String(data=json.dumps({
         "scene": args.scene, "world": args.world, "boxes": args.boxes, "goal": goal,
-        "auto_release": args.auto_release, "lidar": args.lidar, "headless": args.headless,
+        "movers": movers.names,
+        "auto_release": args.auto_release, "hold_band": args.hold_band, "lidar": args.lidar, "headless": args.headless,
         "argv": remove_ros_args(sys.argv)[1:]})))
     next_truth = 0.0
 
@@ -276,6 +303,13 @@ def main():
         if model.site(i).name.startswith("course/goal"):
             x, y = model.site_pos[i][:2]
             print(f"Course {model.site(i).name[len('course/'):]}: {x:+.1f} m ahead, {y:+.1f} m left of the start")
+    for i, name in enumerate(movers.names):
+        start, end, delay, trips = movers.start[i], movers.end[i], movers.delay[i], movers.trips[i]
+        when = ("from the start" if delay is None
+                else f"{delay:.1f} s after the robot starts walking")
+        times = "back and forth" if trips is None else f"{trips:.0f} way(s), then stops"
+        print(f"Moving obstacle {name}: ({start[0]:+.1f}, {start[1]:+.1f}) to ({end[0]:+.1f}, "
+              f"{end[1]:+.1f}) m, {movers.duration[i]:.1f} s each way, {times}, {when}")
 
     start = time.monotonic()
     next_step = start
@@ -292,8 +326,9 @@ def main():
                 elif release_at is None:
                     release_at = data.time + RELEASE_DELAY
                     runlog.event("sim", "feet_down", sim_t=round(data.time, 2))
-                    print(f"Feet down at t={data.time:.1f} s; releasing the band in {RELEASE_DELAY:.0f} s")
-                elif data.time > release_at:
+                    print(f"Feet down at t={data.time:.1f} s; releasing the band in {RELEASE_DELAY:.0f} s"
+                          + (", once course_goal asks" if args.hold_band else ""))
+                elif data.time > release_at and (release_asked or not args.hold_band):
                     band.enabled = False
                     runlog.event("sim", "band_released", by="auto", sim_t=round(data.time, 2))
                     print(f"Band released at t={data.time:.1f} s: the robot is on its own.")
@@ -315,6 +350,11 @@ def main():
                 tau = np.array([m[i].tau for i in range(nu)])
                 torque = tau + kp * (q_cmd - q) + kd * (dq_cmd - dq)
                 data.ctrl[:] = np.clip(torque, torque_low, torque_high)
+            for name, starts_at in movers.update(data, not band.enabled, bool(goal_sent)):
+                runlog.event("sim", "mover_start", mover=name, starts_at=round(starts_at, 3),
+                             sim_t=round(data.time, 2))
+                print(f"Moving obstacle {name} starts at t={starts_at:.1f} s.", flush=True)
+            movers.apply(data, data.time)
 
             if viewer is not None:
                 with viewer.lock():
@@ -339,7 +379,7 @@ def main():
             state_pub.Write(state)
             contacts.check(data)
             if lidar is not None and data.time >= next_scan:
-                lidar.scan(data.qpos)
+                lidar.scan(data)
                 next_scan += LIDAR_PERIOD
 
             if data.time >= next_truth:

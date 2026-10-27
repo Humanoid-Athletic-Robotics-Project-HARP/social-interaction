@@ -55,8 +55,11 @@ both the sim and the real robot, and we try everything in the sim first.
   `walker_node` through every course (`run_sim --world`), including the
   obstacle course with a table, pillars, a thin pole and an archway, without
   touching anything. The robot's own body is filtered out of the lidar.
-- ⬜ Sim: more on obstacles and path following: closer margins, a
-  collision-monitor stop, moving obstacles and people.
+- 🟡 Sim: more on obstacles and path following: closer margins, a
+  collision-monitor stop, moving obstacles and people. Started: the
+  costmaps forget where a person was once they've moved on (STVL), tested
+  with a person crossing the robot's path (`crossing`) and one walking
+  toward it (`oncoming`).
 - ⬜ Robot: real lidar data in ROS 2, then the same walk.
 
 ### Find people and walk up to them
@@ -299,11 +302,13 @@ the direction to face. The robot plans a path around whatever the lidar has
 seen, and walks it.
 
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
-and `obstacle_course`. They're MuJoCo files in `harp_sim/worlds/`, so feel
-free to copy and edit them. Goals are in meters from where the robot
-started (x ahead, y left). The sim prints any contact between the robot and
-an obstacle, so if you don't see any, it never touched anything. To go
-again, restart all three terminals.
+and `obstacle_course`. With people: in `crossing` someone walks across the
+robot's path once, and in `oncoming` someone walks toward it. They're
+MuJoCo files in `harp_sim/worlds/`, so feel free to copy and edit them (how
+to make something move: `harp_sim/movers.py`). Goals are in meters from
+where the robot started (x ahead, y left). The sim prints any contact
+between the robot and an obstacle, so if you don't see any, it never
+touched anything. To go again, restart all three terminals.
 
 If you want to keep the results, use `course` (next section) instead. It
 does all of this in one command and records the run.
@@ -337,6 +342,9 @@ A few more things you can do:
 - `--tag` says what a run is testing. `runs compare` groups runs by course
   and tag, and `runs check` shows pass rates against each course's criteria
   in `harp_sim/worlds/<course>.yaml`.
+- `--params FILE` runs Nav2 with other settings than
+  `harp_ros/config/nav2_params.yaml`, to compare them (give each its own
+  `--tag`).
 - To record anything that isn't a course (driving by hand, `move_distance`),
   start `ros2 run harp_ros run_recorder --ros-args -p tag:=NAME` first.
   Ctrl-C on it ends the run.

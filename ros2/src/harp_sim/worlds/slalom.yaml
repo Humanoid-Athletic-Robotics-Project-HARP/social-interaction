@@ -1,6 +1,7 @@
 # Pass criteria for course tests on this world (runs check, summary.json).
 # From the 2026-10-26 baselines (52-63 s, closest 0.28-0.29 m, end 0.24-0.25 m
-# off, 0-2 recoveries at the first gap), loosened for run-to-run spread.
+# off, 0-2 recoveries: mostly planner-ack timeouts, once a NavFn path-extraction
+# failure; see context/nav2-sim.md), loosened for run-to-run spread.
 must_succeed: true
 max_time_s: 90
 min_clearance_m: 0.20

@@ -7,8 +7,9 @@ the run folder first and can repeat it:
 Order: the recorder, sim, walker_node and course_goal start together. The sim
 lowers the robot after 15 s (time for walker_node to reach its stand pose);
 walker_node starts the policy by itself on the sim's "feet down" (auto_start);
-Nav2 starts once walker_node prints "Policy on"; course_goal sends the goal
-once Nav2 is active. The run ends when course_goal finishes (result or
+Nav2 starts once walker_node prints "Policy on". The band stays on until
+course_goal asks for its release (Nav2 active, and other course runs ready:
+see course.py), then course_goal sends the goal. The run ends when course_goal finishes (result or
 timeout) or walker_node stops (a fall), and everything shuts down.
 """
 
@@ -29,7 +30,7 @@ AUTO_RELEASE = "15"       # s of sim time before the sim lowers the robot onto i
 # String launch arguments passed straight to run_recorder's parameters.
 RECORDER_ARGS = ["run_dir", "world", "tag", "note", "extras", "extras_reason", "command",
                  "replay_reason", "replay_dir", "lidar_fields", "floor_surface", "tether",
-                 "battery_percent", "people_nearby", "lighting"]
+                 "battery_percent", "people_nearby", "lighting", "nav2_params_file"]
 
 
 def generate_launch_description():
@@ -37,7 +38,7 @@ def generate_launch_description():
     nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory("harp_ros"), "launch", "nav2.launch.py")),
-        launch_arguments={"rviz": arg("rviz")}.items())
+        launch_arguments={"rviz": arg("rviz"), "params_file": arg("nav2_params_file")}.items())
     recorder = Node(package="harp_ros", executable="run_recorder", name="run_recorder",
                     output="both", sigterm_timeout="15", parameters=[{
                         # As text, or "80" (battery_percent) would arrive as a number.
@@ -46,9 +47,11 @@ def generate_launch_description():
                         "lidar_rate": PythonExpression(["float('", arg("lidar_rate"), "' or 0)"]),
                         "summarize": False}])
     sim = Node(package="harp_sim", executable="run_sim", output="both",
-               arguments=["--lidar", "--world", arg("world"), "--auto-release", AUTO_RELEASE, "--log"])
+               arguments=["--lidar", "--world", arg("world"), "--auto-release", AUTO_RELEASE, "--hold-band", "--log",
+                          "--domain", arg("sim_domain")])
     walker = Node(package="harp_ros", executable="walker_node", name="walker", output="both",
-                  parameters=[{"auto_start": True}])
+                  parameters=[{"auto_start": True,
+                               "domain": ParameterValue(arg("sim_domain"), value_type=int)}])
     goal = Node(package="harp_ros", executable="course_goal", name="course_goal", output="both",
                 parameters=[{"goal": arg("goal"), "timeout": arg("timeout")}])
 
@@ -70,6 +73,10 @@ def generate_launch_description():
         DeclareLaunchArgument("goal", default_value="", description='"X Y [YAW_DEG]" in odom'),
         DeclareLaunchArgument("timeout", default_value="240.0"),
         DeclareLaunchArgument("rviz", default_value="true"),
+        DeclareLaunchArgument("sim_domain", default_value="1",
+                              description="DDS domain of the sim's robot topics (course picks one)"),
+        DeclareLaunchArgument("nav2_params_file", description="Nav2 parameters", default_value=os.path.join(
+            get_package_share_directory("harp_ros"), "config", "nav2_params.yaml")),
         DeclareLaunchArgument("replay", default_value="false",
                               description="record for replay (only when a person asks, with replay_reason)"),
         DeclareLaunchArgument("lidar_rate", default_value=""),

@@ -3,7 +3,7 @@ name: project-overview
 description: Read when you need the big picture — the robot, the team, the decisions that shape the code, and the open safety-layer question
 metadata:
   type: project
-  updated: 2026-10-26T22:40:10Z
+  updated: 2026-10-27T08:26:52Z
   covers: [README.md]
 ---
 
@@ -15,7 +15,7 @@ Stanford HARP project on a **Unitree G1 EDU with 29 joints** (6 per leg, 3 waist
 
 **Decisions that shape the code**
 - Walking: NVIDIA's open GR00T policy, not Unitree's closed sport service (the mentors' request) ([[gr00t-wbc]], [[feedback-minimal-setup]]).
-- ROS 2 Jazzy, three packages under `ros2/src/` ([[ros2-mac]]). `walker_node` drives GR00T from `/cmd_vel`; Nav2 drives it around obstacles with the head lidar ([[nav2-sim]]).
+- ROS 2 Jazzy, three packages under `ros2/src/` plus a copy of the STVL costmap layer ([[ros2-mac]]). `walker_node` drives GR00T from `/cmd_vel`; Nav2 drives it around obstacles with the head lidar ([[nav2-sim]]).
 - Everything is tested in our MuJoCo sim first ([[mujoco-sim]]) and recorded under `runs/` ([[run-logging]]). Nothing has run on the real robot yet (as of 2026-10-26).
 - How to detect and talk to people is undecided.
 
