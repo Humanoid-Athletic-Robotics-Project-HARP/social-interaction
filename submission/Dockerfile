@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-foxy-nav2-controller ros-foxy-nav2-planner ros-foxy-nav2-navfn-planner \
     ros-foxy-nav2-recoveries ros-foxy-nav2-bt-navigator ros-foxy-nav2-lifecycle-manager \
     ros-foxy-nav2-regulated-pure-pursuit-controller ros-foxy-spatio-temporal-voxel-layer \
+    ros-foxy-nav2-common ros-foxy-nav-2d-utils ros-foxy-angles ros-foxy-visualization-msgs \
+    ros-foxy-tf2-geometry-msgs \
     && rm -rf /var/lib/apt/lists/*
 # ONNX Runtime 1.16.3 and MuJoCo 3.2.3 are the newest for Foxy's Python 3.8 on ARM64.
 RUN python3 -m pip install --no-cache-dir numpy==1.24.4 onnxruntime==1.16.3 PyYAML==6.0.2 \
@@ -18,6 +20,10 @@ WORKDIR /example
 COPY him/container/interfaces /example/interfaces
 RUN source /opt/ros/foxy/setup.bash && colcon build --base-paths interfaces \
     --packages-select him_safety_interfaces
+# Our Foxy port of Nav2's Graceful Controller (nav2_graceful_controller/HARP_PATCHES.md).
+COPY nav2_graceful_controller /harp_ws/src/nav2_graceful_controller
+RUN source /opt/ros/foxy/setup.bash && cd /harp_ws && colcon build \
+    --packages-select nav2_graceful_controller --cmake-args -DBUILD_TESTING=OFF
 COPY him/container/controllers.py him/container/client.py him/container/trial.py \
      him/container/command.py /example/
 COPY him/container/robot_safety /example/robot_safety

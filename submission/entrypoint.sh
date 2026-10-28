@@ -7,6 +7,7 @@
 set -e
 source /opt/ros/foxy/setup.bash
 source /example/install/setup.bash
+source /harp_ws/install/setup.bash
 # HIM's sim profile finds only 5 participants; ours lists peers for 32 (harp/fastdds_profile.py).
 if [[ "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" == /fastdds.xml ]]; then
   python3 /harp/harp/fastdds_profile.py > /tmp/harp_fastdds.xml

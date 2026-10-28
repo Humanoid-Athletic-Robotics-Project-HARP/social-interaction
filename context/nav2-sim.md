@@ -1,44 +1,29 @@
 ---
 name: nav2-sim
-description: Read before tuning Nav2 (nav2_params.yaml, nav2.launch.py, the behavior tree), changing a course, or running Nav2 by hand — why each setting is what it is, current results and what's next
+description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-27T08:25:41Z
-  covers: [ros2/src/harp_ros/config/nav2_params.yaml, ros2/src/harp_ros/launch/nav2.launch.py, ros2/src/harp_ros/behavior_trees/*, ros2/src/harp_sim/worlds/*.xml, ros2/src/harp_sim/harp_sim/movers.py, ros2/src/harp_control/harp_control/lidar_mount.py]
+  updated: 2026-10-28T07:49:26Z
+  covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py]
 ---
 
-Values are in `harp_ros/config/nav2_params.yaml`; this note gives the reasons. Research behind it: [[lidar-nav2-research]].
+Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission/nav2/nav2_params.yaml`, this note gives the reasons. Research behind it: [[lidar-nav2-research]].
 
 **Setup and why**
-- `nav2.launch.py` starts each server as its own node (controller, planner, behavior, bt_navigator, one lifecycle manager, rviz2) rather than nav2_bringup, which starts docking_server (not on RoboStack). Args: `rviz:=false`, `params_file:=`, `use_sim_time:=true` (for replay, [[run-logging]]).
-- No map: everything in `odom`, goals relative to where the policy started; global costmap is a 20 × 20 m rolling window.
-- NavFn (`allow_unknown`) + Graceful Controller (same law as `move_distance --to`). Speed minimums stay well above GR00T's 0.05 Balance switch.
-- `behavior_trees/navigate.xml`: stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recoveries are Wait and Spin.
-- `default_server_timeout` 200 ms: at Nav2's 20 ms, bt_navigator gave up waiting for the planner's ack on a busy Mac, and each replan became a recovery.
-- **Footprint:** a circle, `robot_radius` 0.4. The body's farthest point (forearms, held bent) is 0.355 m from `base_link`. A polygon would give NavFn an inscribed radius of only 0.09 m.
-- **Inflation** 0.8 m, factor 3 keeps the robot's centre about 0.8 m (body edge about 0.45 m, personal space) from obstacles. It's only a preference; only `robot_radius` blocks a gap. Graceful follows NavFn's path and doesn't read the gradient. Inflation 1.0 / factor 2 was rejected: on `slalom` NavFn then preferred a long detour round the side walls (198 s, 42.5 m vs 52 s, 9.9 m).
-- **Live lidar TF:** `walker_node` publishes the lidar's real pose (`LegOdometry.lidar_pose()`, IMU + joints). A fixed transform made the floor 2.5–3 m out look ±0.12 m high (the torso tilts about 2°) and filled the costmap with phantom obstacles.
+- `nav2.launch.py` starts each server as its own node (controller, planner, recoveries, bt_navigator, one lifecycle manager). No map: everything in `odom` (leg odometry), goals in that frame; the global costmap is a 20 × 20 m rolling window.
+- NavFn (`allow_unknown`) + the **Graceful Controller** (Park & Kuipers, the same law as our `{"to": ...}` move), so a goal is reached in one curve already facing its heading: the way to walk up to a person. Foxy lacks it, so it is our port, `submission/nav2_graceful_controller/` (Nav2 commit `d5d768b`, `HARP_PATCHES.md`). Speed minimums stay well above GR00T's 0.05 Balance switch.
+- `failure_tolerance` 0.3 (ours, in the port): without it each moment with no collision-free trajectory (a person crossing) aborted the path, 6 recoveries and a failed `crossing`. `goal_dist_tolerance` 0.25 matches the goal checker, which Foxy doesn't hand to the controller.
+- Regulated Pure Pursuit was the first Foxy controller (settings in commit `ca382d5`): faster (slalom 40 s), but no final-heading curve, and its 1 s collision look-ahead tripped on the walker's sway (0.5 s needed).
+- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recoveries are Wait and Spin.
+- **Footprint:** a circle, `robot_radius` 0.4: the forearms reach 0.355 m from `base_link`, and a polygon gives NavFn an inscribed radius of only 0.09 m.
+- **Inflation** 0.8 m, factor 3 keeps the body edge about 0.45 m from obstacles (personal space). Only `robot_radius` blocks a gap. 1.0 / factor 2 made NavFn detour round slalom's side walls.
+- **Live lidar TF** from leg kinematics (`harp/state.py`): a fixed transform made the floor 2.5–3 m out look ±0.12 m high (torso tilt).
+- **STVL** (Foxy binary): marks in view that aren't seen again fade in about 2 s, out of view after 15 s. Nav2's VoxelLayer was rejected: its clearing rays slope down from the 1.2 m lidar, so a passing person left a permanent wall. STVL has no minimum range, but the arms are inside the footprint, which it clears. `track_unknown_space: false` on both costmaps: STVL never marks free, so with it the map stayed unknown and NavFn hugged obstacles.
 
-**Lidar layer: STVL** (`spatio_temporal_voxel_layer`, built from `ros2/src`, [[ros2-mac]]). Marks inside the lidar's view that aren't seen again fade in about 2 s; marks out of view after 15 s. The YAML header explains each setting.
-- Nav2's VoxelLayer was replaced because a moving person left a permanent wall: its clearing rays start at the lidar (1.21 m) and slope down, so marks above that height never clear. On `crossing` it detoured round the person's whole track. Its settings, for comparison runs: `nav2_params.yaml` at commit 001e68f, passed with `course --params FILE`.
-- STVL has no minimum range, so the arms get marked, but they're inside the footprint, which STVL clears.
-- **`track_unknown_space: false` (both costmaps):** STVL never marks cells free, so with it on the map stayed unknown around obstacles, inflation left no gradient there (it only spreads inscribed/lethal costs into unknown cells), and NavFn hugged every obstacle (`obstacle_course`: closest 0.10–0.12 m, 5–11 recoveries, one failure; `2026-10-27_08-13-24Z_sim_obstacle_course_stvl`, nav bag).
+**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.5 m to its left). `crossing_shuttle` is unused. `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
 
-**Courses** (`harp_sim/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); with people ([[mujoco-sim]]): `crossing` (crosses the path once, 3 s after the goal), `oncoming` (walks toward the robot, 0.5 m to its left). `crossing_shuttle` (endless back and forth) is kept only for old runs. Each static course has a ≥ 1.2 m path everywhere and a closed far end, but `slalom` and `obstacle_course` are **open at the start end**: close them before comparing costmap settings.
+**Results with Graceful** (2026-10-28, one run each, `runs/*_graceful*`, all `within_limits`, 0 contacts, drift under 4 cm): open_floor 17.4 s; one_box 24.8 s, closest 0.60 m; slalom 52.5 s, 0.37 m, 0 recoveries; obstacle_course 48.0 s, 0.25 m, 0 recoveries; crossing 32.1 s, 0.62 m, 0 recoveries; oncoming 31.2 s, 0.17 m, 1 recovery. RPP's (`runs/*_rpp-ttc05`): 16.8, 20.5, 40.4, 43.2, 29.2, 25.1 s. The live viewer often makes HIM stop Nav2 runs on a MacBook Air (`host_stall`, `inconclusive`): numbers come from `--no-view` reruns when that happens.
 
-**Current results** (STVL, 1 run each so far, all pinned; 0 contacts):
-- `obstacle_course` (`2026-10-27_08-19-50Z_..._stvl`, nav bag): 51.8 s, 9.6 m, closest 0.17 m, 0 recoveries — the same as VoxelLayer (`2026-10-27_08-12-03Z_..._v2`, nav bag).
-- `crossing` (`2026-10-27_08-21-27Z_..._stvl`): 24.3 s, 4.9 m straight, closest 0.84 m. VoxelLayer: 55 s, 9.6 m round the track (`2026-10-27_08-00-34Z_..._v2`).
-- `oncoming` (`2026-10-27_08-23-14Z_..._stvl`): 30.2 s, closest **0.09 m** (left wrist).
-- `slalom`, `one_box`, `open_floor` not yet run with STVL. No pass criteria yet for `crossing`/`oncoming`.
+**Open problem — oncoming people:** the person passes within 0.16–0.17 m (wrist): Nav2 treats them as standing still, and they're marked only within 3 m, about 2 s before they arrive.
 
-**Open problem — oncoming people:** both layers let the person brush past (STVL 0.09 m, VoxelLayer 0.18 m): the robot mostly stops and moves only 8–13 cm aside. Nav2 treats the person as standing still, and they're only marked within 3 m, about 2 s before they reach the robot.
-
-**To do in the sim** (README milestone "more on obstacles and path following"): repeat runs per course with STVL (GR00T's gait varies) and set criteria for `crossing`/`oncoming`; yielding to oncoming people; slalom with the 200 ms timeout (one earlier recovery was a NavFn path-extraction failure, which the timeout won't fix); collision_monitor; close the courses' start ends. Then the real lidar.
-
-**By hand** (README "Walk around obstacles with Nav2"; `course` automates all this):
-1. Sim with `--lidar --world W`; wait for its banner before walker_node.
-2. Start the policy after "Feet down" and within 3 s (the band releases 3 s later). With `--auto-release`, use 15: walker_node needs about 8 s to reach its stand pose.
-3. Launch Nav2 once the policy runs; it aborts after about 3.5 s without `odom` → `base_link`.
-4. Send goals in `odom` with `BasicNavigator.goToPose`; don't call `waitUntilNav2Active()` (it waits for AMCL).
-5. Restart all three between courses. A fall right on band release means the policy started too early or late.
+**Next in the sim:** criteria for `crossing`/`oncoming`, repeat runs for spread, yielding to oncoming people, a collision monitor, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).

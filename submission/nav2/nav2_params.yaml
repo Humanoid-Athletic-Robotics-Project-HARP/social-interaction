@@ -46,34 +46,35 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.35
     FollowPath:
-      # Foxy has no Graceful Controller (the law of move_distance --to); Regulated
-      # Pure Pursuit also follows NavFn's path, turning in place first when far off it.
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      # Park & Kuipers' law, the same as our {"to": ...} move (harp/smooth_control.py), so
+      # it curves into a goal already facing its heading. Our Foxy port of Nav2's Graceful
+      # Controller (submission/nav2_graceful_controller); Regulated Pure Pursuit's settings
+      # are in git history (commit ca382d5).
+      plugin: "nav2_graceful_controller::GracefulController"
       transform_tolerance: 0.5
+      min_lookahead: 0.3
+      max_lookahead: 1.0
+      k_phi: 2.0
+      beta: 0.4
+      lambda: 2.0
       # GR00T walks at about 85% of the command, and below |cmd| 0.05 it
       # switches to standing still, so the minimums stay well above that.
-      desired_linear_vel: 0.3
-      max_linear_accel: 1.0
-      max_linear_decel: 1.0
-      lookahead_dist: 0.6
-      min_lookahead_dist: 0.3
-      max_lookahead_dist: 1.0
-      lookahead_time: 1.5
-      use_velocity_scaled_lookahead_dist: false
-      use_rotate_to_heading: true
-      rotate_to_heading_min_angle: 0.75
-      rotate_to_heading_angular_vel: 0.6
-      max_angular_accel: 2.0
-      use_approach_linear_velocity_scaling: true
-      min_approach_linear_velocity: 0.1
-      use_regulated_linear_velocity_scaling: true
-      regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.1
-      use_cost_regulated_linear_velocity_scaling: false
-      # s ahead RPP projects the footprint along the command and stops if it touches
-      # inflated cost. At 1.0 the walker's sway on slalom's corners tripped it 6 times
-      # a run (each a recovery) with the path clear; 0.5 s is still about a step.
-      max_allowed_time_to_collision: 0.5
+      v_linear_min: 0.1
+      v_linear_max: 0.3
+      v_angular_max: 0.6
+      v_angular_min_in_place: 0.3
+      slowdown_radius: 0.8
+      initial_rotation: true
+      initial_rotation_tolerance: 0.75
+      prefer_final_rotation: true
+      allow_backward: false
+      in_place_collision_resolution: 0.1
+      # Where it stops following the path and only turns to the goal's heading. Foxy gives
+      # the controller no goal checker, so this matches goal_checker's xy_goal_tolerance.
+      goal_dist_tolerance: 0.25
+      # s of no collision-free trajectory (a person crossing) it stops and waits out before
+      # aborting the path. The controller server's failure_tolerance on Jazzy; Foxy's has none.
+      failure_tolerance: 0.3
 
 # Both costmaps read the head lidar the same way, through STVL
 # (spatio_temporal_voxel_layer), whose marks fade:

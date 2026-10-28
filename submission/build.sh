@@ -21,7 +21,7 @@ mkdir -p "$stage"
 "$python" -c 'import sys; sys.path.insert(0, sys.argv[1]); from prepare import prepare; prepare("walker", sys.argv[2])' \
   "$him/containers/examples" "$stage/him" >/dev/null
 cp "$here/Dockerfile" "$here/entrypoint.sh" "$here/harp_node.py" "$stage/"
-cp -R "$here/harp" "$here/nav2" "$stage/"
+cp -R "$here/harp" "$here/nav2" "$here/nav2_graceful_controller" "$stage/"
 
 docker build --platform linux/arm64 -t "$tag" "$stage"
 docker save "$tag" -o "$here/submission.tar"

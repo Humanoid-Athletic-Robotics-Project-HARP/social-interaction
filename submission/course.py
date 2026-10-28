@@ -2,6 +2,7 @@
   python3 submission/course.py one_box
   python3 submission/course.py slalom --tag rpp --repeat 3 --view
   python3 submission/course.py --score runs/2026-10-28_05-00-00Z_sim_one_box
+  python3 submission/course.py --prune
 
 Each run gets a folder in runs/ (HARP_RUNS_DIR to change it) holding HIM's
 report.json, trace.npz (the true pose every 20 ms) and policy.log (our image's
@@ -15,6 +16,9 @@ output: events and the once-a-second "odom" lines), and our summary.json:
                         movers included (replayed from their mover_start events;
                         HIM's physics never sees movers, so these are the only contacts)
   drift_m    leg odometry against the truth at the last "odom" line
+After scoring, HIM's viewer output (view/ and live.jsonl, tens of MB a watched run)
+is deleted: HIM's ./desktop_sim.sh replay RUN/trace.npz rebuilds it. --prune does
+the same for every run folder course.py made (those with a run.json).
 
 Needs MuJoCo, so it runs under HIM's .venv-policy-safety (it re-executes
 itself there). Build the image first: submission/build.sh.
@@ -24,6 +28,7 @@ import argparse
 import datetime
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -39,6 +44,7 @@ STARTUP = 30.0          # s added to the world's max_time_s: HIM's 5 s balance, 
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
 VIEW_LINGER = 5.0       # s the live viewer stays up after the report, with --view
+VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
 
 try:
     import mujoco
@@ -156,6 +162,16 @@ def check(summary, criteria_file):
     return not failed, failed
 
 
+def prune(run):
+    """Delete HIM's viewer output from a run folder; trace.npz and the logs stay."""
+    for name in VIEWER_OUTPUT:
+        path = run / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+
+
 def run_once(name, tag, view):
     criteria = HERE / "worlds" / (name + ".yaml")
     max_time = yaml.safe_load(criteria.read_text()).get("max_time_s", 60) if criteria.is_file() else 60
@@ -189,11 +205,18 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--view", action="store_true", help="watch in HIM's browser viewer")
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
+    parser.add_argument("--prune", action="store_true",
+                        help="only delete HIM's viewer output from every course run in runs/")
     args = parser.parse_args()
+    if args.prune:
+        for run in sorted(p.parent for p in RUNS.glob("*/run.json")):
+            prune(run)
+        return 0
     runs = [Path(args.score)] if args.score else [
         run_once(args.world, args.tag, args.view) for _ in range(args.repeat)]
     for run in filter(None, runs):
         s = score(run)
+        prune(run)
         verdict = {True: "PASS", False: "FAIL " + ",".join(s["failed_checks"]), None: "-"}[s["passed"]]
         print(f"{run.name}: {s['outcome']} ({s['him_status']}) {verdict}  "
               f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "

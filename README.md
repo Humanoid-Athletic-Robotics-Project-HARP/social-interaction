@@ -258,8 +258,9 @@ afterwards from `him-sim2real-management/`:
 ./desktop_sim.sh replay RUN_FOLDER/trace.npz
 ```
 
-Course tests run Nav2 with the simulated lidar on one of `submission/worlds/`
-and score it against that world's criteria, in a folder in `runs/`:
+Course tests run Nav2 (our Foxy port of its Graceful Controller) with the
+simulated lidar on one of `submission/worlds/` and score it against that
+world's criteria, in a folder in `runs/`:
 
 ```bash
 python3 submission/course.py one_box
@@ -573,3 +574,7 @@ In `ros2/src/harp_control/harp_control/gr00t/`:
 
 `ros2/src/spatio_temporal_voxel_layer/` is Steve Macenski's STVL, under
 LGPL-2.1 (`LICENSE`). Its `openvdb_vendor` builds OpenVDB, which is MPL-2.0.
+
+`submission/nav2_graceful_controller/` is Nav2's Graceful Controller (Alberto
+J. Tudela Roldán), under Apache-2.0 (`LICENSE`), ported to ROS 2 Foxy; the
+upstream commit and our changes are in its `HARP_PATCHES.md`.
