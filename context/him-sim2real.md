@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before any work on the simulation-migration branch, or anything that touches HARP's safety harness/simulator (him-sim2real-management)
 metadata:
   type: project
-  updated: 2026-10-28T08:04:05Z
+  updated: 2026-10-28T08:54:28Z
   covers: []
 ---
 
@@ -32,11 +32,10 @@ metadata:
 - The pixi environment, our STVL source copy and the MuJoCo window: the Docker image (Foxy's STVL binary) and HIM's viewer.
 
 **Next steps without the robot, in order** (the maintainer's call: the cleanup comes before the first robot session):
-1. Pass criteria for `crossing` and `oncoming`, then repeat runs of every course for spread (all six succeed once with Graceful, [[nav2-sim]]).
-2. Build `lidar_relay` into the image (CycloneDDS and Unitree's SDK), started only outside the sim. In the sim, check it builds, starts and exits cleanly; real data needs the robot.
-3. Remove the old `ros2/` stack once the README checklist has nothing left in it but this, and the README sections that describe it. First tell the teammate behind the remote-button rule in [[controls]] that HIM's controls replace ours.
-4. Rewrite or retire the memories that describe the old stack: [[safety]], [[controls]], [[mujoco-sim]], [[run-logging]], [[gr00t-wbc]], [[ros2-mac]], [[move-distance]], [[feedback-minimal-setup]], [[beginner-guide]].
+1. Remove the old `ros2/` stack once the README checklist has nothing left in it but this, and the README sections that describe it. First tell the teammate behind the remote-button rule in [[controls]] that HIM's controls replace ours.
+2. Rewrite or retire the memories that describe the old stack: [[safety]], [[controls]], [[mujoco-sim]], [[run-logging]], [[gr00t-wbc]], [[ros2-mac]], [[move-distance]], [[feedback-minimal-setup]], [[beginner-guide]].
+3. Last (the maintainer's call: after the rest): pass criteria for `crossing` and `oncoming`, then three runs of every course for spread, after fixing the live-viewer stops in [[submission-image]] (all six succeed once with Graceful, [[nav2-sim]]).
 
 The first robot session's moves are rehearsed in the sim (2026-10-28, all `within_limits`): standing; `{"moves": [{"walk": 0.5}]}` ended 0.51 m (a `"to"` straight ahead stops inside its 8 cm tolerance, 0.43 m for 0.5 m, so walk straight lines); `{"to": [1, 1, 45]}` about 7 cm and 5° off. The session's steps are the README's "On the robot".
 
-**Needs the robot:** run the moves through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first) and check leg odometry with a tape; then real lidar through `lidar_relay`, then Nav2 on the robot.
+**Needs the robot:** run the moves through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first) and check leg odometry with a tape; then real lidar through `lidar_relay` (built and tested in the image), then Nav2 on the robot.

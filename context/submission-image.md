@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T08:04:05Z
+  updated: 2026-10-28T08:54:29Z
   covers: [submission/**]
 ---
 
@@ -22,6 +22,6 @@ metadata:
 
 **Planned moves** (`harp/moves.py`, the old `move_distance`): `G1_TASK_COMMAND='{"moves": [{"walk": M}, {"turn": DEG}, {"to": [X, Y, HEADING]}]}'` or just `{"to": [...]}` (also `speed`, `turn_speed`) reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. Moves run 2 s apart, each from where the last ended. In the sim (one run, `within_limits`): walk 1 m ended 1.02 m, turn 90° ended 90.2°, curve to (1, 1, 45°) ended about 7 cm and 5° off; leg odometry within 1 cm of the truth each time.
 
-**Viewing:** `submission/sim.sh` opens HIM's browser viewer by default (press Start; `--no-view` to skip, which `course.py` uses). On a MacBook Air the viewer's load can make HIM stop a run (`observation_timeout` with `host_stall`, or `checked_command_expired`) that passes without it: rerun with `--no-view` before blaming our code, then watch it with HIM's `./desktop_sim.sh replay RUN/trace.npz`. HIM's first viewer use downloads Three.js; on a Python.org Python that needs `SSL_CERT_FILE` from `certifi`.
+**Viewing:** `submission/sim.sh` opens HIM's browser viewer by default (press Start; `--no-view` to skip, which `course.py` uses). On a MacBook Air the viewer's load can make HIM stop a run (`observation_timeout` with `host_stall`, or `checked_command_expired`) that passes without it: rerun with `--no-view` before blaming our code, then watch it with HIM's `./desktop_sim.sh replay RUN/trace.npz`. HIM's first viewer use downloads Three.js; on a Python.org Python that needs `SSL_CERT_FILE` from `certifi`. **Open, 2026-10-28:** with the live viewer, a course run was often stopped 2.6–26 s in by `observation_timeout` or `checked_command_expired` without `host_stall` (our node answering states over 0.2 s old; 4 of 7 live `one_box` runs), mostly during HIM's start-up balance; no `--no-view` run has hit it. `entrypoint.sh` now starts the lidar, Nav2 and the course goal 5 s after our node and at `nice` 10: one live run passed since, too few to call it fixed. This MacBook Air (16 GB, 8 GB to Docker) had about 75 MB free at the time. Once, `course.py --view` didn't close HIM's viewer after the report, so `--repeat` hung.
 
-**Not built yet:** `lidar_relay` in the image for the robot (needs CycloneDDS and Unitree's SDK in the image).
+**Lidar relay** (`harp/lidar_relay.py`, robot only: `entrypoint.sh` starts it when `G1_EXECUTION_MODE` isn't `sim`): reads `rt/utlidar/cloud_livox_mid360` through Unitree's SDK on `ROBOT_DOMAIN`/`ROBOT_INTERFACE` (HIM's launcher sets them) and republishes it restamped for Nav2. The SDK needs CycloneDDS 0.10.2's C library, built from source in the Dockerfile (no wheel for Python 3.8 on ARM64); it sits beside ROS's Fast DDS in one process without trouble. Tested in the image (2026-10-28) against a cloud published the way the robot does: 15,000 points arrive restamped; SIGTERM exits cleanly. Foxy's `rclpy.spin` never wakes for signals, so it spins in 0.2 s steps. In a plain `docker run`, `lo` has no multicast, so ROS discovery needs `harp/fastdds_profile.py`'s profile; on the robot HIM uses host networking. Real lidar data needs the robot.

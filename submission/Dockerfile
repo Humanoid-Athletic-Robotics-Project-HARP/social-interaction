@@ -10,11 +10,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-foxy-nav2-recoveries ros-foxy-nav2-bt-navigator ros-foxy-nav2-lifecycle-manager \
     ros-foxy-nav2-regulated-pure-pursuit-controller ros-foxy-spatio-temporal-voxel-layer \
     ros-foxy-nav2-common ros-foxy-nav-2d-utils ros-foxy-angles ros-foxy-visualization-msgs \
-    ros-foxy-tf2-geometry-msgs \
+    ros-foxy-tf2-geometry-msgs git \
     && rm -rf /var/lib/apt/lists/*
 # ONNX Runtime 1.16.3 and MuJoCo 3.2.3 are the newest for Foxy's Python 3.8 on ARM64.
 RUN python3 -m pip install --no-cache-dir numpy==1.24.4 onnxruntime==1.16.3 PyYAML==6.0.2 \
     mujoco==3.2.3 "zipp>=3.1"
+# Unitree's SDK, for harp/lidar_relay.py on the robot: CycloneDDS 0.10.2 (the version the SDK's
+# bindings need; no wheel exists for Python 3.8 on ARM64) and the SDK at the commit in the README.
+ENV CYCLONEDDS_HOME=/opt/cyclonedds
+RUN git clone -q --depth 1 -b 0.10.2 https://github.com/eclipse-cyclonedds/cyclonedds /tmp/cyclonedds \
+    && cmake -S /tmp/cyclonedds -B /tmp/cyclonedds/build -DCMAKE_INSTALL_PREFIX=$CYCLONEDDS_HOME \
+       -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DENABLE_SHM=OFF \
+    && cmake --build /tmp/cyclonedds/build --target install -j \
+    && rm -rf /tmp/cyclonedds \
+    && python3 -m pip install --no-cache-dir cyclonedds==0.10.2 \
+       "git+https://github.com/unitreerobotics/unitree_sdk2_python.git@814556d15970dd2ecf1c9984e845ca02ab07e206"
 # The shared client expects its files under /example.
 WORKDIR /example
 COPY him/container/interfaces /example/interfaces
