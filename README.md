@@ -364,10 +364,10 @@ The run saves the effective `route.yaml` and each waypoint's result. Route pass/
 the YAML's optional `criteria`; single-goal course limits apply to single
 goals. A route without criteria still reports its navigation outcome.
 
-From `ros2/`, check the waypoint code with:
+After building, run the offline checks from `ros2/`:
 
 ```bash
-pixi run --as-is python -m unittest discover -s src/harp_eval/test
+pixi run --as-is python -m pytest src/harp_*/test -q
 ```
 
 Every run gets its own folder in `runs/` (which git ignores). It has the
@@ -392,6 +392,8 @@ A few more things you can do:
 - `--replay --replay-reason "why"` saves enough to replay the run into Nav2
   later with different settings (`replay.launch.py`). These recordings are
   large, so only make one when someone asks for it.
+  Replay runs use their own ROS domain (100 by default); use `domain:=ID`
+  with another unused domain for concurrent replays.
 - `runs list` and `runs show RUN` let you browse, `runs set RUN key=value`
   records conditions such as `tether=gantry`, and `runs pin RUN` keeps a
   run around for good. Older runs get trimmed automatically.

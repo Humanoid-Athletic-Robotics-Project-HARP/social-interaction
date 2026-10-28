@@ -3,7 +3,7 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-28T00:47:18Z
+  updated: 2026-10-28T00:47:33Z
   covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 
@@ -34,6 +34,8 @@ metadata:
 **Extras and retention** are configured in `harp_eval/config/logging.yaml` (a new topic is one entry). Keep extras off unless they answer a question: disks are small.
 
 **Replay recording: only when a person explicitly asks**, never by default or on an agent's initiative. It records lidar, TF, odom and more (about 85 MB/min) so Nav2 can be re-run on a laptop with other params: `course ... --replay --replay-reason "why"`, then `ros2 launch harp_eval replay.launch.py run:=RUN params_file:=FILE [record:=true tag:=T]`. Its size and disk limits are in `logging.yaml`. Example pair: `2026-10-26_21-15-37Z_sim_one_box_replay-test` (pinned).
+
+Replay processes share an isolated DDS domain (100 by default), including Nav2, bag playback and the optional recorder. Use `domain:=ID` with another unused domain for concurrent replays. This keeps replay TF, odom, clock and Nav2 velocity requests away from normal walking domains.
 
 **Gotchas**
 - Launch arguments can't be empty (`extras:=` errors); `course` omits unset ones.

@@ -3,7 +3,7 @@ name: feedback-minimal-setup
 description: Read before adding new nodes, packages, messages or tooling — build only what the current goal needs, prefer open code
 metadata:
   type: feedback
-  updated: 2026-10-28T00:18:02Z
+  updated: 2026-10-28T00:48:04Z
   covers: [ros2/src/harp_ros/setup.py, ros2/src/harp_ros/launch/*.py, ros2/src/harp_eval/setup.py, ros2/src/harp_eval/launch/*.py]
 ---
 

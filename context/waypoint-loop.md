@@ -3,7 +3,7 @@ name: waypoint-loop
 description: Read when extending route state or connecting waypoint sequencing to navigation
 metadata:
   type: reference
-  updated: 2026-10-28T00:47:18Z
+  updated: 2026-10-28T00:48:04Z
   covers: [ros2/src/harp_eval/harp_eval/waypoint_route.py, ros2/src/harp_eval/harp_eval/course.py, ros2/src/harp_eval/harp_eval/course_goal.py, ros2/src/harp_eval/launch/course.launch.py, ros2/src/harp_eval/config/rectangle.yaml, ros2/src/harp_eval/test/*.py]
 ---
 

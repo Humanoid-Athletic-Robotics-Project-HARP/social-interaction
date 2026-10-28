@@ -16,6 +16,8 @@ The recorded /cmd_vel is played as /recorded/cmd_vel, apart from Nav2's own.
 record:=true also records the replay as a run (kind replay, with Nav2's
 costmaps in its bag), so settings can be compared afterwards with runs.
 The replay ends when the recording does.
+All replay processes use DDS domain 100 by default, separate from manual
+walking and course runs. Set domain:=ID to another unused domain when needed.
 """
 
 import os
@@ -26,7 +28,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, EmitEvent, ExecuteProcess,
                             IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler,
-                            TimerAction)
+                            SetEnvironmentVariable, TimerAction)
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -55,6 +57,12 @@ def find_bag(run, bag):
 
 def actions(context):
     get = lambda name: LaunchConfiguration(name).perform(context)
+    try:
+        domain = int(get("domain"))
+    except ValueError as exc:
+        raise ValueError("replay domain must be an integer from 0 to 232") from exc
+    if not 0 <= domain <= 232:
+        raise ValueError("replay domain must be an integer from 0 to 232")
     bag = find_bag(get("run"), get("bag"))
     share = get_package_share_directory("harp_ros")
     play = ExecuteProcess(cmd=["ros2", "bag", "play", str(bag), "--clock", "--rate", get("rate"),
@@ -66,7 +74,10 @@ def actions(context):
         PythonLaunchDescriptionSource(os.path.join(share, "launch", "nav2.launch.py")),
         launch_arguments={"params_file": get("params_file"), "use_sim_time": "true",
                           "rviz": get("rviz")}.items())])
-    out = [play, nav2, RegisterEventHandler(OnProcessExit(target_action=play, on_exit=[
+    # Apply before every child, including delayed Nav2 and the optional recorder.
+    # Replayed TF/odom/clock and Nav2's /cmd_vel must not reach a live walker.
+    out = [SetEnvironmentVariable("ROS_DOMAIN_ID", str(domain)),
+           play, nav2, RegisterEventHandler(OnProcessExit(target_action=play, on_exit=[
         EmitEvent(event=Shutdown(reason="the recording ended"))]))]
     if get("record") == "true":
         out.append(Node(package="harp_eval", executable="run_recorder", name="run_recorder",
@@ -88,5 +99,7 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("record", default_value="false"),
         DeclareLaunchArgument("tag", default_value="replay"),
+        DeclareLaunchArgument("domain", default_value="100",
+                              description="unused DDS domain for all replay processes"),
         OpaqueFunction(function=actions),
     ])
