@@ -206,6 +206,9 @@ world's criteria, in a folder in `runs/` (which git ignores):
 python3 submission/course.py one_box
 ```
 
+Add `--view` to watch each run: once it's scored, its replay plays at the
+address printed, before the next run starts.
+
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the
 robot's path) and `oncoming` (someone walks toward it). They're MuJoCo files,

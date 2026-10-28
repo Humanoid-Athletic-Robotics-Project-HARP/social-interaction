@@ -30,8 +30,10 @@ ROUTE_POINT_TIME per point, plus STARTUP.
 It exits 1 if any run didn't succeed or failed its criteria.
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
-After scoring, HIM's viewer output (view/ and live.jsonl, tens of MB a watched run)
-is deleted: HIM's ./desktop_sim.sh replay RUN/trace.npz rebuilds it. --prune does
+Runs never use HIM's live viewer (its load stopped about 1 in 4 watched runs on a
+deadline). --view instead replays each run once it is scored, at the URL it prints,
+for the run's length, before starting the next. After that, HIM's viewer output
+(view/, tens of MB) is deleted: HIM's ./desktop_sim.sh replay RUN/trace.npz rebuilds it. --prune does
 the same for every run folder course.py made (those with a run.json).
 
 Needs MuJoCo, so it runs under HIM's .venv-policy-safety (it re-executes
@@ -58,8 +60,7 @@ RUNS = Path(os.environ.get("HARP_RUNS_DIR", REPO / "runs"))
 STARTUP = 30.0          # s added to the world's max_time_s: HIM's 5 s balance, Nav2, settling
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
-VIEW_LINGER = 5.0       # s the live viewer stays up after the run, with --view
-VIEWER_IDLE = "Viewer is still at"   # HIM's sim.sh, once the run is over and only the page is left
+REPLAY_SLACK = 10.0     # s the --view replay stays up beyond the run's length
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
 ROUTES = HERE / "routes"
 ROUTE_SPEED = 0.15      # m/s along a route's straight legs, for its run length (Nav2's mean is about this)
@@ -145,7 +146,7 @@ def score(run):
              if odom else None)
 
     if report["status"] not in ("within_limits", "completed") and report.get("host_stall"):
-        outcome = "inconclusive"    # HIM's sim was paused by the host: rerun, maybe with --no-view
+        outcome = "inconclusive"    # HIM's sim was paused by the host: rerun
     elif report["status"] not in ("within_limits", "completed"):
         outcome = "violation"
     elif result is None:
@@ -258,7 +259,7 @@ def compare(world=None):
               f"{closest:>7} {mean('end_error_m'):>6} {mean('recoveries'):>5} {drift:>5}")
 
 
-def run_once(name, tag, view, route=None):
+def run_once(name, tag, route=None):
     max_time = route_time(route) if route else (world_criteria(name) or {}).get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
@@ -272,32 +273,47 @@ def run_once(name, tag, view, route=None):
         (run / "git.diff").write_text(diff)
     (run / "run.json").write_text(json.dumps({"world": name, "tag": tag, "started": stamp,
                                               "commit": commit, "dirty": bool(diff)}) + "\n")
+    # Never HIM's live viewer: its load delayed HIM's states past the 0.2 s deadlines and
+    # stopped about 1 in 4 watched runs. --view replays the run afterwards (replay()).
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
-               "--output", str(run)] + ([] if view else ["--no-view"])
+               "--output", str(run), "--no-view"]
     with open(run / "sim.log", "w") as log:
-        sim = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                               env=env)
-        if view:
-            print(f"{run.name}: press Start at http://127.0.0.1:8765", flush=True)
-            # HIM's viewer keeps serving after the run, until Ctrl-C. Send it only once HIM
-            # has torn the sim down and says so: one during the teardown could leave sim.sh
-            # waiting for good, and --repeat hung.
-            while sim.poll() is None and VIEWER_IDLE not in (run / "sim.log").read_text(errors="replace"):
-                time.sleep(1)
-            time.sleep(VIEW_LINGER)
-            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
-                if sim.poll() is not None:
-                    break
-                os.killpg(sim.pid, sig)
-                try:
-                    sim.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    print(f"{run.name}: the viewer didn't close on {sig.name}", flush=True)
-        sim.wait()
+        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, env=env)
     if not (run / "report.json").is_file():
         print(f"{run.name}: no report; see {run / 'sim.log'}")
         return None
     return run
+
+
+def replay(run):
+    """Serve HIM's replay of a run until it has had time to play once, then close it."""
+    with open(run / "replay.log", "w") as log:
+        server = subprocess.Popen([str(HIM / "desktop_sim.sh"), "replay", str(run / "trace.npz")],
+                                  stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        while server.poll() is None and "Open http" not in (run / "replay.log").read_text(errors="replace"):
+            time.sleep(0.5)
+        url = next((line.split()[-1] for line in (run / "replay.log").read_text().splitlines()
+                    if line.startswith("Open http")), None)
+        if url:
+            length = float(np.load(run / "trace.npz", allow_pickle=True)["time"][-1])
+            print(f"{run.name}: replay at {url} for {length + REPLAY_SLACK:.0f} s", flush=True)
+            time.sleep(length + REPLAY_SLACK)
+        else:
+            print(f"{run.name}: no replay; see {run / 'replay.log'}", flush=True)
+        stop(server, run.name)
+    (run / "replay.log").unlink()
+
+
+def stop(process, name):
+    """Ctrl-C a process group, then SIGTERM, then SIGKILL, until it exits."""
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
+        if process.poll() is not None:
+            return
+        os.killpg(process.pid, sig)
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            print(f"{name}: the replay didn't close on {sig.name}", flush=True)
 
 
 def positive(text):
@@ -316,7 +332,8 @@ def main():
     where.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
                        help="X Y [HEADING] in odom; one per point, in order")
     parser.add_argument("--laps", type=positive, help="laps of the route (default: its file's, or 1)")
-    parser.add_argument("--view", action="store_true", help="watch in HIM's browser viewer")
+    parser.add_argument("--view", action="store_true",
+                        help="after each run, replay it in HIM's browser viewer before the next")
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
     parser.add_argument("--compare", nargs="?", const="", metavar="WORLD",
                         help="only list the scored runs in runs/ by world and tag")
@@ -340,12 +357,14 @@ def main():
         for run in sorted(p.parent for p in RUNS.glob("*/run.json")):
             prune(run)
         return 0
-    runs = [Path(args.score)] if args.score else [
-        run_once(args.world, args.tag, args.view, route) for _ in range(args.repeat)]
-    failed = None in runs
-    for run in filter(None, runs):
+    runs = [Path(args.score)] if args.score else range(args.repeat)
+    failed = False
+    for run in runs:
+        run = run if args.score else run_once(args.world, args.tag, route)
+        if run is None:
+            failed = True
+            continue
         s = score(run)
-        prune(run)
         verdict = {True: "PASS", False: "FAIL " + ",".join(s["failed_checks"]), None: "-"}[s["passed"]]
         print(f"{run.name}: {s['outcome']} ({s['him_status']}) {verdict}  "
               f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "
@@ -354,6 +373,9 @@ def main():
               + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
                  if "route" in s else ""))
         failed |= s["outcome"] != "succeeded" or s["passed"] is False
+        if args.view and not args.score:
+            replay(run)    # before the next run, so its load can't delay that run's states
+        prune(run)
     return 1 if failed else 0
 
 
