@@ -1,6 +1,8 @@
 """Run a course test in HIM's simulator and score it:
   python3 submission/course.py one_box
   python3 submission/course.py slalom --tag rpp --repeat 3 --view
+  python3 submission/course.py one_box --route rectangle --laps 3
+  python3 submission/course.py open_floor --waypoint 2 0 --waypoint 2 2 90 --waypoint 0 0
   python3 submission/course.py --score runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --prune
   python3 submission/course.py --compare slalom
@@ -19,6 +21,13 @@ output: events and the once-a-second "odom" lines), and our summary.json:
                         movers included (replayed from their mover_start events;
                         HIM's physics never sees movers, so these are the only contacts)
   drift_m    leg odometry against the truth at the last "odom" line
+A route (--route NAME_OR_FILE from submission/routes, or --waypoint X Y [HEADING] for
+each point; --laps N, harp/route.py) replaces the world's goal: the run folder keeps
+it as route.yaml, the end error is from its last point, passed uses its criteria (none:
+no verdict) instead of the world's, and summary.json adds route (planned and completed
+waypoints and laps). The sim runs for the route's max_time_s, or ROUTE_SPEED and
+ROUTE_POINT_TIME per point, plus STARTUP.
+It exits 1 if any run didn't succeed or failed its criteria.
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
 After scoring, HIM's viewer output (view/ and live.jsonl, tens of MB a watched run)
@@ -32,6 +41,7 @@ itself there). Build the image first: submission/build.sh.
 import argparse
 import datetime
 import json
+import math
 import os
 import shutil
 import signal
@@ -50,6 +60,9 @@ CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
 VIEW_LINGER = 5.0       # s the live viewer stays up after the report, with --view
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
+ROUTES = HERE / "routes"
+ROUTE_SPEED = 0.15      # m/s along a route's straight legs, for its run length (Nav2's mean is about this)
+ROUTE_POINT_TIME = 10.0 # s more per point: turning to it and settling
 
 try:
     import mujoco
@@ -63,6 +76,7 @@ except ImportError:
 sys.path.insert(0, str(HERE))
 import stage_world  # noqa: E402
 from harp.movers import Movers, obstacle_geoms  # noqa: E402
+from harp.route import route_from_data  # noqa: E402
 
 SCENES = HIM / ".cache/harp/scenes"
 MODEL = HERE / ".build/him/environment"
@@ -117,10 +131,12 @@ def score(run):
     events, odom = read_log(run)
     result = next((e for e in events if e.get("event") == "goal_result"), None)
     started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
+    route = load_route(run / "route.yaml") if (run / "route.yaml").is_file() else None
 
     stage_world.main(name, MODEL, SCENES)
     world = SCENES / (name + "_all.xml")
-    goal = mujoco.MjModel.from_xml_path(str(world)).site("goal").pos[:2]
+    goal = (np.array(route.waypoints[-1][:2]) if route
+            else mujoco.MjModel.from_xml_path(str(world)).site("goal").pos[:2])
     xy = trace["qpos"][:, :2]
     path = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
     closest, contacts = clearance(world, trace, started)
@@ -143,16 +159,49 @@ def score(run):
         "path_m": round(path, 2), "end_error_m": round(float(np.linalg.norm(xy[-1] - goal)), 3),
         "closest_m": closest, "contacts": contacts, "drift_m": drift,
     }
-    summary["passed"], summary["failed_checks"] = check(summary, HERE / "worlds" / (name + ".yaml"))
+    if route:
+        summary["route"] = {"waypoints": len(route.waypoints) * route.laps, "laps": route.laps,
+                            "completed_waypoints": result and result.get("completed_waypoints"),
+                            "completed_laps": result and result.get("completed_laps")}
+        criteria = route.criteria
+    else:
+        criteria = world_criteria(name)
+    summary["passed"], summary["failed_checks"] = check(summary, criteria)
     (run / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
 
 
-def check(summary, criteria_file):
-    """True, [] if every criterion holds; None, [] without criteria."""
-    if not criteria_file.is_file():
+def world_criteria(name):
+    """The world's criteria (submission/worlds/NAME.yaml), or None."""
+    path = HERE / "worlds" / (name + ".yaml")
+    return yaml.safe_load(path.read_text()) if path.is_file() else None
+
+
+def load_route(value):
+    """A route from a file, or by name from submission/routes; ValueError if bad."""
+    path = Path(value).expanduser()
+    if not path.is_file():
+        path = ROUTES / (value if value.endswith(".yaml") else value + ".yaml")
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as e:
+        raise ValueError(f"can't read route {value}: {e}")
+    return route_from_data(data)
+
+
+def route_time(route):
+    """s the sim runs for a route, before STARTUP: its max_time_s, or an estimate."""
+    if route.criteria and "max_time_s" in route.criteria:
+        return float(route.criteria["max_time_s"])
+    points = [(0.0, 0.0)] + [p[:2] for p in route.waypoints] * route.laps
+    length = sum(math.dist(a, b) for a, b in zip(points, points[1:]))
+    return length / ROUTE_SPEED + ROUTE_POINT_TIME * (len(points) - 1)
+
+
+def check(summary, c):
+    """True, [] if every criterion in c holds; None, [] without criteria."""
+    if not c:
         return None, []
-    c = yaml.safe_load(criteria_file.read_text())
     failed = []
     if c.get("must_succeed") and summary["outcome"] != "succeeded":
         failed.append("must_succeed")
@@ -208,12 +257,15 @@ def compare(world=None):
               f"{closest:>7} {mean('end_error_m'):>6} {mean('recoveries'):>5} {drift:>5}")
 
 
-def run_once(name, tag, view):
-    criteria = HERE / "worlds" / (name + ".yaml")
-    max_time = yaml.safe_load(criteria.read_text()).get("max_time_s", 60) if criteria.is_file() else 60
+def run_once(name, tag, view, route=None):
+    max_time = route_time(route) if route else (world_criteria(name) or {}).get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
     run.mkdir(parents=True)
+    env = dict(os.environ)
+    if route:
+        (run / "route.yaml").write_text(yaml.safe_dump(route.data(), sort_keys=False))
+        env["G1_TASK_COMMAND"] = json.dumps({"route": route.data()})   # for harp/course_goal.py
     commit, diff = git_state()
     if diff:
         (run / "git.diff").write_text(diff)
@@ -222,7 +274,8 @@ def run_once(name, tag, view):
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
                "--output", str(run)] + ([] if view else ["--no-view"])
     with open(run / "sim.log", "w") as log:
-        sim = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        sim = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                               env=env)
         if view:
             print(f"{run.name}: press Start at http://127.0.0.1:8765", flush=True)
             # HIM's viewer keeps serving after the run; close it once the report is written.
@@ -238,11 +291,22 @@ def run_once(name, tag, view):
     return run
 
 
+def positive(text):
+    if not text.isdigit() or int(text) == 0:
+        raise argparse.ArgumentTypeError("must be a positive whole number")
+    return int(text)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("world", nargs="?", help="a world in submission/worlds")
     parser.add_argument("--tag", help="added to the run folder's name")
-    parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--repeat", type=positive, default=1)
+    where = parser.add_mutually_exclusive_group()
+    where.add_argument("--route", metavar="NAME_OR_FILE", help="a route in submission/routes, or a file")
+    where.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
+                       help="X Y [HEADING] in odom; one per point, in order")
+    parser.add_argument("--laps", type=positive, help="laps of the route (default: its file's, or 1)")
     parser.add_argument("--view", action="store_true", help="watch in HIM's browser viewer")
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
     parser.add_argument("--compare", nargs="?", const="", metavar="WORLD",
@@ -250,6 +314,16 @@ def main():
     parser.add_argument("--prune", action="store_true",
                         help="only delete HIM's viewer output from every course run in runs/")
     args = parser.parse_args()
+    if args.laps and not (args.route or args.waypoint):
+        parser.error("--laps needs --route or --waypoint")
+    route = None
+    if args.route or args.waypoint:
+        try:
+            route = load_route(args.route) if args.route else route_from_data(
+                {"frame": "odom", "waypoints": args.waypoint})
+        except ValueError as e:
+            parser.error(str(e))
+        route.laps = args.laps or route.laps
     if args.compare is not None:
         compare(args.compare or None)
         return 0
@@ -258,7 +332,8 @@ def main():
             prune(run)
         return 0
     runs = [Path(args.score)] if args.score else [
-        run_once(args.world, args.tag, args.view) for _ in range(args.repeat)]
+        run_once(args.world, args.tag, args.view, route) for _ in range(args.repeat)]
+    failed = None in runs
     for run in filter(None, runs):
         s = score(run)
         prune(run)
@@ -266,8 +341,11 @@ def main():
         print(f"{run.name}: {s['outcome']} ({s['him_status']}) {verdict}  "
               f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "
               f"closest {s['closest_m']} m, contacts {s['contacts']}, "
-              f"recoveries {s['recoveries']}, drift {s['drift_m']} m")
-    return 0
+              f"recoveries {s['recoveries']}, drift {s['drift_m']} m"
+              + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
+                 if "route" in s else ""))
+        failed |= s["outcome"] != "succeeded" or s["passed"] is False
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

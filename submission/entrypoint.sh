@@ -3,7 +3,8 @@
 # relay on the robot):
 #  - moves in G1_TASK_COMMAND ({"moves": [...]} or {"to": ...}): harp/moves.py;
 #  - otherwise, in a world's image in the sim (submission/sim.sh --world): the
-#    simulated lidar, Nav2 and the course goal.
+#    simulated lidar, Nav2 and the course goal (the world's goal, or the route in
+#    G1_TASK_COMMAND, {"route": ...}: course.py --route).
 # Everything prints to the container's output (HIM's policy.log in the sim).
 set -e
 HELPERS_DELAY=5   # s after our node starts before Nav2, the lidar and the course goal

@@ -1,6 +1,6 @@
 # Nav2 (Foxy) for the G1: go to a pose a few meters away around obstacles, seen
 # by the head lidar, with no map. Everything is in the odom frame of
-# harp/state.py (the sim's true position, or leg odometry), so goals are in that frame.
+# harp/state.py (leg odometry, in the sim too), so goals are in that frame.
 #
 # Starting points: nav2_bringup's params and Adyansh04/grove-g1 (a G1 with its
 # own walking policy in MuJoCo). Reasons for our values are next to them;
@@ -132,6 +132,8 @@ local_costmap:
           obstacle_range: 3.0
           min_obstacle_height: 0.08
           max_obstacle_height: 1.8
+          # Off: Foxy reads 1.0 as about 0 s (every update stale), and its controller drives
+          # on a stale costmap anyway, so a lost lidar doesn't stop Nav2 here.
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
@@ -200,6 +202,8 @@ global_costmap:
           obstacle_range: 3.0
           min_obstacle_height: 0.08
           max_obstacle_height: 1.8
+          # Off: Foxy reads 1.0 as about 0 s (every update stale), and its controller drives
+          # on a stale costmap anyway, so a lost lidar doesn't stop Nav2 here.
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false

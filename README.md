@@ -55,6 +55,8 @@ unchanged, cloned next to this repo, and keep only our code here.
   course (`course.py`), including the obstacle course with a table, pillars,
   a thin pole and an archway, without touching anything. The robot's own
   body is filtered out of the lidar.
+- ✅ Sim: walk a route of several points, lap after lap, with Nav2
+  (`course.py --route`, `--waypoint`, `--laps`).
 - 🟡 Sim: more on obstacles and path following: closer margins, a
   collision-monitor stop, moving obstacles and people. Started: the
   costmaps forget where a person was once they've moved on (STVL), tested
@@ -214,6 +216,24 @@ tag (`--tag` names what a run is testing):
 ```bash
 python3 submission/course.py --compare slalom
 ```
+
+To walk a route of several points instead of the world's goal:
+
+```bash
+python3 submission/course.py one_box --route rectangle --laps 3
+```
+
+The [rectangle route](submission/routes/rectangle.yaml) circles `one_box`'s
+box; copy it and pass `--route FILE.yaml`, or give each point directly:
+
+```bash
+python3 submission/course.py open_floor --waypoint 2 0 --waypoint 2 2 90 --waypoint 0 0
+```
+
+Each point is `X Y [HEADING]`: meters and degrees in `odom`, from where the
+robot started. The robot moves on after reaching each point, and the run
+ends if a point fails or times out. The run folder keeps the route as
+`route.yaml`, and the route's own `criteria` decide pass or fail.
 
 Any other ROS 2 program in the image can drive the robot through `/cmd_vel`
 and read `/odom`, `/tf`, `/joint_states` and `/imu` (`harp_node.py`).

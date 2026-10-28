@@ -1,0 +1,12 @@
+# Around one_box's box (at 2, 0): python3 submission/course.py one_box --route rectangle
+# Points in odom (from where the robot started): x m ahead, y m left, heading deg.
+frame: odom
+waypoints:
+  - [4.0, 0.0, 0.0]
+  - [4.0, 2.0, 90.0]
+  - [0.0, 2.0, 180.0]
+  - [0.0, 0.0, -90.0]
+criteria:
+  must_succeed: true
+  max_contacts: 0
+  max_end_error_m: 0.35

@@ -14,6 +14,7 @@ about 50-100 ms late).
   Publishes   /utlidar/cloud_livox_mid360    sensor_msgs/PointCloud2, restamped
 """
 
+from contextlib import ExitStack
 import os
 import signal
 import sys
@@ -71,23 +72,26 @@ def stop(signum, frame):
 
 def main():
     rclpy.init()
-    node = LidarRelay()
-    domain = int(os.environ.get("ROBOT_DOMAIN", "0"))
-    interface = os.environ.get("ROBOT_INTERFACE", "eth0")
-    ChannelFactoryInitialize(domain, interface)
-    sub = ChannelSubscriber(ROBOT_TOPIC, PointCloud2_)
-    sub.Init(node.on_cloud, 0)
-    print(f"Relaying {ROBOT_TOPIC} (domain {domain}, {interface}) to {TOPIC}.", flush=True)
-    # Short spins, so SIGTERM (or Ctrl-C) is handled between them and the reader is closed.
-    signal.signal(signal.SIGTERM, stop)
-    try:
-        while rclpy.ok():
-            rclpy.spin_once(node, timeout_sec=0.2)
-    except KeyboardInterrupt:
-        pass
-    sub.Close()   # with its reader still open, the interpreter hangs on the way out
-    node.destroy_node()
-    rclpy.shutdown()
+    # Undone in reverse, on every way out (a failed Init or spin too): the SDK's reader
+    # first, since with it still open the interpreter hangs on the way out.
+    with ExitStack() as cleanup:
+        cleanup.callback(rclpy.try_shutdown)
+        node = LidarRelay()
+        cleanup.callback(node.destroy_node)
+        domain = int(os.environ.get("ROBOT_DOMAIN", "0"))
+        interface = os.environ.get("ROBOT_INTERFACE", "eth0")
+        ChannelFactoryInitialize(domain, interface)
+        sub = ChannelSubscriber(ROBOT_TOPIC, PointCloud2_)
+        cleanup.callback(sub.Close)
+        sub.Init(node.on_cloud, 0)
+        print(f"Relaying {ROBOT_TOPIC} (domain {domain}, {interface}) to {TOPIC}.", flush=True)
+        # Short spins, so SIGTERM (or Ctrl-C) is handled between them.
+        signal.signal(signal.SIGTERM, stop)
+        try:
+            while rclpy.ok():
+                rclpy.spin_once(node, timeout_sec=0.2)
+        except KeyboardInterrupt:
+            pass
     return 0
 
 

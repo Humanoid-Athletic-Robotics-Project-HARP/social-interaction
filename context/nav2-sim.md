@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-28T09:01:40Z
+  updated: 2026-10-28T09:26:33Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py]
 ---
 
@@ -14,7 +14,8 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - NavFn (`allow_unknown`) + the **Graceful Controller** (Park & Kuipers, the same law as our `{"to": ...}` move), so a goal is reached in one curve already facing its heading: the way to walk up to a person. Foxy lacks it, so it is our port, `submission/nav2_graceful_controller/` (Nav2 commit `d5d768b`, `HARP_PATCHES.md`). Speed minimums stay well above GR00T's 0.05 Balance switch.
 - `failure_tolerance` 0.3 (ours, in the port): without it each moment with no collision-free trajectory (a person crossing) aborted the path, 6 recoveries and a failed `crossing`. `goal_dist_tolerance` 0.25 matches the goal checker, which Foxy doesn't hand to the controller.
 - Regulated Pure Pursuit was the first Foxy controller (settings in commit `ca382d5`): faster (slalom 40 s), but no final-heading curve, and its 1 s collision look-ahead tripped on the walker's sway (0.5 s needed).
-- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recoveries are Wait and Spin.
+- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recoveries are Wait and Spin. Removing Spin is deferred ([[him-sim2real]]'s to-do).
+- **A lost lidar doesn't stop Nav2 on Foxy.** `expected_update_rate` stays 0: at 1.0, Foxy's costmaps logged "should be updated every 0.00s" on every update (each one stale, even with fresh 10 Hz clouds), and Nav2 still walked `one_box` normally and passed (`runs/2026-10-28_09-19-44Z_sim_one_box_stale-lidar`). So nothing in Foxy's controller acts on a stale costmap: a stop on lost lidar would have to be ours, outside Nav2.
 - **Footprint:** a circle, `robot_radius` 0.4: the forearms reach 0.355 m from `base_link`, and a polygon gives NavFn an inscribed radius of only 0.09 m.
 - **Inflation** 0.8 m, factor 3 keeps the body edge about 0.45 m from obstacles (personal space). Only `robot_radius` blocks a gap. 1.0 / factor 2 made NavFn detour round slalom's side walls.
 - **Live lidar TF** from leg kinematics (`harp/state.py`): a fixed transform made the floor 2.5–3 m out look ±0.12 m high (torso tilt).

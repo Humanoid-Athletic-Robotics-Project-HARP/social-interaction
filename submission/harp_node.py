@@ -54,6 +54,9 @@ class HarpPolicyNode(client.PolicyNode):
     def on_cmd_vel(self, msg):
         cmd = [msg.linear.x, msg.linear.y, msg.angular.z]
         if not all(math.isfinite(v) for v in cmd):
+            # Stand at once rather than keep the last command until the timeout.
+            self.task_command, self.cmd_time = [0.0, 0.0, 0.0], None
+            print("Non-finite /cmd_vel: standing.", file=sys.stderr, flush=True)
             return
         self.task_command = np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).tolist()
         self.cmd_time = time.monotonic()

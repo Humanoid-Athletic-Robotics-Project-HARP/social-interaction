@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T09:02:01Z
+  updated: 2026-10-28T09:34:48Z
   covers: [submission/**]
 ---
 
@@ -19,6 +19,7 @@ metadata:
 - Foxy Nav2 (0.4.7): `recoveries_server`, `plugin_lib_names` must be listed (the default names a library Foxy doesn't ship), `server_timeout="200"` on each BT action node. Foxy has no Graceful Controller, so `submission/nav2_graceful_controller/` is our port of it (built by the Dockerfile; changes in its `HARP_PATCHES.md`). Settings and results: [[nav2-sim]].
 
 **Course tests:** `python3 submission/course.py NAME [--tag T --repeat N --view]` runs `sim.sh --world` into `runs/` and scores from HIM's `trace.npz` (truth) and `policy.log` (our events and "odom" lines): outcome, pass, time, path, end error, closest, contacts (movers included), recoveries, drift. Container output is only in `policy.log`; nothing else leaves the container. After scoring it deletes HIM's viewer output (`view/`, `live.jsonl`, tens of MB a watched run; `./desktop_sim.sh replay RUN/trace.npz` rebuilds it); `--prune` does the same for every run folder with a `run.json`. `run.json` also records the git commit and whether the tree was dirty (the diff in `git.diff`); `--compare [WORLD]` lists runs by world and tag. A run goes on for the world's `max_time_s` plus 30 s whatever happens, so after the goal GR00T stands, its heading creeping about 0.1°/s.
+- **Routes** (`--route NAME_OR_FILE` from `submission/routes/`, or `--waypoint X Y [HEADING]` per point, `--laps N`; format in `harp/route.py`): `course.py` validates the route, saves it as the run's `route.yaml` and passes it as `G1_TASK_COMMAND` `{"route": ...}` to `course_goal`, which visits each point in turn and moves on only after Nav2 reports it reached; a rejection, failure or timeout (240 s per point, finding Nav2 and acceptance included) ends the route. Scoring then uses the route's last point for the end error and its own `criteria` (none: no verdict). HIM's run length is fixed, so `course.py` sizes it from the route's `max_time_s`, or 0.15 m/s along its legs plus 10 s per point. `course.py` exits 1 if any run didn't succeed or failed its criteria. `rectangle` on `one_box`, one lap: 4/4 points, 73.6 s, closest 0.59 m, 0 contacts or recoveries (`runs/2026-10-28_09-30-12Z_sim_one_box_route`).
 
 **Planned moves** (`harp/moves.py`): `G1_TASK_COMMAND` with `"moves"` or `"to"` reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity ([[planned-moves]]).
 

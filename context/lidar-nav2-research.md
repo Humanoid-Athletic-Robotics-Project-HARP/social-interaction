@@ -3,7 +3,7 @@ name: lidar-nav2-research
 description: Read when bringing up the real G1 lidar, changing lidar_relay, adding mapping/localization, or looking for other G1 Nav2 setups to borrow from
 metadata:
   type: reference
-  updated: 2026-10-28T09:01:40Z
+  updated: 2026-10-28T09:31:54Z
   covers: [submission/harp/lidar_relay.py]
 ---
 

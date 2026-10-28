@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before any work on the simulation-migration branch, or anything that touches HARP's safety harness/simulator (him-sim2real-management)
 metadata:
   type: project
-  updated: 2026-10-28T09:01:54Z
+  updated: 2026-10-28T09:26:33Z
   covers: []
 ---
 
@@ -30,11 +30,14 @@ metadata:
 - `runs list/show/pin/set` and retention: run folders describe themselves (`run.json`, `summary.json`); `course.py --compare` and `--prune` cover the rest.
 - Parallel course runs (DDS domain pairs): HIM's Compose project runs one sim at a time.
 - The pixi environment, our STVL source copy and the MuJoCo window: the Docker image (Foxy's STVL binary) and HIM's viewer.
+- Lam's offline tests (PR #2, about 127 under `ros2/src/*/test/`, last at `9ee9255` on main): not ported. Most test code we deleted (walker, run_recorder, replay, runs CLI) or that HIM now owns (stops, damping, manual takeover). `submission/` has no tests. Re-add a test only if it is load-bearing: it covers code that runs on the robot (`harp_node.py`, `harp/state.py`, `harp/leg_odometry.py`, `harp/moves.py`, `harp/lidar_relay.py`, the Nav2 settings) or tooling our results depend on (`course.py` scoring, `harp/route.py`), and it catches a failure a sim run wouldn't. Use the standard library's `unittest`, in `submission/tests/`.
+- Lam's Spin removal (PR #2, recoveries Wait only): deferred, not dropped; why and what it needs are in the to-do list below.
 
 **To do, without the robot** (the maintainer's call: after the cleanup, which is done):
 - [ ] Fix the live-viewer stops (`observation_timeout`, `checked_command_expired` during start-up balance; findings and the staggered-start attempt in [[submission-image]]), and `course.py --view` sometimes not closing HIM's viewer.
 - [ ] Pass criteria for `crossing` and `oncoming` (`submission/worlds/NAME.yaml`).
 - [ ] Three runs of every course for spread, compared with `course.py --compare` (all six succeed once with Graceful, [[nav2-sim]]).
+- [ ] Remove Nav2's Spin recovery (`navigate.xml`, `recoveries_server`; Wait only): Spin turns on a cached costmap without checking the lidar is live. Removing it changes recoveries, so it needs the six courses rerun (deferred 2026-10-28).
 
 **To do, with the robot:** the first session (below), then real lidar through `lidar_relay`, then Nav2 on the robot.
 
