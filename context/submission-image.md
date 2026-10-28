@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T07:49:26Z
+  updated: 2026-10-28T08:04:05Z
   covers: [submission/**]
 ---
 
@@ -18,7 +18,7 @@ metadata:
 - HIM's sim Fast DDS profile finds only participants 0-4; with Nav2 we run about ten, and Nav2's bringup hung. `harp/fastdds_profile.py` lists peers for 32 on the same localhost transport, only when HIM's `/fastdds.xml` is set.
 - Foxy Nav2 (0.4.7): `recoveries_server`, `plugin_lib_names` must be listed (the default names a library Foxy doesn't ship), `server_timeout="200"` on each BT action node. Foxy has no Graceful Controller, so `submission/nav2_graceful_controller/` is our port of it (built by the Dockerfile; changes in its `HARP_PATCHES.md`). Settings and results: [[nav2-sim]].
 
-**Course tests:** `python3 submission/course.py NAME [--tag T --repeat N --view]` runs `sim.sh --world` into `runs/` and scores from HIM's `trace.npz` (truth) and `policy.log` (our events and "odom" lines): outcome, pass, time, path, end error, closest, contacts (movers included), recoveries, drift. Container output is only in `policy.log`; nothing else leaves the container. After scoring it deletes HIM's viewer output (`view/`, `live.jsonl`, tens of MB a watched run; `./desktop_sim.sh replay RUN/trace.npz` rebuilds it); `--prune` does the same for every run folder with a `run.json`. A run goes on for the world's `max_time_s` plus 30 s whatever happens, so after the goal GR00T stands, its heading creeping about 0.1°/s.
+**Course tests:** `python3 submission/course.py NAME [--tag T --repeat N --view]` runs `sim.sh --world` into `runs/` and scores from HIM's `trace.npz` (truth) and `policy.log` (our events and "odom" lines): outcome, pass, time, path, end error, closest, contacts (movers included), recoveries, drift. Container output is only in `policy.log`; nothing else leaves the container. After scoring it deletes HIM's viewer output (`view/`, `live.jsonl`, tens of MB a watched run; `./desktop_sim.sh replay RUN/trace.npz` rebuilds it); `--prune` does the same for every run folder with a `run.json`. `run.json` also records the git commit and whether the tree was dirty (the diff in `git.diff`); `--compare [WORLD]` lists runs by world and tag. A run goes on for the world's `max_time_s` plus 30 s whatever happens, so after the goal GR00T stands, its heading creeping about 0.1°/s.
 
 **Planned moves** (`harp/moves.py`, the old `move_distance`): `G1_TASK_COMMAND='{"moves": [{"walk": M}, {"turn": DEG}, {"to": [X, Y, HEADING]}]}'` or just `{"to": [...]}` (also `speed`, `turn_speed`) reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. Moves run 2 s apart, each from where the last ended. In the sim (one run, `within_limits`): walk 1 m ended 1.02 m, turn 90° ended 90.2°, curve to (1, 1, 45°) ended about 7 cm and 5° off; leg odometry within 1 cm of the truth each time.
 

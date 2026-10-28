@@ -3,8 +3,11 @@
   python3 submission/course.py slalom --tag rpp --repeat 3 --view
   python3 submission/course.py --score runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --prune
+  python3 submission/course.py --compare slalom
 
-Each run gets a folder in runs/ (HARP_RUNS_DIR to change it) holding HIM's
+Each run gets a folder in runs/ (HARP_RUNS_DIR to change it) holding our run.json
+(world, tag, start, git commit, whether the tree was dirty; git.diff then holds the
+uncommitted changes), HIM's
 report.json, trace.npz (the true pose every 20 ms) and policy.log (our image's
 output: events and the once-a-second "odom" lines), and our summary.json:
   outcome    succeeded / failed / timed_out / error / violation (HIM stopped the policy) /
@@ -16,6 +19,8 @@ output: events and the once-a-second "odom" lines), and our summary.json:
                         movers included (replayed from their mover_start events;
                         HIM's physics never sees movers, so these are the only contacts)
   drift_m    leg odometry against the truth at the last "odom" line
+--compare [WORLD] lists every scored run by world and tag: how many succeeded and
+passed, time (mean, min-max), closest, end error, recoveries and drift.
 After scoring, HIM's viewer output (view/ and live.jsonl, tens of MB a watched run)
 is deleted: HIM's ./desktop_sim.sh replay RUN/trace.npz rebuilds it. --prune does
 the same for every run folder course.py made (those with a run.json).
@@ -172,13 +177,48 @@ def prune(run):
             path.unlink()
 
 
+def git_state():
+    """This repo's commit, and its uncommitted changes to tracked files ("" if none)."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True).stdout
+    return git("rev-parse", "--short", "HEAD").strip() or None, git("diff", "HEAD")
+
+
+def compare(world=None):
+    """One line per world and tag over every scored run in runs/."""
+    groups = {}
+    for path in sorted(RUNS.glob("*/summary.json")):
+        if not (path.parent / "run.json").is_file():    # the old stack's runs
+            continue
+        s = json.loads(path.read_text())
+        if world is None or s["world"] == world:
+            groups.setdefault((s["world"], s["tag"] or "-"), []).append(s)
+    print(f"{'world':16} {'tag':14} {'runs':>4} {'ok':>3} {'pass':>4}  {'time s (min-max)':18} "
+          f"{'closest':>7} {'end m':>6} {'recov':>5} {'drift':>5}")
+    for (w, tag), runs in sorted(groups.items()):
+        done = [s for s in runs if s["outcome"] == "succeeded"]
+        times = [s["seconds"] for s in done if s["seconds"] is not None]
+        span = f"{np.mean(times):5.1f} ({min(times):.0f}-{max(times):.0f})" if times else "-"
+        mean = lambda key, rs=done: f"{np.mean([s[key] for s in rs if s[key] is not None]):.2f}" \
+            if any(s[key] is not None for s in rs) else "-"
+        closest = f"{min(s['closest_m'] for s in done):.2f}" if done else "-"
+        drift = f"{max(s['drift_m'] or 0 for s in done):.3f}" if done else "-"
+        passed = sum(1 for s in runs if s["passed"]) if any(s["passed"] is not None for s in runs) else "-"
+        print(f"{w:16} {tag:14} {len(runs):>4} {len(done):>3} {passed:>4}  {span:18} "
+              f"{closest:>7} {mean('end_error_m'):>6} {mean('recoveries'):>5} {drift:>5}")
+
+
 def run_once(name, tag, view):
     criteria = HERE / "worlds" / (name + ".yaml")
     max_time = yaml.safe_load(criteria.read_text()).get("max_time_s", 60) if criteria.is_file() else 60
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
     run.mkdir(parents=True)
-    (run / "run.json").write_text(json.dumps({"world": name, "tag": tag, "started": stamp}) + "\n")
+    commit, diff = git_state()
+    if diff:
+        (run / "git.diff").write_text(diff)
+    (run / "run.json").write_text(json.dumps({"world": name, "tag": tag, "started": stamp,
+                                              "commit": commit, "dirty": bool(diff)}) + "\n")
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
                "--output", str(run)] + ([] if view else ["--no-view"])
     with open(run / "sim.log", "w") as log:
@@ -205,9 +245,14 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--view", action="store_true", help="watch in HIM's browser viewer")
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
+    parser.add_argument("--compare", nargs="?", const="", metavar="WORLD",
+                        help="only list the scored runs in runs/ by world and tag")
     parser.add_argument("--prune", action="store_true",
                         help="only delete HIM's viewer output from every course run in runs/")
     args = parser.parse_args()
+    if args.compare is not None:
+        compare(args.compare or None)
+        return 0
     if args.prune:
         for run in sorted(p.parent for p in RUNS.glob("*/run.json")):
             prune(run)

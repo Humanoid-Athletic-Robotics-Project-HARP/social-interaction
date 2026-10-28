@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before any work on the simulation-migration branch, or anything that touches HARP's safety harness/simulator (him-sim2real-management)
 metadata:
   type: project
-  updated: 2026-10-28T07:49:51Z
+  updated: 2026-10-28T08:04:05Z
   covers: []
 ---
 
@@ -21,10 +21,22 @@ metadata:
 
 **State of the branch (2026-10-28):** `submission/` works in HIM's sim (walker on `/cmd_vel`, leg odometry, walks, turns and moves to a point, and Nav2 with our Graceful port on all six courses), [[submission-image]]; the README's "HARP's safety harness" section describes it. Nothing has run on the real robot. The old `ros2/` stack is broken on this branch: its worlds, `movers.py` and Nav2 config were moved into `submission/`, so `run_sim` fails on import.
 
-**Next steps without the robot, in order:**
-1. Parity checklist, kept as README milestones: each old feature, where it lives now (HIM or our image) or why it was dropped, and the sim test that shows it matches the old numbers.
-2. Prepare the first robot session in the sim: the moves planned for it (standing with no moves, `{"to": [0.5, 0, 0]}`, `{"to": [1, 1, 45]}`), each passing `within_limits` within about 8 cm and 5°, and a session checklist from HIM's steps.
-3. Pass criteria for `crossing` and `oncoming`, then repeat runs of every course for spread (all six succeed once with Graceful, [[nav2-sim]]).
-4. Build `lidar_relay` into the image (CycloneDDS and Unitree's SDK), started only outside the sim. In the sim, check it builds, starts and exits cleanly; real data needs the robot.
+**Dropped in the migration, and why** (the checklist of what moved is the README's "Run safely on the real robot"):
+- Our keyboard and remote controls (B stop, L1 hand driving, R1 combos, height keys), `/walker/start`, `/walker/stop` and `auto_start`: HIM owns the remote (D-pad Left + B hands over, double Start damps, double F3 recovers) and the start-up, and a submission can't take over by hand.
+- The elastic band, its keys and scripted remote presses: HIM's sim starts standing under GR00T balance and has no remote.
+- `/walker/policy` (GR00T's observation and action): the walker runs inside HIM's client.
+- rviz2 and its configs: HIM's sim network is loopback-only, so nothing outside the container sees our topics; HIM's browser viewer and replays show the robot, not costmaps.
+- `run_recorder`, bags (extras, Nav2 replay) and the speed-tracking and lidar-health metrics: only the container's output leaves it, so a run keeps HIM's `report.json` and `trace.npz` plus `policy.log`; `sim.sh --output DIR` does that for any run.
+- `runs list/show/pin/set` and retention: run folders describe themselves (`run.json`, `summary.json`); `course.py --compare` and `--prune` cover the rest.
+- Parallel course runs (DDS domain pairs): HIM's Compose project runs one sim at a time.
+- The pixi environment, our STVL source copy and the MuJoCo window: the Docker image (Foxy's STVL binary) and HIM's viewer.
 
-**Needs the robot:** run the move through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first) and check leg odometry with a tape; real lidar through `lidar_relay`, then Nav2 on the robot. Only after those, remove the old `ros2/` stack and rewrite the memories that describe it ([[safety]], [[controls]], [[mujoco-sim]], [[nav2-sim]], [[run-logging]], [[gr00t-wbc]], [[ros2-mac]], [[move-distance]]); tell the teammate behind the remote-button rule in [[controls]] first that HIM's controls replace ours.
+**Next steps without the robot, in order** (the maintainer's call: the cleanup comes before the first robot session):
+1. Pass criteria for `crossing` and `oncoming`, then repeat runs of every course for spread (all six succeed once with Graceful, [[nav2-sim]]).
+2. Build `lidar_relay` into the image (CycloneDDS and Unitree's SDK), started only outside the sim. In the sim, check it builds, starts and exits cleanly; real data needs the robot.
+3. Remove the old `ros2/` stack once the README checklist has nothing left in it but this, and the README sections that describe it. First tell the teammate behind the remote-button rule in [[controls]] that HIM's controls replace ours.
+4. Rewrite or retire the memories that describe the old stack: [[safety]], [[controls]], [[mujoco-sim]], [[run-logging]], [[gr00t-wbc]], [[ros2-mac]], [[move-distance]], [[feedback-minimal-setup]], [[beginner-guide]].
+
+The first robot session's moves are rehearsed in the sim (2026-10-28, all `within_limits`): standing; `{"moves": [{"walk": 0.5}]}` ended 0.51 m (a `"to"` straight ahead stops inside its 8 cm tolerance, 0.43 m for 0.5 m, so walk straight lines); `{"to": [1, 1, 45]}` about 7 cm and 5° off. The session's steps are the README's "On the robot".
+
+**Needs the robot:** run the moves through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first) and check leg odometry with a tape; then real lidar through `lidar_relay`, then Nav2 on the robot.

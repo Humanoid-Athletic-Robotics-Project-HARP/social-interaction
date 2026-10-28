@@ -93,9 +93,24 @@ This has to happen before any of the "Robot" boxes above.
 
 - ✅ Our commands go through HARP's safety harness (`him-sim2real-management`),
   which owns stand-up, stops and the motors ("HARP's safety harness" below).
-- 🟡 Move everything onto the harness (`submission/`). Sim: the walker, leg
-  odometry, walks, turns and moves to a point, the lidar and Nav2 on
-  `one_box`. Robot: not yet run.
+- 🟡 Move everything onto the harness (`submission/`), then remove `ros2/`.
+  Each line is in the sim, against the old stack's numbers; none has run on
+  the robot yet.
+  - ✅ Walking, stand-up, stops and safety checks: HARP's harness and its GR00T
+    walker, driven by `/cmd_vel` (`harp_node.py`).
+  - ✅ Leg odometry on `/odom` and `/tf`, the lidar's live transform,
+    `/joint_states`, `/imu` (`harp/state.py`): within 5 cm of the truth on
+    every course.
+  - ✅ Walks, turns and curves to a point (`harp/moves.py`): 1 m walk ended
+    1.02 m, 90° turn 90.2°, curve to (1, 1, 45°) within 7 cm and 5°.
+  - ✅ The simulated head lidar and moving people (`harp/lidar.py`,
+    `harp/movers.py`).
+  - ✅ Nav2 with STVL and the Graceful Controller (`nav2/`, our Foxy port in
+    `nav2_graceful_controller/`): all six courses succeed, no contacts.
+  - ✅ Course tests, their scores and criteria, comparing runs, and each run's
+    git commit (`course.py`).
+  - ⬜ The robot's lidar into ROS 2 (`lidar_relay`) inside the image.
+  - ⬜ Remove `ros2/` and the README sections about it.
 - 🟡 Everything from the remote, the same as the keyboard, in `walk`,
   `move_distance` and `walker_node` ("Controls" below): B stops, L1 + sticks
   take over by hand from any program. Sim: tested through scripted remote
