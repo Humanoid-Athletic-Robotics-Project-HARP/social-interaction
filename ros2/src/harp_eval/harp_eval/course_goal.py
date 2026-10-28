@@ -102,7 +102,35 @@ def cancel_navigation(nav):
         return False
 
 
-def follow_route(nav, route, timeout, *, waypoint_events=False):
+def observe_event(msg, policy_on, released, lags, control):
+    """Read shared events without letting unrelated or malformed JSON end the course."""
+    try:
+        record = json.loads(msg.data)
+    except (TypeError, ValueError):
+        return
+    if not isinstance(record, dict):
+        return
+    source, name = record.get("source"), record.get("event")
+    if source == "walker":
+        if name == "policy_on":
+            policy_on.append(record)
+        elif name == "manual":
+            control["manual"] = True
+        elif name == "hand_back":
+            control["manual"] = False
+        elif name in ("stop", "estop", "fall", "error"):
+            control["stopped"] = True
+    elif source == "sim":
+        stamp = record.get("t")
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or not math.isfinite(stamp):
+            return
+        if name == "band_released":
+            released.append(record)
+        elif name == "lag":
+            lags[0] = max(lags[0], stamp)
+
+
+def follow_route(nav, route, timeout, *, waypoint_events=False, control=None):
     """Advance only on success; one terminal goal event covers the whole run."""
     start = time.monotonic()
     final_x, final_y, final_yaw = route.waypoints[-1]
@@ -110,7 +138,9 @@ def follow_route(nav, route, timeout, *, waypoint_events=False):
     if waypoint_events:
         details.update(waypoints=list(route.waypoints), laps=route.lap_limit)
     runlog.event("goal", "goal_sent", **details)
+    control = {} if control is None else control
     completed = total_recoveries = 0
+    total_paused = 0.0
     remaining, status, message = None, "SUCCEEDED", ""
     active = False
     try:
@@ -129,31 +159,69 @@ def follow_route(nav, route, timeout, *, waypoint_events=False):
                 runlog.event("goal", "waypoint_sent", lap=lap, waypoint=waypoint,
                              x=x, y=y, yaw=yaw_deg)
             began = time.monotonic()
-            recoveries, remaining, last_print = 0, None, began
-            # Simple Commander retains feedback/result state between requests.
-            submission = send_navigation_goal(nav, goal, began + timeout)
-            status = None if submission == "ACCEPTED" else submission
-            active = submission == "ACCEPTED"
-            if active:
-                while not nav.isTaskComplete():
-                    feedback = nav.getFeedback()
+            recoveries, previous_recoveries, remaining, last_print = 0, 0, None, began
+            paused, status = 0.0, None
+            while status is None:
+                if control.get("stopped"):
+                    canceled = cancel_navigation(nav) if active else True
+                    active = not canceled
+                    status = "CANCELED" if canceled else "CANCEL_TIMEOUT"
+                    break
+                if control.get("manual"):
+                    pause_start = time.monotonic()
+                    canceled = cancel_navigation(nav) if active else True
+                    active = not canceled
+                    if not canceled:
+                        status = "CANCEL_TIMEOUT"
+                        break
+                    previous_recoveries += recoveries
+                    recoveries = 0
+                    runlog.event("goal", "waypoint_paused", lap=lap, waypoint=waypoint,
+                                 remaining_timeout=round(max(0.0, began + timeout + paused - pause_start), 2))
+                    while control.get("manual") and not control.get("stopped"):
+                        rclpy.spin_once(nav, timeout_sec=0.1)
+                    duration = time.monotonic() - pause_start
+                    paused += duration
+                    total_paused += duration
+                    if control.get("stopped"):
+                        status = "CANCELED"
+                        break
+                    runlog.event("goal", "waypoint_resumed", lap=lap, waypoint=waypoint,
+                                 paused_seconds=round(duration, 1))
+                    # Retry the same route.current(); the canceled attempt never advances it.
+                    remaining = None
+                if not active:
+                    # Simple Commander retains feedback/result state between requests.
+                    submission = send_navigation_goal(nav, goal, began + timeout + paused)
+                    status = None if submission == "ACCEPTED" else submission
+                    active = submission == "ACCEPTED"
+                    if not active:
+                        break
+                complete = nav.isTaskComplete()
+                feedback = nav.getFeedback()
+                if feedback:
+                    recoveries = feedback.number_of_recoveries
+                    remaining = feedback.distance_remaining
+                # A takeover received during the action poll takes precedence over its result.
+                if control.get("manual") or control.get("stopped"):
+                    continue
+                if complete:
+                    active = False
+                    status = TaskResult(nav.getResult()).name
+                else:
                     if feedback:
-                        recoveries = feedback.number_of_recoveries
-                        remaining = feedback.distance_remaining
                         if time.monotonic() - last_print > 5:
                             last_print = time.monotonic()
                             p = feedback.current_pose.pose.position
                             print(f"{time.monotonic() - start:5.0f} s  odom ({p.x:+.2f}, {p.y:+.2f})  "
                                   f"remaining {remaining:.2f} m  recoveries {recoveries}", flush=True)
-                    if time.monotonic() - began >= timeout:
+                    if time.monotonic() - began - paused >= timeout:
                         canceled = cancel_navigation(nav)
                         active = not canceled
                         status = "TIMEOUT" if canceled else "CANCEL_TIMEOUT"
                         break
                     time.sleep(0.1)
-                if status is None:
-                    active = False
-                    status = TaskResult(nav.getResult()).name
+            recoveries += previous_recoveries
             total_recoveries += recoveries
             if waypoint_events:
                 runlog.event("goal", "waypoint_result", lap=lap, waypoint=waypoint,
@@ -181,6 +249,8 @@ def follow_route(nav, route, timeout, *, waypoint_events=False):
               "remaining": None if remaining is None else round(remaining, 2)}
     if waypoint_events:
         result.update(completed_waypoints=completed, completed_laps=route.completed_laps)
+    if total_paused:
+        result["paused_seconds"] = round(total_paused, 1)
     if message:
         result["message"] = message
     runlog.event("goal", "goal_result", **result)
@@ -206,18 +276,12 @@ def run_session(nav):
     runlog.attach(lambda text: events_pub.publish(String(data=text)))
 
     info, policy_on, released, lags = {}, [], [], [0.0]
+    control = {"manual": False, "stopped": False}
     nav.create_subscription(String, "/sim/info", lambda m: info.update(json.loads(m.data)),
                             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
-    def on_event(msg):
-        e = json.loads(msg.data)
-        if e["source"] == "walker" and e["event"] == "policy_on":
-            policy_on.append(e)
-        elif e["source"] == "sim" and e["event"] == "band_released":
-            released.append(e)
-        elif e["source"] == "sim" and e["event"] == "lag":
-            lags[0] = max(lags[0], e["t"])
-    nav.create_subscription(String, "/harp/events", on_event, latched)
+    nav.create_subscription(String, "/harp/events",
+                            lambda msg: observe_event(msg, policy_on, released, lags, control), latched)
 
     # The goal, then the walker running GR00T, then Nav2 up (it starts once the policy is on).
     while not (route or override or info) or not policy_on:
@@ -269,7 +333,7 @@ def run_session(nav):
     while time.time() < released[0]["t"] + RELEASE_SETTLE:
         rclpy.spin_once(nav, timeout_sec=0.1)
 
-    result = follow_route(nav, route, timeout, waypoint_events=bool(route_path))
+    result = follow_route(nav, route, timeout, waypoint_events=bool(route_path), control=control)
     if result["status"] == "SUCCEEDED":
         time.sleep(SETTLE)
     return 0 if result["status"] == "SUCCEEDED" else 1

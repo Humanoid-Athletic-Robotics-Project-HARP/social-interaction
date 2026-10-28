@@ -90,8 +90,10 @@ This has to happen before any of the "Robot" boxes above.
 
 - ⛔ Find out whether HARP's safety layer sits between our code and the
   motors, and if it does, send our commands through it.
-- 🟡 An e-stop besides the keyboard: L2+B on the remote, in `walk`,
-  `move_distance` and `walker_node`. Tested in the sim only.
+- 🟡 Everything from the remote, the same as the keyboard, in `walk`,
+  `move_distance` and `walker_node` ("Controls" below): B stops, L1 + sticks
+  take over by hand from any program. Sim: tested through scripted remote
+  presses. Robot: not yet tried.
 - ⬜ Check our robot: `mode_machine` 5, which hands it has, its ROS 2 version.
 - ⬜ A gantry procedure, and a first session with someone on the rope.
 
@@ -184,22 +186,41 @@ starts up the same way:
 
 1. Wait for "Stand pose reached" (about 3 s).
 2. In the MuJoCo window, press `8` a few times until the feet touch the floor.
-3. In terminal 2, press `]` to start the policy. It has to be running before
-   the next step.
+3. In terminal 2, press Shift+P to start the policy. It has to be running
+   before the next step.
 4. In the MuJoCo window, press `9` to release the band, and give the robot a
    few seconds to settle.
-5. Now drive it from terminal 2: `w`/`s` forward and back, `a`/`d` sideways,
-   `q`/`e` to turn, `z` to stop moving. `o` stops the controller, and the
-   robot goes limp and sinks.
+5. Now drive it from terminal 2 (keys below). Space stops the controller,
+   and the robot goes limp and sinks.
 
 Keys go to whichever window you clicked last, so the band keys (`7`/`8`/`9`)
-go to MuJoCo and everything else to terminal 2. `6` in MuJoCo presses L2+B on
-the robot's remote, the e-stop. After `o`, restart both terminals to go again.
+go to MuJoCo and everything else to terminal 2. `6` in MuJoCo presses B on
+the robot's remote, the e-stop. After a stop, restart both terminals to go again.
+
+### Controls
+
+The keyboard (in the controller's terminal) and the robot's remote do the
+same things in `walk`, `move_distance` and `walker_node`. Urgent actions are
+one button; deliberate ones are R1 plus a button, or Shift plus a key.
+
+| Action | Remote | Keyboard |
+|---|---|---|
+| Stop: damp every joint, the robot sinks | B | Space (or `o`) |
+| Drive by hand, overriding the program | hold L1: left stick moves, right stick turns | `w`/`s`, `a`/`d`, `q`/`e` |
+| Stop moving and balance in place | let go of L1 | `z` |
+| Start the policy (balance) | R1 + start | Shift+P |
+| Hand control back to the program | R1 + A | Shift+G |
+| Raise / lower | R1 + up / down | Shift+R / Shift+F |
+
+After driving by hand, the robot balances in place: `walker_node` ignores
+`/cmd_vel` and `move_distance` cancels the moves it was making, until you
+hand control back. In the sim there is no remote; scripted tests press its
+buttons with a `remote` event on `/harp/events` (see `run_sim.py`).
 
 ## Planned moves: `move_distance`
 
 Run this in terminal 2 instead of `walk`. Start-up is the same; then press
-`g` to start the moves, and `o` once it says "All moves done".
+Shift+G (R1+A) to start the moves, and Space once it says "All moves done".
 
 ```bash
 ros2 run harp_control move_distance --distance 1.0 --speed 0.3
@@ -236,10 +257,10 @@ can drive it:
 | Out | `/odom`, `/tf` | `nav_msgs/Odometry`, `odom` → `base_link` |
 | Out | `/tf` | `base_link` → `livox_frame`: where the head lidar is, from the joints and IMU |
 | Out | `/joint_states`, `/imu`, `/harp/events` | the joints, the pelvis IMU, and events (policy on, fall, ...) for run logs |
-| Service | `/walker/start`, `/walker/stop` | `std_srvs/Trigger`, like `]` and `o` |
+| Service | `/walker/start`, `/walker/stop` | `std_srvs/Trigger`, like Shift+P and Space |
 
 In terminal 2, run `ros2 run harp_ros walker_node` and do the usual
-start-up (press `]`, or call
+start-up (press Shift+P, or call
 `ros2 service call /walker/start std_srvs/srv/Trigger`). Then, from a third
 terminal, drive it with the keyboard, send it a fixed speed, or watch its
 odometry:
@@ -360,6 +381,9 @@ arrival and ends the run on rejection, failure, or timeout (`--timeout` is
 per waypoint). Nav2 handles obstacles between points. `laps` repeats the
 route; `--repeat` restarts the entire simulation.
 
+Taking manual control pauses the current waypoint. Hand control back with
+Shift+G or R1+A to resume it; the waypoint timeout excludes the pause.
+
 The run saves the effective `route.yaml` and each waypoint's result. Route pass/fail uses
 the YAML's optional `criteria`; single-goal course limits apply to single
 goals. A route without criteria still reports its navigation outcome.
@@ -415,16 +439,18 @@ ros2 run harp_control walk --real --interface en0
 ```
 
 4. Wait for the stand pose, lower the robot until its feet are on the
-   floor, press `]`, then slacken the gantry, leaving the rope just loose
-   enough to catch a fall.
+   floor, press R1+start on the remote (or Shift+P), then slacken the
+   gantry, leaving the rope just loose enough to catch a fall.
 
 `--interface` is your laptop's network interface on `192.168.123.x`
 (`ifconfig` will show it). `move_distance` takes the same flags, and
 `walker_node` takes `--ros-args -p real:=true -p interface:=en0`.
 
-**L2+B on the remote is the e-stop.** It, `o`, Ctrl-C, a fall or any error
+**B on the remote is the e-stop.** It, Space, Ctrl-C, a fall or any error
 damps every joint. On the real robot the program then keeps damping until
-you press `o` or Ctrl-C, so press that only once the robot is secured.
+you press `o` or Ctrl-C, so press that only once the robot is secured. The
+operator with the remote can take over at any time by holding L1
+("Controls" above).
 
 For Nav2, also run `ros2 run harp_ros lidar_relay --ros-args -p real:=true
 -p interface:=en0`, which brings the head lidar into ROS 2.

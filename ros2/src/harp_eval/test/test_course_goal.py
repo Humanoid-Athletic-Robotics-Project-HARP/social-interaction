@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stdout
 import io
+import json
 import math
 from types import SimpleNamespace
 import unittest
@@ -121,7 +122,7 @@ class FakeNavigator:
     result remains after rejection; reading it is a test failure.
     """
 
-    def __init__(self, scenarios, clock):
+    def __init__(self, scenarios, clock, control=None):
         self.scenarios = scenarios
         self.clock = clock
         self.goals = []
@@ -141,6 +142,7 @@ class FakeNavigator:
         self.acceptance_responses = []
         self.cancel_responses = []
         self.nav_to_pose_client = FakeActionClient(self)
+        self.control = {} if control is None else control
 
     def get_clock(self):
         return SimpleNamespace(now=lambda: SimpleNamespace(to_msg=lambda: Time()))
@@ -169,6 +171,8 @@ class FakeNavigator:
                 current_pose=SimpleNamespace(pose=SimpleNamespace(
                     position=SimpleNamespace(x=0.0, y=0.0))),
             )))
+            if self.polls == self.scenario.get("manual_at_poll"):
+                self.control["manual"] = True
             return False
         self.complete = True
         self.result = self.scenario.get("result", TaskResult.SUCCEEDED)
@@ -186,17 +190,27 @@ class FakeNavigator:
 class FollowRouteTests(unittest.TestCase):
     POINTS = ((1.0, 0.0, 0.0), (1.0, 1.0, 90.0), (0.0, 0.0, -90.0))
 
-    def follow(self, scenarios, *, laps=1, points=None, timeout=2.0, waypoint_events=True):
+    def follow(self, scenarios, *, laps=1, points=None, timeout=2.0, waypoint_events=True,
+               during_pause=None):
         route = WaypointRoute(self.POINTS if points is None else points, laps=laps)
         clock = FakeClock()
-        nav = FakeNavigator(scenarios, clock)
+        control = {"manual": False, "stopped": False}
+        nav = FakeNavigator(scenarios, clock, control)
+
+        def spin_once(node, timeout_sec):
+            clock.sleep(timeout_sec)
+            if during_pause is None:
+                raise AssertionError("manual pause needs a scripted operator response")
+            during_pause(nav, route, clock, control)
+
         with patch.object(course_goal, "time", clock), \
                 patch.object(course_goal.rclpy, "spin_until_future_complete",
                              side_effect=clock.spin_until_future_complete), \
+                patch.object(course_goal.rclpy, "spin_once", side_effect=spin_once), \
                 patch.object(course_goal.runlog, "event") as record, \
                 redirect_stdout(io.StringIO()):
             result = course_goal.follow_route(nav, route, timeout,
-                                              waypoint_events=waypoint_events)
+                                              waypoint_events=waypoint_events, control=control)
         events = [(call.args[1], call.kwargs) for call in record.call_args_list]
         self.assertTrue(all(call.args[0] == "goal" for call in record.call_args_list))
         self.assertEqual(sum(name == "goal_sent" for name, _ in events), 1)
@@ -357,6 +371,116 @@ class FollowRouteTests(unittest.TestCase):
         self.assertEqual(set(result), {"status", "recoveries", "seconds", "remaining"})
         self.assertEqual(result["status"], "SUCCEEDED")
         self.assertIsNone(route.current())
+
+    def test_long_manual_pause_resumes_same_waypoint_and_finishes_two_laps(self):
+        paused = []
+
+        def operator(nav, route, clock, control):
+            self.assertEqual(route.current(), self.POINTS[0])
+            self.assertEqual(route.completed_laps, 0)
+            self.assertEqual(len(nav.goals), 1)
+            self.assertTrue(nav.cancel_confirmed)
+            paused.append(clock.elapsed)
+            if len(paused) == 30:
+                control["manual"] = False
+
+        result, nav, route, events = self.follow(
+            [{"manual_at_poll": 1, "running_polls": None, "recoveries": 2},
+             *[{} for _ in range(6)]], laps=2, timeout=0.5, during_pause=operator)
+
+        self.assert_sent_poses(nav, (self.POINTS[0], *self.POINTS * 2))
+        self.assertGreater(paused[-1] - paused[0], 0.5)
+        self.assertEqual(result["status"], "SUCCEEDED")
+        self.assertEqual(result["completed_waypoints"], 6)
+        self.assertEqual(result["completed_laps"], 2)
+        self.assertEqual(result["recoveries"], 2)
+        self.assertEqual(nav.cancel_calls, 1)
+        self.assertNotIn(1, nav.result_reads)
+        self.assertIsNone(route.current())
+        self.assertEqual(sum(name == "waypoint_paused" for name, _ in events), 1)
+        self.assertEqual(sum(name == "waypoint_resumed" for name, _ in events), 1)
+        self.assertEqual(sum(name == "waypoint_result" for name, _ in events), 6)
+        self.assertEqual(sum(name == "waypoint_sent" for name, _ in events), 6)
+        self.assertGreater(result["paused_seconds"], 0.5)
+
+    def test_resume_preserves_remaining_execution_budget(self):
+        spins = []
+
+        def operator(nav, route, clock, control):
+            spins.append(clock.elapsed)
+            if len(spins) == 20:
+                control["manual"] = False
+
+        result, nav, route, _ = self.follow(
+            [{"manual_at_poll": 4, "running_polls": None}, {"running_polls": None}],
+            timeout=0.5, during_pause=operator)
+
+        self.assert_sent_poses(nav, (self.POINTS[0], self.POINTS[0]))
+        self.assertEqual(result["status"], "TIMEOUT")
+        self.assertEqual(result["completed_waypoints"], 0)
+        self.assertEqual(nav.cancel_calls, 2)
+        self.assertLess(result["seconds"] - result["paused_seconds"], 0.75)
+        self.assertEqual(route.current(), self.POINTS[0])
+
+    def test_failed_manual_cancellation_ends_without_resuming_or_advancing(self):
+        result, nav, route, events = self.follow(
+            [{"manual_at_poll": 1, "running_polls": None, "cancel_after": None}], timeout=0.5)
+
+        self.assert_sent_poses(nav, self.POINTS[:1])
+        self.assertEqual(result["status"], "CANCEL_TIMEOUT")
+        self.assertEqual(result["completed_waypoints"], 0)
+        self.assertEqual(nav.cancel_calls, 1)
+        self.assertEqual(route.current(), self.POINTS[0])
+        self.assertFalse(any(name == "waypoint_resumed" for name, _ in events))
+
+    def test_estop_or_interrupt_during_manual_pause_ends_without_resending(self):
+        for cause in ("estop", "interrupt"):
+            with self.subTest(cause=cause):
+                def operator(nav, route, clock, control):
+                    if cause == "interrupt":
+                        raise KeyboardInterrupt
+                    course_goal.observe_event(
+                        SimpleNamespace(data='{"source":"walker","event":"estop"}'),
+                        [], [], [0.0], control)
+
+                result, nav, route, events = self.follow(
+                    [{"manual_at_poll": 1, "running_polls": None}], during_pause=operator)
+
+                self.assert_sent_poses(nav, self.POINTS[:1])
+                self.assertEqual(result["status"], "CANCELED")
+                self.assertEqual(result["completed_waypoints"], 0)
+                self.assertEqual(nav.cancel_calls, 1)
+                self.assertEqual(route.current(), self.POINTS[0])
+                self.assertFalse(any(name == "waypoint_resumed" for name, _ in events))
+
+
+class SharedEventTests(unittest.TestCase):
+    def test_malformed_shared_events_do_not_change_session_state(self):
+        control = {"manual": False, "stopped": False}
+        policy, released, lags = [], [], [0.0]
+        for text in ("bad JSON", "[]", "null", "42", "{}", '{"source":"walker"}',
+                     '{"source":"sim","event":"band_released","t":null}',
+                     '{"source":"sim","event":"lag","t":"bad"}',
+                     '{"source":"sim","event":"lag","t":NaN}'):
+            with self.subTest(text=text):
+                course_goal.observe_event(SimpleNamespace(data=text), policy, released, lags, control)
+
+        self.assertEqual(control, {"manual": False, "stopped": False})
+        self.assertEqual((policy, released, lags), ([], [], [0.0]))
+
+    def test_operator_and_valid_sim_events_update_the_existing_subscription_state(self):
+        control = {"manual": False, "stopped": False}
+        policy, released, lags = [], [], [0.0]
+        for source, name, stamp in (("walker", "policy_on", 1), ("sim", "band_released", 2),
+                                    ("sim", "lag", 3), ("walker", "manual", 4)):
+            course_goal.observe_event(SimpleNamespace(data=json.dumps(
+                {"source": source, "event": name, "t": stamp})), policy, released, lags, control)
+
+        self.assertTrue(control["manual"])
+        self.assertEqual((len(policy), len(released), lags), (1, 1, [3]))
+        course_goal.observe_event(SimpleNamespace(data='{"source":"walker","event":"hand_back"}'),
+                                  policy, released, lags, control)
+        self.assertFalse(control["manual"])
 
 
 if __name__ == "__main__":

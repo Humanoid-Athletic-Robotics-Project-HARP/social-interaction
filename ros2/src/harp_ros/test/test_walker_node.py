@@ -1,6 +1,7 @@
 """Offline callbacks and startup checks; no ROS node or DDS channel is created."""
 
 import math
+import queue
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -51,6 +52,21 @@ class WalkerNodeInputTests(unittest.TestCase):
         walker_node.WalkerNode.on_event(
             node, SimpleNamespace(data='{"source":"sim","event":"feet_down"}'))
         self.assertTrue(node.feet_down)
+
+    def test_services_and_auto_start_use_the_new_control_keys(self):
+        node = SimpleNamespace(walker=SimpleNamespace(policy_on=False, standing=True),
+                               requests=queue.Queue(), feet_down=False)
+        started = walker_node.WalkerNode.on_start(node, None, SimpleNamespace())
+        self.assertTrue(started.success)
+        self.assertEqual(node.requests.get_nowait(), "P")
+        stopped = walker_node.WalkerNode.on_stop(node, None, SimpleNamespace())
+        self.assertTrue(stopped.success)
+        self.assertEqual(node.requests.get_nowait(), " ")
+
+        node.feet_down = True
+        with patch.object(walker_node.runlog, "event"):
+            self.assertEqual(walker_node.WalkerNode.read_key(node, None), "P")
+        self.assertFalse(node.feet_down)
 
 
 class WalkerNodeStartupTests(unittest.TestCase):

@@ -16,15 +16,17 @@ publishes where the robot estimates it is.
               /walker/policy  std_msgs/Float32MultiArray  GR00T's observation (86), action (15)
                               and command (3), each policy step
               /harp/events    std_msgs/String      JSON events (stand pose, policy on, fall, ...)
-  Services    /walker/start   std_srvs/Trigger     start the policy (like ] in walk.py)
-              /walker/stop    std_srvs/Trigger     damp every joint and quit (like o)
+  Services    /walker/start   std_srvs/Trigger     start the policy (like Shift+P in walk.py)
+              /walker/stop    std_srvs/Trigger     damp every joint and quit (like Space)
   Parameter   auto_start      sim only: start the policy by itself when the sim reports
                               its feet down (run_sim --auto-release), as course tests need
 
 If /cmd_vel goes quiet for cmd_timeout seconds, the command drops to zero and
 GR00T balances in place. Start-up is the same as walk.py: wait for the stand
-pose, lower the feet to the floor, start, then release the band. In a terminal,
-] and o work too; the other walk.py keys don't, since /cmd_vel drives.
+pose, lower the feet to the floor, start, then release the band. The walk.py
+keys and the remote's buttons work here too (harp_control/remote.py): driving
+by hand (L1 + sticks, or w/s a/d q/e) overrides /cmd_vel, the robot balances
+in place once that ends, and /cmd_vel drives again only after Shift+G or R1+A.
 
 Sim (start it first: ros2 run harp_sim run_sim, see README):
   ros2 run harp_ros walker_node
@@ -57,11 +59,11 @@ from tf2_ros import TransformBroadcaster
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 from harp_control import lidar_mount, runlog
-from harp_control.gr00t.walk import (CLEAN_STOPS, CONTROL_DT, MAX_VX, MAX_VY, MAX_YAW_RATE,
-                                     TerminalKeys, Walker, check_unitree_controller_off)
+from harp_control import remote
+from harp_control.gr00t.walk import (CLEAN_STOPS, CMD_LIMITS, CONTROL_DT, TerminalKeys, Walker,
+                                     check_unitree_controller_off)
 from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
 
-CMD_LIMITS = np.array([MAX_VX, MAX_VY, MAX_YAW_RATE], dtype=np.float32)
 VELOCITY_SMOOTHING = 0.2  # low-pass factor per policy step for the velocity in /odom
 
 
@@ -87,7 +89,7 @@ class WalkerNode(Node):
             raise ValueError("cmd_timeout must be positive and finite")
         self.cmd = np.zeros(3, dtype=np.float32)
         self.cmd_time = -math.inf
-        self.requests = queue.Queue()   # ] and o from the services, read by Walker.run
+        self.requests = queue.Queue()   # start and stop keys from the services, read by Walker.run
         self.walker = None
         self.odom = None
         self.last = None                # x, y, heading at the previous policy step
@@ -159,32 +161,32 @@ class WalkerNode(Node):
             response.success = False
             response.message = "Not yet: wait for the stand pose (about 3 s after start)."
         else:
-            self.requests.put("]")
+            self.requests.put(remote.START_KEY)
             response.success, response.message = True, "Starting the policy."
         return response
 
     def on_stop(self, request, response):
-        self.requests.put("o")
+        self.requests.put(remote.STOP_KEYS[0])
         response.success, response.message = True, "Stopping: every joint damps and the robot sinks."
         return response
 
     def read_key(self, terminal):
-        """Next ] or o, from the services first, then the terminal if there is one."""
+        """Next key, from auto_start and the services first, then the terminal if there is one."""
         if self.feet_down and self.walker.standing and not self.walker.policy_on:
             self.feet_down = False
             runlog.event("walker", "auto_start")
-            return "]"
+            return remote.START_KEY
         try:
             return self.requests.get_nowait()
         except queue.Empty:
             pass
-        key = terminal() if terminal else None
-        return key if key in ("]", "o") else None
+        return terminal() if terminal else None
 
     def on_policy_step(self, q, quat):
         self.odom.update(q, quat)
         fresh = time.monotonic() - self.cmd_time < self.cmd_timeout
         cmd = self.cmd if fresh else np.zeros(3, dtype=np.float32)
+        # While driven by hand, Walker replaces this with the hand command.
         self.walker.cmd = np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).astype(np.float32)
         self.publish_odometry()
         self.publish_state()
@@ -278,8 +280,11 @@ def main():
     if real:
         check_unitree_controller_off()
     walker = Walker(real=real)
-    walker.next_hint = ("Drive it with /cmd_vel (geometry_msgs/Twist). "
-                        "ros2 service call /walker/stop std_srvs/srv/Trigger (or o here) stops.")
+    walker.manual = False
+    walker.program = "/cmd_vel"
+    walker.next_hint = ("Drive it with /cmd_vel (geometry_msgs/Twist); L1 + sticks or w/s a/d q/e "
+                        "take over by hand. B, Space here or ros2 service call /walker/stop "
+                        "std_srvs/srv/Trigger stops.")
     node.attach(walker, LegOdometry(scene))
     executor = SingleThreadedExecutor()
     executor.add_node(node)
@@ -287,7 +292,8 @@ def main():
     if node.auto_start:
         print("auto_start: the policy starts by itself when the sim reports its feet down.")
     else:
-        print("Start the policy with ] here or: ros2 service call /walker/start std_srvs/srv/Trigger")
+        print("Start the policy with R1+start on the remote, Shift+P here or: "
+              "ros2 service call /walker/start std_srvs/srv/Trigger")
 
     if sys.stdin.isatty():
         with TerminalKeys() as keys:

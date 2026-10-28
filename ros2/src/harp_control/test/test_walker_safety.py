@@ -37,6 +37,13 @@ def offline_walker(real=False):
     walker.cmd = np.zeros(3, dtype=np.float32)
     walker.height = walk.DEFAULT_HEIGHT
     walker.quit = walker.standing = walker.policy_on = False
+    walker.manual = True
+    walker.manual_cmd = np.zeros(3, dtype=np.float32)
+    walker.program = None
+    walker.on_take_over = walker.on_hand_back = None
+    walker.remote_held = set()
+    walker.remote_driving = False
+    walker.next_hint = "test controls"
     walker.on_policy_output = None
     walker.low_cmd = unitree_hg_msg_dds__LowCmd_()
     walker.crc = SimpleNamespace(Crc=lambda command: 0)
@@ -123,6 +130,30 @@ class WalkerSafetyTests(unittest.TestCase):
         keys.assert_not_called()
         walker.cmd_pub.Write.assert_not_called()
 
+    def test_b_with_other_buttons_stops_before_manual_commands_even_if_logging_fails(self):
+        for buttons in ({"B"}, {"L2", "B"}, {"L1", "B"}, {"R1", "start", "B"},
+                        set(remote.BUTTONS)):
+            with self.subTest(buttons=buttons):
+                walker = offline_walker()
+                walker.policy_on = True
+                walker.manual = False
+                walker.program = "test program"
+                walker.on_take_over = Mock()
+                walker.damp = Mock()
+                keys = Mock(return_value="w")
+                remote.encode(buttons, walker.state.wireless_remote, {"ly": 1.0})
+                with patch.object(walk, "time", Clock()), \
+                        patch.object(walk.runlog, "event", side_effect=OSError("disk full")), \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    reason = walker.run(keys)
+
+                self.assertEqual(reason, "remote_estop")
+                walker.damp.assert_called_once()
+                keys.assert_not_called()
+                walker.on_take_over.assert_not_called()
+                walker.cmd_pub.Write.assert_not_called()
+                self.assertFalse(walker.manual)
+
     def test_failed_telemetry_preserves_the_original_safety_stop_reason(self):
         for cause in ("remote_estop", "state_lost", "fall"):
             with self.subTest(cause=cause):
@@ -170,6 +201,109 @@ class WalkerSafetyTests(unittest.TestCase):
         self.assertGreaterEqual(walker.send_damping.call_count, 2)
         walker.read_key.assert_called_once()
         self.assertFalse(walker.policy_on)
+
+
+class ManualControlTests(unittest.TestCase):
+    def test_takeover_cancels_active_moves_without_resuming_them_on_hand_back(self):
+        from harp_control.move_distance import Moves
+
+        walker = SimpleNamespace(cmd=np.zeros(3))
+        odometry = SimpleNamespace(position=np.zeros(2), heading=0.0, yaw=0.0)
+        moves = Moves(walker, odometry, [("walk", 1.0), ("walk", 1.0)], 0.3, 20.0)
+        with patch.object(walk.runlog, "event") as record, redirect_stdout(io.StringIO()):
+            moves.hand_back()
+            self.assertEqual(moves.phase, "moving")
+            moves.take_over()
+            self.assertEqual(moves.phase, "done")
+            moves.hand_back()
+
+        self.assertEqual(moves.phase, "done")
+        self.assertEqual(moves.index, 0)
+        events = [call.args[1] for call in record.call_args_list]
+        self.assertEqual(events, ["move_start", "moves_cancelled"])
+
+    def test_remote_deadman_takes_over_stops_on_release_and_requires_hand_back(self):
+        walker = offline_walker()
+        walker.policy_on = True
+        walker.manual = False
+        walker.program = "/cmd_vel"
+        walker.on_take_over = Mock()
+        walker.on_hand_back = Mock()
+        with patch.object(walk.runlog, "event"), redirect_stdout(io.StringIO()):
+            remote.encode({"L1"}, walker.state.wireless_remote,
+                          {"ly": 0.5, "lx": -0.5, "rx": 0.25})
+            walker.read_remote()
+            np.testing.assert_allclose(walker.manual_cmd, [0.3, 0.2, -0.25])
+            self.assertTrue(walker.manual)
+            self.assertTrue(walker.remote_driving)
+            walker.on_take_over.assert_called_once()
+
+            remote.encode(set(), walker.state.wireless_remote)
+            walker.read_remote()
+            np.testing.assert_array_equal(walker.manual_cmd, np.zeros(3))
+            self.assertFalse(walker.remote_driving)
+            self.assertTrue(walker.manual)
+
+            walker.handle_key("G")
+            self.assertFalse(walker.manual)
+            np.testing.assert_array_equal(walker.cmd, np.zeros(3))
+            walker.on_hand_back.assert_called_once()
+
+    def test_l1_held_before_policy_requires_a_new_press_to_drive(self):
+        walker = offline_walker()
+        walker.manual = False
+        walker.program = "/cmd_vel"
+        with patch.object(walk.runlog, "event"), redirect_stdout(io.StringIO()):
+            remote.encode({"L1"}, walker.state.wireless_remote, {"ly": 1.0})
+            walker.read_remote()
+            walker.policy_on = True
+            walker.read_remote()
+            self.assertFalse(walker.manual)
+            self.assertFalse(walker.remote_driving)
+            np.testing.assert_array_equal(walker.manual_cmd, np.zeros(3))
+
+            remote.encode(set(), walker.state.wireless_remote)
+            walker.read_remote()
+            remote.encode({"L1"}, walker.state.wireless_remote, {"ly": 1.0})
+            walker.read_remote()
+            self.assertTrue(walker.manual)
+            self.assertTrue(walker.remote_driving)
+
+    def test_deliberate_start_combo_preserves_unitree_chords(self):
+        walker = offline_walker()
+        walker.standing = True
+        with patch.object(walk.runlog, "event"), redirect_stdout(io.StringIO()):
+            for buttons in ({"start"}, {"L1", "A"}, {"L2", "R2"}, {"R1", "start", "L2"}):
+                remote.encode(buttons, walker.state.wireless_remote)
+                walker.read_remote()
+                self.assertFalse(walker.policy_on)
+            remote.encode(set(), walker.state.wireless_remote)
+            walker.read_remote()
+            remote.encode({"R1", "start"}, walker.state.wireless_remote)
+            walker.read_remote()
+            self.assertTrue(walker.policy_on)
+            np.testing.assert_array_equal(walker.cmd, np.zeros(3))
+
+    def test_manual_velocity_replaces_program_velocity_at_policy_boundary(self):
+        walker = offline_walker()
+        walker.policy_on = True
+        walker.manual = False
+        walker.program = "test program"
+        walker.damp = Mock()
+        walker.policy = SimpleNamespace(step=Mock(return_value=walk.STAND_POSE[:15].copy()))
+        remote.encode({"L1"}, walker.state.wireless_remote, {"ly": 0.5})
+        keys = iter([None, "o"])
+
+        def program_step(q, quat):
+            walker.cmd = np.array([-0.4, 0.0, 0.0], dtype=np.float32)
+
+        with patch.object(walk, "time", Clock()), patch.object(walk.runlog, "event"), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            reason = walker.run(lambda: next(keys), program_step)
+
+        self.assertEqual(reason, "quit")
+        walker.policy.step.assert_called_once()
+        np.testing.assert_allclose(walker.policy.step.call_args.args[4], [0.3, 0.0, 0.0])
 
 
 class PolicyNumericTests(unittest.TestCase):

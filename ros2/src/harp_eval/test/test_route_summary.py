@@ -160,10 +160,20 @@ class RouteSummaryTests(unittest.TestCase):
 
         self.assertEqual(run_summary.window(events), (10, 40))
         self.assertEqual(summary["outcome"], "stopped")
-        self.assertEqual(summary["reason"], "e-stop (remote, L2+B)")
+        self.assertEqual(summary["reason"], "e-stop (remote, B)")
         self.assertEqual(summary["duration_s"], 30.0)
         self.assertEqual(summary["route"]["completed_waypoints"], 2)
         self.assertFalse(summary["passed"])
+
+    def test_remote_b_estop_without_explicit_operator_keeps_default_reason(self):
+        events = [event(10, "goal_sent", x=2, y=0, yaw=0),
+                  {"t": 20, "source": "walker", "event": "estop", "details": {}},
+                  {"t": 20.1, "source": "walker", "event": "stop",
+                   "details": {"reason": "remote_estop"}},
+                  event(21, "goal_result", status="CANCELED", recoveries=0)]
+
+        self.assertEqual(run_summary.outcome(events), ("stopped", "e-stop (remote, B)"))
+        self.assertEqual(run_summary.window(events), (10, 20))
 
     def test_successful_route_is_not_overridden_by_later_ordinary_stop(self):
         self.write_route({"must_succeed": True, "max_time_s": 100})

@@ -112,7 +112,7 @@ def outcome(events):
         return "fell", "the walker detected a fall"
     estop = first(events, "walker", "estop")
     if estop and (goal is None or estop["t"] < goal["t"]):
-        return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, L2+B)"
+        return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, B)"
     moves_done = first(events, "move_distance", "all_moves_done")
     finished = goal or moves_done
     error = first(events, "move_distance", "error") or first(events, "walker", "error")

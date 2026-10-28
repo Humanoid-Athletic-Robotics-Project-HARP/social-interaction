@@ -3,7 +3,7 @@ name: beginner-guide
 description: Read only when someone is new to the repo (just cloned it, "how do I get started") — the order to walk them through the README
 metadata:
   type: reference
-  updated: 2026-10-28T00:47:33Z
+  updated: 2026-10-28T04:43:14Z
   covers: [README.md]
 ---
 
@@ -13,7 +13,7 @@ Walk the newcomer through one stage at a time, and ask which they need: the sim 
 
 **1. Sim (start here).** Ask their OS first ([[team-context]]).
 1. README "Setup", steps 1–4.
-2. README "Run it in the sim": `run_sim` and `walk`. The start-up order is the usual stumbling block: feet on the floor, `]`, then release the band. Band keys go to the MuJoCo window, the rest to the controller's terminal.
+2. README "Run it in the sim": `run_sim` and `walk`. The start-up order is the usual stumbling block: feet on the floor, Shift+P, then release the band. Band keys go to the MuJoCo window, the rest to the controller's terminal.
 3. README "Planned moves: `move_distance`" (detail in [[move-distance]]).
 4. README "Drive it through ROS 2: `walker_node`".
 5. README "Test runs and logs": `course one_box`, then `runs compare` ([[run-logging]]).

@@ -3,14 +3,14 @@ name: move-distance
 description: Read when changing or debugging move_distance, curves (--to, smooth_control.py) or leg odometry, or when you need its accuracy in the sim
 metadata:
   type: reference
-  updated: 2026-10-28T00:00:43Z
+  updated: 2026-10-28T03:10:38Z
   covers: [ros2/src/harp_control/harp_control/move_distance.py, ros2/src/harp_control/harp_control/smooth_control.py, ros2/src/harp_control/harp_control/leg_odometry.py]
 ---
 
 Usage and flags: README "Planned moves" and `--help`. Speeds are capped at 0.4 m/s and 30°/s; moves run in order with 1.5 s of balancing between them.
 
-**Running:** "forward" is wherever the robot faces when `g` is pressed, so wait a few seconds after the band release. After `o` the robot lies on the floor with the band anchored above the start: restart both sim and controller. When run_recorder is running, moves and leg odometry (`leg_odom.csv`) are logged into the run through `runlog.py` ([[run-logging]]).
-- Scripting it: `TerminalKeys` needs a real terminal, so run the controller in a pty (`pty.fork`) with its flags as separate arguments, beside `run_sim --auto-release 9 --log` (shorter can drop the band before `]`). Send `]` once the logged pelvis z is below 0.81, `g` about 6 s later, `o` after "All moves done". If the controller exits, stop the sim before the band drops a limp robot.
+**Running:** "forward" is wherever the robot faces when Shift+G (R1+A) is pressed, so wait a few seconds after the band release. After a stop the robot lies on the floor with the band anchored above the start: restart both sim and controller. When run_recorder is running, moves and leg odometry (`leg_odom.csv`) are logged into the run through `runlog.py` ([[run-logging]]).
+- Scripting it: `TerminalKeys` needs a real terminal, so run the controller in a pty (`pty.fork`) with its flags as separate arguments, beside `run_sim --auto-release 9 --log` (shorter can drop the band before Shift+P). Send `P` (Shift+P) once the logged pelvis z is below 0.81, `G` about 6 s later, a space after "All moves done". Keys and takeover: [[controls]]. If the controller exits, stop the sim before the band drops a limp robot.
 
 **Aborts and damps** if a move takes much longer than expected, a turn goes over 10° the wrong way, the pelvis tilts past 60°, or robot state stops. A walk that times out stepping in place means the band was still on.
 

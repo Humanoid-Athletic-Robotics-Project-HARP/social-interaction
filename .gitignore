@@ -12,3 +12,6 @@ __pycache__/
 
 # Recorded runs (harp_eval run_recorder), kept per machine
 runs/
+
+# Workspace-specific agent memory, kept per machine
+context/workspace-specific-memory.md
