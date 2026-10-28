@@ -3,13 +3,15 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T18:53:29Z
+  updated: 2026-10-28T20:55:54Z
   covers: [submission/**]
 ---
 
 `submission/` is our code on top of him-sim2real-management ([[him-sim2real]]): one image, `harp-submission:local` (`build.sh`), plus a thin layer per world (`harp-submission:NAME`, `Dockerfile.world`).
 
 **How it fits:** `build.sh` runs HIM's own `containers/examples/prepare.py walker` into `submission/.build/` (ignored) and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. `harp_node.py` subclasses HIM's `client.PolicyNode`: the task velocity is the latest `/cmd_vel` (clipped to 0.6/0.4 m/s, 1 rad/s; zero after 0.5 s), and each state is republished by `harp/state.py` (`/odom`, `/tf`, `/joint_states`, `/imu`). Leg odometry runs on HIM's G1 model (`/harp/model`, MuJoCo 3.2.3, the newest for Python 3.8). The lidar mount is the rev 1.0 URDF's.
+
+**Size:** `submission.tar` is about 306 MB (gzip layers; 970 MB as one stage). HIM sets no limit; its walker example is 277 MB and `ros:foxy-ros-base` alone 252 MB, so there is little left to cut. The `Dockerfile` has two stages: `build` compiles (CycloneDDS, HIM's interfaces, our Graceful port) and pip-installs, and the image copies in only the results. Foxy's debs name far more than they load: STVL names all of PCL (its visualization brings VTK and Mesa's GL drivers), `behaviortree_cpp_v3` names `libboost-all-dev` (OpenMPI, then apt picks the Flang compiler, 950 MB), `pcl_conversions` is headers only. The image installs empty stand-in debs under those names, so apt stays consistent and only the libraries STVL and Nav2 load (about 170 MB) come in. It also uninstalls OpenCV, SymPy and PyOpenGL (pulled in by Unitree's SDK, ONNX Runtime and MuJoCo, never imported). If a new package fails to load a library, `ldd` its `.so` in the image and add the real runtime package, not the stand-in's name. All six courses ran on it (`runs/*_two-stage`, 2026-10-28), like the one-stage image.
 
 **Worlds** (`submission/worlds/`, criteria in `NAME.yaml`): `stage_world.py` writes HIM's scene (the G1, `safety_floor`, fixed obstacles; movers left out, or HIM would hold them still where they start) and the image's copy with movers. Worlds must be includable next to HIM's G1: defaults go in a named class (`obstacle`), never the top-level default. The comments' "--" breaks XML parsers, so `stage_world.py` strips comments.
 
