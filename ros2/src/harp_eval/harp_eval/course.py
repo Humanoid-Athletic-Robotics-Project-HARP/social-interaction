@@ -233,13 +233,18 @@ def main():
 
     command = " ".join(["ros2 run harp_eval course", *map(shlex.quote, sys.argv[1:])])
     runs = runlog.runs_dir()
+    runs.mkdir(parents=True, exist_ok=True)
     failed = False
     for i in range(args.repeat):
         when = datetime.datetime.now(datetime.timezone.utc)
-        while (runs / run_name("sim", args.world, args.tag, when)).exists():
-            when += datetime.timedelta(seconds=1)   # another course started this second
-        run = runs / run_name("sim", args.world, args.tag, when)
-        (run / "ros_logs").mkdir(parents=True)
+        while True:
+            run = runs / run_name("sim", args.world, args.tag, when)
+            try:
+                run.mkdir()  # atomically reserve the name against concurrent courses
+                break
+            except FileExistsError:
+                when += datetime.timedelta(seconds=1)
+        (run / "ros_logs").mkdir()
         if route:
             if args.route and args.laps is None:
                 shutil.copyfile(args.route, run / "route.yaml")

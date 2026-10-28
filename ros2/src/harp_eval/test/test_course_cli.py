@@ -188,6 +188,28 @@ class CourseCliTests(unittest.TestCase):
         self.assertEqual(result, 1)
         summarize.assert_not_called()
 
+    def test_concurrent_run_directory_claim_retries_with_next_name(self):
+        self.runs.mkdir()
+        mkdir = Path.mkdir
+        claimed = []
+
+        def concurrent_mkdir(path, *args, **kwargs):
+            if path.parent == self.runs and not claimed:
+                mkdir(path, *args, **kwargs)  # another course claims this name first
+                claimed.append(path)
+                raise FileExistsError(str(path))
+            return mkdir(path, *args, **kwargs)
+
+        with patch.object(Path, "mkdir", new=concurrent_mkdir):
+            result, call, _ = self.invoke(["open_floor", "--tag", "same-time"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(claimed), 1)
+        run = Path(call.kwargs["env"]["HARP_RUN_DIR"])
+        self.assertNotEqual(run, claimed[0])
+        self.assertTrue(run.is_dir())
+        self.assertEqual(len(list(self.runs.iterdir())), 2)
+
     def test_legacy_single_goal_launch_arguments_are_preserved(self):
         result, call, _ = self.invoke(["open_floor", "--goal", "3", "2", "90",
                                        "--timeout", "12", "--tag", "legacy", "--no-rviz"])

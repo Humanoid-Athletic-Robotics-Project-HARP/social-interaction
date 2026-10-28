@@ -3,7 +3,7 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-28T00:39:44Z
+  updated: 2026-10-28T00:40:47Z
   covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 
@@ -22,6 +22,7 @@ metadata:
 **How it fits together**
 - Programs publish, run_recorder writes. Events are JSON `std_msgs/String` on `/harp/events` (transient-local) from run_sim, walker_node and course_goal; truth comes from `/sim/qpos` ([[mujoco-sim]]). An event missing `t`, `source` or `event`, or not JSON at all, is still recorded (filled in, or as `unparsed`), because a recorder that crashes shuts the whole run down.
 - Programs without ROS (`move_distance`, `walk`) log through `harp_control/runlog.py` into the active run (`$HARP_RUN_DIR` or `runs/ACTIVE`); summarizing merges their event files.
+- `course` reserves each run directory atomically; concurrent courses with the same world/tag retry the next timestamp instead of sharing a folder or failing startup.
 - `course` exists because `ROS_LOG_DIR` can't be set from a launch file: it points the logs into the run folder, runs `course.launch.py`, splits `launch.log` per program and summarizes.
 - `course.launch.py` starts recorder, sim (`--lidar-dds --world W --auto-release 15 --hold-band --log`), walker_node (`auto_start`), lidar_relay (the robot's lidar path, [[lidar-nav2-research]]) and course_goal; Nav2 starts on "Policy on". The run ends when course_goal or walker_node exits.
 
