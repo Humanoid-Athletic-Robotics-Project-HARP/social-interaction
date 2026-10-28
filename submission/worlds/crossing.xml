@@ -2,8 +2,8 @@
      2.5 m ahead, from right to left at 1.2 m/s (6 m in 5 s), then stands
      3 m to the side. They start 3 s after the robot starts walking, so they
      cross its line when it is about 1 m away from them. Goal 5 m ahead. How
-     movers work: harp_sim/movers.py.
-     ros2 run harp_sim run_sim --lidar --world crossing -->
+     movers work: submission/harp/movers.py.
+     submission/sim.sh --world crossing -->
 <mujoco>
   <custom>
     <numeric name="person_duration" data="5"/>

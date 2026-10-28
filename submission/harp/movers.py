@@ -1,4 +1,6 @@
-"""Obstacles that move, such as a person crossing the robot's path, for run_sim --world.
+"""Obstacles that move, such as a person crossing the robot's path, for our simulated
+lidar (harp/lidar.py). HIM's simulator doesn't move them, so they exist only in the
+lidar's copy of the world: the robot sees them but can't touch them.
 
 In a world file, a body with mocap="true" is a mover; its geoms are its shape.
 It walks in a straight line at a constant speed, back and forth:
@@ -8,7 +10,8 @@ It walks in a straight line at a constant speed, back and forth:
   - an optional numeric <body>_delay: it waits until the robot sets off, then
     this many seconds more. Setting off is the course test's goal being sent
     (course_goal's goal_sent event), or when driving by hand, the robot
-    walking START_DISTANCE from where it stood when the band was released.
+    walking START_DISTANCE from where it stood when HIM's sim handed control to
+    our policy.
     Without it, the mover starts at sim time 0.
   - an optional numeric <body>_trips: how many one-way walks before it stops
     where it is (1 = start to end once). Without it, it never stops.
@@ -25,10 +28,8 @@ It walks in a straight line at a constant speed, back and forth:
 
 Counting the delay from the robot setting off makes the mover meet the
 robot at about the same point however long the controller and Nav2 take to
-start. (Robot drift doesn't count: a lagging sim once moved a standing robot
-0.3 m, and the person walked into it before Nav2 was up.) run_sim logs a
-mover_start event (mover, starts_at: the sim time it starts walking);
-run_summary places movers from those events and the recorded sim time.
+start. The lidar logs a mover_start event (mover, starts_at: the sim time it
+starts walking).
 """
 
 import numpy as np
@@ -51,7 +52,7 @@ class Movers:
             except KeyError:
                 raise SystemExit(f"Mover {name} needs a site {name}_end and a numeric "
                                  f"{name}_duration (see harp_sim/movers.py)")
-            self.names.append(name.removeprefix("course/"))
+            self.names.append(name)
             self.mocap.append(model.body_mocapid[b])
             self.start.append(model.body_pos[b].copy())
             self.end.append(model.site_pos[end].copy())
@@ -65,14 +66,13 @@ class Movers:
                 self.started[i] = started[name]
         self.robot_start = None
 
-    def update(self, data, released, goal_sent):
-        """In the sim, every step: starts movers once the robot sets off (the band
-        is off and a goal was sent, or it walked). Returns (name, sim time it
-        starts walking) for each mover triggered on this step."""
+    def update(self, xy, t, released, goal_sent):
+        """Every scan: starts movers once the robot sets off (our policy has control
+        and a goal was sent, or it walked). xy is the pelvis position, t the sim time.
+        Returns (name, sim time it starts walking) for each mover triggered now."""
         if all(s is not None for s in self.started) or not released:
             return []
         if not goal_sent:
-            xy = data.qpos[:2]
             if self.robot_start is None:
                 self.robot_start = xy.copy()
             if np.linalg.norm(xy - self.robot_start) < START_DISTANCE:
@@ -80,7 +80,7 @@ class Movers:
         begun = []
         for i, delay in enumerate(self.delay):
             if self.started[i] is None:
-                self.started[i] = data.time + delay
+                self.started[i] = t + delay
                 begun.append((self.names[i], self.started[i]))
         return begun
 
@@ -111,4 +111,4 @@ def obstacle_geoms(model):
     """Every geom the robot shouldn't touch: fixed in the world or on a mover, except the floor."""
     return [g for g in range(model.ngeom)
             if (model.geom_bodyid[g] == 0 or model.body_mocapid[model.geom_bodyid[g]] >= 0)
-            and model.geom(g).name != "floor"]
+            and model.geom(g).name != "safety_floor"]

@@ -1,10 +1,10 @@
-# Nav2 for the G1: go to a pose a few meters away around obstacles, seen by
-# the head lidar, with no map. Everything is in the odom frame of walker_node's
-# leg odometry, so goals are relative to where the policy started.
+# Nav2 (Foxy) for the G1: go to a pose a few meters away around obstacles, seen
+# by the head lidar, with no map. Everything is in the odom frame of
+# harp/state.py (the sim's true position, or leg odometry), so goals are in that frame.
 #
-# Starting points: nav2_bringup's Jazzy params and Adyansh04/grove-g1 (a G1
-# with its own walking policy in MuJoCo). Reasons for our values are next to
-# them; details in context/lidar-nav2-research.md.
+# Starting points: nav2_bringup's params and Adyansh04/grove-g1 (a G1 with its
+# own walking policy in MuJoCo). Reasons for our values are next to them;
+# details in context/lidar-nav2-research.md.
 
 bt_navigator:
   ros__parameters:
@@ -12,27 +12,27 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /odom
     transform_tolerance: 0.5
-    bt_loop_duration: 10
-    # ms to wait for a server (planner, controller, behaviors) to accept a request. At
-    # Nav2's 20 a busy Mac (or two course runs at once) timed out, and every
-    # recovery failed at once.
-    default_server_timeout: 200
-    navigators: ["navigate_to_pose"]
-    navigate_to_pose:
-      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
-    # default_nav_to_pose_bt_xml (our behavior_trees/navigate.xml) is set by nav2.launch.py.
+    # default_bt_xml_filename (our navigate.xml) is set by nav2.launch.py.
+    # Only navigate.xml's nodes: Foxy's default list names a library it doesn't ship.
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
 
 controller_server:
   ros__parameters:
     controller_frequency: 10.0
-    enable_stamped_cmd_vel: false   # walker_node takes geometry_msgs/Twist
-    odom_topic: /odom
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5   # we never command sideways steps
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
-    progress_checker_plugins: ["progress_checker"]
-    goal_checker_plugins: ["goal_checker"]
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugin: "goal_checker"
     controller_plugins: ["FollowPath"]
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
@@ -46,29 +46,34 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.35
     FollowPath:
-      # Park & Kuipers' law, the same as move_distance --to (smooth_control.py).
-      plugin: "nav2_graceful_controller::GracefulController"
+      # Foxy has no Graceful Controller (the law of move_distance --to); Regulated
+      # Pure Pursuit also follows NavFn's path, turning in place first when far off it.
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       transform_tolerance: 0.5
-      min_lookahead: 0.3
-      max_lookahead: 1.0
-      k_phi: 2.0
-      beta: 0.4
-      lambda: 2.0
       # GR00T walks at about 85% of the command, and below |cmd| 0.05 it
       # switches to standing still, so the minimums stay well above that.
-      v_linear_min: 0.1
-      v_linear_max: 0.3
-      v_angular_max: 0.6
-      v_angular_min_in_place: 0.3
-      slowdown_radius: 0.8
-      initial_rotation: true
-      initial_rotation_tolerance: 0.75
-      prefer_final_rotation: true
-      allow_backward: false
-      in_place_collision_resolution: 0.1
+      desired_linear_vel: 0.3
+      max_linear_accel: 1.0
+      max_linear_decel: 1.0
+      lookahead_dist: 0.6
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 1.0
+      lookahead_time: 1.5
+      use_velocity_scaled_lookahead_dist: false
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.75
+      rotate_to_heading_angular_vel: 0.6
+      max_angular_accel: 2.0
+      use_approach_linear_velocity_scaling: true
+      min_approach_linear_velocity: 0.1
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.1
+      use_cost_regulated_linear_velocity_scaling: false
+      max_allowed_time_to_collision: 1.0
 
 # Both costmaps read the head lidar the same way, through STVL
-# (spatio_temporal_voxel_layer, built from src/), whose marks fade:
+# (spatio_temporal_voxel_layer), whose marks fade:
 #  - marking: points 0.08-1.8 m above the floor, up to 3 m away. Past 3 m,
 #    torso tilt makes floor points look like obstacles. STVL has no minimum
 #    range, so the robot's own arms get marked, but they are always inside the
@@ -126,7 +131,6 @@ local_costmap:
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
-          filter: "passthrough"   # "voxel" overflows PCL with our 40 m range
           voxel_min_points: 0
           clear_after_reading: true
         lidar_clearing:
@@ -144,7 +148,6 @@ local_costmap:
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
-          filter: "passthrough"   # "voxel" overflows PCL with our 40 m range
           voxel_min_points: 0
           clear_after_reading: true
       inflation_layer:
@@ -196,7 +199,6 @@ global_costmap:
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
-          filter: "passthrough"   # "voxel" overflows PCL with our 40 m range
           voxel_min_points: 0
           clear_after_reading: true
         lidar_clearing:
@@ -214,7 +216,6 @@ global_costmap:
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
-          filter: "passthrough"   # "voxel" overflows PCL with our 40 m range
           voxel_min_points: 0
           clear_after_reading: true
       inflation_layer:
@@ -227,29 +228,25 @@ planner_server:
     expected_planner_frequency: 1.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
+      plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.3
       use_astar: false
       allow_unknown: true   # plan through unknown space (there is none with STVL, see above)
 
-behavior_server:
+recoveries_server:
   ros__parameters:
-    local_costmap_topic: local_costmap/costmap_raw
-    global_costmap_topic: global_costmap/costmap_raw
-    local_footprint_topic: local_costmap/published_footprint
-    global_footprint_topic: global_costmap/published_footprint
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
-    enable_stamped_cmd_vel: false
     # Only turning and waiting: backing up is risky for a walking robot.
-    behavior_plugins: ["spin", "wait"]
+    recovery_plugins: ["spin", "wait"]
     spin:
-      plugin: "nav2_behaviors::Spin"
+      plugin: "nav2_recoveries/Spin"
     wait:
-      plugin: "nav2_behaviors::Wait"
-    local_frame: odom
+      plugin: "nav2_recoveries/Wait"
     global_frame: odom
     robot_base_frame: base_link
-    transform_tolerance: 0.5
+    transform_timeout: 0.5
     simulate_ahead_time: 2.0
     max_rotational_vel: 0.5
     min_rotational_vel: 0.3
@@ -258,4 +255,4 @@ behavior_server:
 lifecycle_manager_navigation:
   ros__parameters:
     autostart: true
-    node_names: ["controller_server", "planner_server", "behavior_server", "bt_navigator"]
+    node_names: ["controller_server", "planner_server", "recoveries_server", "bt_navigator"]

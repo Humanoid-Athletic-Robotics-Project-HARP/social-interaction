@@ -2,8 +2,8 @@
      its left, at a stroll (12 m in 15 s, 0.8 m/s), and doesn't step aside.
      They start as soon as the robot starts walking and meet it about 2 m
      from its start; the robot has to move right to let them pass. Goal 5 m
-     ahead. How movers work: harp_sim/movers.py.
-     ros2 run harp_sim run_sim --lidar --world oncoming -->
+     ahead. How movers work: submission/harp/movers.py.
+     submission/sim.sh --world oncoming -->
 <mujoco>
   <custom>
     <numeric name="person_duration" data="15"/>

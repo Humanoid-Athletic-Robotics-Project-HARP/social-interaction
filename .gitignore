@@ -15,3 +15,8 @@ runs/
 
 # Workspace-specific agent memory, kept per machine
 context/workspace-specific-memory.md
+
+# Submission image build (submission/build.sh)
+submission/.build/
+submission/submission.tar
+submission/joint_profile.json

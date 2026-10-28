@@ -1,11 +1,13 @@
 <!-- Level 2: one box between the robot and the goal 4 m ahead.
-     ros2 run harp_sim run_sim --lidar --world one_box -->
+     submission/sim.sh --world one_box -->
 <mujoco>
   <default>
-    <geom type="box" rgba="0.8 0.5 0.2 1"/>
+    <default class="obstacle">
+      <geom type="box" rgba="0.8 0.5 0.2 1"/>
+    </default>
   </default>
   <worldbody>
-    <geom name="box" size="0.3 0.3 0.4" pos="2 0 0.4"/>
+    <geom class="obstacle" name="box" size="0.3 0.3 0.4" pos="2 0 0.4"/>
     <site name="goal" pos="4 0 0.01" size="0.15 0.01" type="cylinder" rgba="0.2 0.8 0.3 0.6"/>
   </worldbody>
 </mujoco>

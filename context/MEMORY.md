@@ -11,6 +11,8 @@
 - [move_distance](move-distance.md) — when changing move_distance, curves or leg odometry, or needing its accuracy
 - [GR00T WBC](gr00t-wbc.md) — when changing the walking controller or preparing it for the robot
 - [Controls](controls.md) — before changing a key or remote button, manual takeover, or planning how the operator drives the robot
+- [HARP safety harness and sim](him-sim2real.md) — before work on simulation-migration or anything touching him-sim2real-management
+- [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run
 - [Safety](safety.md) — before changing how the walker stops, adding a safety check, a real-robot session, or HARP's safety layer
 - [ROS 2 workspace](ros2-mac.md) — when building or changing ros2/, hitting pixi/macOS errors, or changing walker_node
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body

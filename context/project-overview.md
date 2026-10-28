@@ -3,7 +3,7 @@ name: project-overview
 description: Read when you need the big picture — the robot, the team, the decisions that shape the code, and the open safety-layer question
 metadata:
   type: project
-  updated: 2026-10-28T03:10:45Z
+  updated: 2026-10-28T04:26:42Z
   covers: [README.md]
 ---
 
@@ -19,6 +19,6 @@ Stanford HARP project on a **Unitree G1 EDU with 29 joints** (6 per leg, 3 waist
 - Everything is tested in our MuJoCo sim first ([[mujoco-sim]]) and recorded under `runs/` ([[run-logging]]). Nothing has run on the real robot yet (as of 2026-10-26).
 - How to detect and talk to people is undecided.
 
-**Open question before the first hardware run:** whether our commands must go through HARP's safety layer (HIMRobotics' `him-sim2real-management`, `/safety/precheck`) or may drive `rt/lowcmd` with an operator in charge ([[safety]]).
+**Safety harness and sim:** our code is moving onto HARP's `him-sim2real-management`, kept as an unmodified external dependency (branch `simulation-migration`, [[him-sim2real]], [[safety]]).
 
 Plans are exploratory; check official and open-source resources before committing to a design ([[unitree-resources]]).
