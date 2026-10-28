@@ -3,7 +3,7 @@ name: planned-moves
 description: Read when changing or debugging planned moves (harp/moves.py, G1_TASK_COMMAND), the curve law or leg odometry, or when you need their accuracy
 metadata:
   type: reference
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-10-28T09:02:01Z
   covers: [submission/harp/moves.py, submission/harp/smooth_control.py, submission/harp/leg_odometry.py]
 ---
 

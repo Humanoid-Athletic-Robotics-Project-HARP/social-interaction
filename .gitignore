@@ -10,7 +10,7 @@ __pycache__/
 # Secrets
 .env
 
-# Recorded runs (harp_eval run_recorder), kept per machine
+# Course runs (submission/course.py), kept per machine
 runs/
 
 # Workspace-specific agent memory, kept per machine

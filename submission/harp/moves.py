@@ -1,4 +1,4 @@
-"""Planned moves, as the old move_distance: walk straight set distances, turn in
+"""Planned moves: walk straight set distances, turn in
 place by set angles, or walk to a point in one smooth curve, one after another,
 by publishing /cmd_vel for harp_node from our leg odometry (/odom).
 entrypoint.sh starts it when G1_TASK_COMMAND holds moves, which reaches our

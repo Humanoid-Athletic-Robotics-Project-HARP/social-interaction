@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-10-28T09:01:40Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py]
 ---
 
@@ -20,7 +20,7 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - **Live lidar TF** from leg kinematics (`harp/state.py`): a fixed transform made the floor 2.5–3 m out look ±0.12 m high (torso tilt).
 - **STVL** (Foxy binary): marks in view that aren't seen again fade in about 2 s, out of view after 15 s. Nav2's VoxelLayer was rejected: its clearing rays slope down from the 1.2 m lidar, so a passing person left a permanent wall. STVL has no minimum range, but the arms are inside the footprint, which it clears. `track_unknown_space: false` on both costmaps: STVL never marks free, so with it the map stayed unknown and NavFn hugged obstacles.
 
-**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.5 m to its left). `crossing_shuttle` is unused. `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
+**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.5 m to its left). `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
 
 **Results with Graceful** (2026-10-28, one run each, `runs/*_graceful*`, all `within_limits`, 0 contacts, drift under 4 cm): open_floor 17.4 s; one_box 24.8 s, closest 0.60 m; slalom 52.5 s, 0.37 m, 0 recoveries; obstacle_course 48.0 s, 0.25 m, 0 recoveries; crossing 32.1 s, 0.62 m, 0 recoveries; oncoming 31.2 s, 0.17 m, 1 recovery. RPP's (`runs/*_rpp-ttc05`): 16.8, 20.5, 40.4, 43.2, 29.2, 25.1 s. The live viewer often makes HIM stop Nav2 runs on a MacBook Air (`host_stall`, `inconclusive`): numbers come from `--no-view` reruns when that happens.
 

@@ -3,7 +3,7 @@ name: unitree-resources
 description: Read when looking for G1 code to build on, or deciding the ROS 2 / JetPack version for the robot's Jetson (PC2)
 metadata:
   type: reference
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-10-28T09:01:40Z
   covers: [submission/Dockerfile]
 ---
 
@@ -17,6 +17,6 @@ metadata:
 - Lidar and Nav2: see [[lidar-nav2-research]].
 - Index: shaoxiang/awesome-unitree-robots.
 
-**ROS 2 on PC2 (Jetson Orin NX):** depends on its JetPack image. JetPack 5 → Ubuntu 20.04 → Foxy only; Unitree's G1 JetPack 6.2 image (`g1-nx-j6.2.img.bz2`) → 22.04 → Humble; Jazzy needs 24.04, so a container. Community G1 work uses Humble or Jazzy, mostly on a separate PC. Our robot is unchecked: run `ls /opt/ros`, `lsb_release -a`, `cat /etc/nv_tegra_release` on PC2. Its system Python (3.8 or 3.10) is older than our 3.12.
+**ROS 2 on PC2 (Jetson Orin NX):** depends on its JetPack image. JetPack 5 → Ubuntu 20.04 → Foxy only; Unitree's G1 JetPack 6.2 image (`g1-nx-j6.2.img.bz2`) → 22.04 → Humble; Jazzy needs 24.04, so a container. HIM's harness runs on PC2 with ROS 2 Foxy (Python 3.8), so our robot is presumably on JetPack 5; our image is Foxy too, so the robot's own ROS 2 doesn't matter to it. Check with `ls /opt/ros`, `lsb_release -a`, `cat /etc/nv_tegra_release` on PC2.
 
 **Reflashing PC2** erases it and may void the warranty: ask the team first, and use only Unitree's G1 image.

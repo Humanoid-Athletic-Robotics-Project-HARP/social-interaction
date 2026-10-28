@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before any work on the simulation-migration branch, or anything that touches HARP's safety harness/simulator (him-sim2real-management)
 metadata:
   type: project
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-10-28T09:01:54Z
   covers: []
 ---
 
@@ -31,8 +31,13 @@ metadata:
 - Parallel course runs (DDS domain pairs): HIM's Compose project runs one sim at a time.
 - The pixi environment, our STVL source copy and the MuJoCo window: the Docker image (Foxy's STVL binary) and HIM's viewer.
 
-**Next step without the robot** (the maintainer's call: last, after the cleanup): pass criteria for `crossing` and `oncoming`, then three runs of every course for spread, after fixing the live-viewer stops in [[submission-image]] (all six succeed once with Graceful, [[nav2-sim]]).
+**To do, without the robot** (the maintainer's call: after the cleanup, which is done):
+- [ ] Fix the live-viewer stops (`observation_timeout`, `checked_command_expired` during start-up balance; findings and the staggered-start attempt in [[submission-image]]), and `course.py --view` sometimes not closing HIM's viewer.
+- [ ] Pass criteria for `crossing` and `oncoming` (`submission/worlds/NAME.yaml`).
+- [ ] Three runs of every course for spread, compared with `course.py --compare` (all six succeed once with Graceful, [[nav2-sim]]).
+
+**To do, with the robot:** the first session (below), then real lidar through `lidar_relay`, then Nav2 on the robot.
 
 The first robot session's moves are rehearsed in the sim (2026-10-28, all `within_limits`): standing; `{"moves": [{"walk": 0.5}]}` ended 0.51 m (a `"to"` straight ahead stops inside its 8 cm tolerance, 0.43 m for 0.5 m, so walk straight lines); `{"to": [1, 1, 45]}` about 7 cm and 5° off. The session's steps are the README's "On the robot".
 
-**Needs the robot:** run the moves through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first) and check leg odometry with a tape; then real lidar through `lidar_relay` (built and tested in the image), then Nav2 on the robot.
+The session: HIM's walker example with `stand.yaml` first, then ours standing, then the moves above through HIM's launcher (preflight, dry run, real), checking leg odometry with a tape ([[safety]]).

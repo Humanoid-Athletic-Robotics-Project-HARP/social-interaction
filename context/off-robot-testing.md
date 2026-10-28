@@ -1,15 +1,15 @@
 ---
 name: off-robot-testing
-description: Read when considering a simulator other than ours
+description: Read when considering a simulator other than HIM's
 metadata:
   type: reference
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-10-28T09:01:40Z
   covers: []
 ---
 
 Web research, not tried by us.
 
-**The key split:** code that calls Unitree's `sport` service can't be simulated (that controller is closed, on PC1). Code that runs its own controller over `rt/lowcmd`, as ours does, carries over between sim and robot almost unchanged.
+**The key split:** code that calls Unitree's `sport` service can't be simulated (that controller is closed, on PC1). Code that runs its own controller over `rt/lowcmd`, as HIM's harness does for our image, carries over between sim and robot almost unchanged.
 
 **Other sims**
 - unitree_rl_lab: train in IsaacLab, C++ `g1_ctrl` for sim2sim against unitree_mujoco and sim2real. Linux + NVIDIA.
