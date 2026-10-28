@@ -3,7 +3,7 @@ name: safety
 description: Read before changing how the walker stops or what makes it stop, adding a safety check, planning a real-robot session, or when HARP's safety layer comes up
 metadata:
   type: reference
-  updated: 2026-10-28T04:39:57Z
+  updated: 2026-10-28T04:48:12Z
   covers: [ros2/src/harp_control/harp_control/gr00t/walk.py, ros2/src/harp_control/harp_control/remote.py]
 ---
 
@@ -11,7 +11,7 @@ On the real robot our code alone keeps the G1 up (Unitree's controller is off), 
 
 **What stops it** (the constants are in `walk.py`): B on the remote, alone or with anything else held (so `g1_ctrl`'s LT+B works too; read from `rt/lowstate`'s `wireless_remote` every 5 ms; the whole button map and its reasons: [[controls]]), Space or `o`, Ctrl-C, `rt/lowstate` late by over 0.1 s on the robot (0.5 s in the sim), pelvis tilt past 60° once the policy runs, non-finite joint/IMU state, policy observations/actions or motor targets/gains, or any exception. Before starting: Unitree's controller must be off (motion_switcher) and `mode_machine` must be 5. Every command is clipped to the joint limits, and the stand-up ramps over 3 s.
 
-**How it stops:** everything goes through `Walker.stop(reason)` (`quit`, `ctrl_c`, `remote_estop`, `state_lost`, `fall`, `error`; `run()` returns it, the first three exit 0, the mains only map it to an exit code). It logs a `walker` `stop` event (failures other than a fall also log `error`, for [[run-logging]]'s outcome), damps (kp 0) for 1 s at 200 Hz even through Ctrl-C, and with `real` keeps damping until `o` or Ctrl-C (not Space, so a stop pressed twice doesn't end it), so the joints are never left uncommanded. Failed log writes, event publishing, or closed terminal streams cannot bypass damping or the hold. Sim-tested mid-course with the old L2+B chord (same code path): press to `estop` in about 5 ms, outcome `stopped` (`2026-10-28_00-02-49Z_sim_one_box_estop-test`, pinned); the hold only as `Walker(real=True)` against the sim. The sim's remote: [[mujoco-sim]].
+**How it stops:** everything goes through `Walker.stop(reason)` (`quit`, `ctrl_c`, `remote_estop`, `state_lost`, `fall`, `error`; `run()` returns it, the first three exit 0, the mains only map it to an exit code). It logs a `walker` `stop` event (failures other than a fall also log `error`, for [[run-logging]]'s outcome), damps (kp 0) for 1 s at 200 Hz even through Ctrl-C, and with `real` keeps damping until `o` or Ctrl-C (not Space, so a stop pressed twice doesn't end it), so the joints are never left uncommanded. Failed log writes, event publishing, or closed terminal streams cannot bypass damping or the hold. Sim-tested B alone: simulated press to walker `estop` in 4.364 ms, outcome `stopped` (`2026-10-28_04-46-09Z_sim_one_box_review-final-lidar-B`, pinned, `ab33d11`). This is one simulator measurement; the real hold is tested offline and previously as `Walker(real=True)` against the sim. The sim's remote: [[mujoco-sim]].
 
 **Not yet built** (proposed 2026-10-27, in this order):
 - Checks that call `stop()`: a joint over a speed limit (set from recorded sim runs plus margin; GR00T uses 6 rad/s for arms); another program sending `rt/lowcmd`, both before starting and while running; motor temperature and `motorstate` error flags logged, not acted on, until their meaning is known.

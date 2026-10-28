@@ -3,7 +3,7 @@ name: waypoint-loop
 description: Read when extending route state or connecting waypoint sequencing to navigation
 metadata:
   type: reference
-  updated: 2026-10-28T04:43:14Z
+  updated: 2026-10-28T04:48:12Z
   covers: [ros2/src/harp_eval/harp_eval/waypoint_route.py, ros2/src/harp_eval/harp_eval/course.py, ros2/src/harp_eval/harp_eval/course_goal.py, ros2/src/harp_eval/launch/course.launch.py, ros2/src/harp_eval/config/rectangle.yaml, ros2/src/harp_eval/test/*.py]
 ---
 
@@ -21,4 +21,4 @@ After the normal build, run offline checks from `ros2/`:
 pixi run --as-is python -m unittest discover -s src/harp_eval/test -v
 ```
 
-**Recorded simulation:** `2026-10-28_00-25-51Z_sim_one_box_waypoint-loop-current` (pinned): 8/8 waypoint visits, 2/2 laps, 150.2 s, 25.06 m, zero contacts, closest clearance 0.51 m, end error 0.20 m. This is one simulated run; physical behavior remains untested.
+**Recorded simulation:** `2026-10-28_04-44-05Z_sim_open_floor_review-manual-resume` (pinned, `ab33d11`): two inline targets, 3 laps, 6/6 visits, 67.7 s, 4.60 m, zero contacts/recoveries, 0.26 m end error. L1 paused waypoint 1; R1+A resumed the same target after 8.2 s, then the route completed. Earlier obstacle-route evidence is pinned in `2026-10-28_00-49-07Z_sim_one_box_review-custom-route`: 6/6 visits over 3 laps, zero contacts. Physical behavior remains untested.
