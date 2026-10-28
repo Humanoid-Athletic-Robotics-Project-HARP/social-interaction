@@ -3,13 +3,13 @@ name: waypoint-loop
 description: Read when extending route state or connecting waypoint sequencing to navigation
 metadata:
   type: reference
-  updated: 2026-10-28T00:29:26Z
+  updated: 2026-10-28T00:39:44Z
   covers: [ros2/src/harp_eval/harp_eval/waypoint_route.py, ros2/src/harp_eval/harp_eval/course.py, ros2/src/harp_eval/harp_eval/course_goal.py, ros2/src/harp_eval/launch/course.launch.py, ros2/src/harp_eval/config/rectangle.yaml, ros2/src/harp_eval/test/*.py]
 ---
 
-`course WORLD --route NAME_OR_FILE` runs a finite waypoint route through the existing simulator, lidar relay, walker and Nav2 launch. Bundled routes are `harp_eval/config/*.yaml`; `rectangle` is a two-lap example for `one_box`. Custom file paths also work. The CLI validates and copies the route into `runs/<run>/route.yaml` before startup.
+`course WORLD --route NAME_OR_FILE` or repeated `--waypoint X Y [YAW_DEG]` runs a finite route through the existing simulator, lidar relay, walker and Nav2 launch. Bundled routes are `harp_eval/config/*.yaml`; `rectangle` is for `one_box`. `--laps N` overrides the YAML lap count; omitted laps default to one. The CLI validates and saves the effective input into `runs/<run>/route.yaml` before startup.
 
-Route YAML requires `frame: odom`, positive integer `laps`, and nonempty `waypoints` of `[x_m, y_m, yaw_deg]` (yaw optional, default zero). All targets reuse the same odom origin across laps. `--goal` and `--route` are mutually exclusive; `--timeout` bounds each waypoint, including server discovery/acceptance. `--repeat` starts a fresh simulation.
+Route YAML requires `frame: odom` and nonempty `waypoints` of `[x_m, y_m, yaw_deg]` (yaw optional, default zero). Laps and repeats must be positive integers. All targets reuse the same odom origin across laps. `--goal`, `--route`, and `--waypoint` are mutually exclusive; `--laps` needs a route. `--timeout` bounds each waypoint, including server discovery/acceptance. `--repeat` starts a fresh simulation. File criteria remain unchanged when overriding laps; the bundled route has no fixed total-time budget.
 
 `WaypointRoute.advance()` is called only after confirmed success. Goal rejection, failure, timeout, or Ctrl-C ends the course; cancellation acknowledgment and completion are bounded. Submission/cancellation use bounded asynchronous action calls because the Commander wrappers can block before a timeout check. This command ends the simulation session rather than providing a pause service. `/walker/stop` damps the controller.
 

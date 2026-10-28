@@ -3,7 +3,7 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-28T00:27:35Z
+  updated: 2026-10-28T00:39:44Z
   covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 

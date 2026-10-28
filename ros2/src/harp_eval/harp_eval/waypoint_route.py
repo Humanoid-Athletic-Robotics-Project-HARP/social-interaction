@@ -83,17 +83,8 @@ def _criteria(values):
     return checked
 
 
-def load_route(path):
-    """Read odom-frame YAML with laps, waypoint pairs/triples and optional criteria.
-
-    Waypoint values are meters and yaw degrees; omitted yaw defaults to zero.
-    The returned route stores normalized float triples and criteria or None.
-    """
-    with open(path, encoding="utf-8") as source:
-        try:
-            data = yaml.safe_load(source)
-        except yaml.YAMLError as exc:
-            raise ValueError(f"invalid route YAML: {exc}") from exc
+def route_from_data(data):
+    """Validate an odom-frame route; default to one lap and zero yaw."""
     if not isinstance(data, dict):
         raise ValueError("route must be a mapping")
     if data.get("frame") != "odom":
@@ -108,6 +99,16 @@ def load_route(path):
         numbers = [_finite_number(value, f"waypoint {index + 1} value {column + 1}")
                    for column, value in enumerate(point)]
         normalized.append(tuple(numbers if len(numbers) == 3 else [*numbers, 0.0]))
-    route = WaypointRoute(normalized, laps=data.get("laps"))
+    route = WaypointRoute(normalized, laps=data.get("laps", 1))
     route.criteria = _criteria(data.get("criteria"))
     return route
+
+
+def load_route(path):
+    """Read YAML route positions in meters, with optional laps and criteria."""
+    with open(path, encoding="utf-8") as source:
+        try:
+            data = yaml.safe_load(source)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"invalid route YAML: {exc}") from exc
+    return route_from_data(data)

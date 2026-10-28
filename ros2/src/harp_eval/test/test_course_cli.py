@@ -79,6 +79,67 @@ class CourseCliTests(unittest.TestCase):
             ["open_floor", "--route", str(path), "--goal", "1", "0"],
             "not allowed with argument")
 
+    def test_inline_waypoints_exclude_goal_and_route(self):
+        for other in (("--goal", "1", "0"), ("--route", str(self.write_route()))):
+            with self.subTest(other=other):
+                self.assert_preflight_rejected(
+                    ["open_floor", "--waypoint", "1", "0", *other],
+                    "not allowed with argument")
+
+    def test_inline_waypoints_and_laps_are_saved_as_effective_route(self):
+        result, call, _ = self.invoke([
+            "open_floor", "--waypoint", "1", "-1", "90",
+            "--waypoint", "0", "0", "--laps", "3"])
+        run = Path(call.kwargs["env"]["HARP_RUN_DIR"])
+        route = course.load_route(run / "route.yaml")
+        self.assertEqual(result, 0)
+        self.assertEqual(route.waypoints, ((1.0, -1.0, 90.0), (0.0, 0.0, 0.0)))
+        self.assertEqual(route.lap_limit, 3)
+        self.assertIsNone(route.criteria)
+        values = dict(argument.split(":=", 1) for argument in call.args[0][4:])
+        self.assertEqual(values["route"], str(run / "route.yaml"))
+        self.assertNotIn("goal", values)
+
+    def test_inline_waypoints_default_to_one_lap(self):
+        _, call, _ = self.invoke(["open_floor", "--waypoint", "1", "0"])
+        run = Path(call.kwargs["env"]["HARP_RUN_DIR"])
+        self.assertEqual(course.load_route(run / "route.yaml").lap_limit, 1)
+
+    def test_laps_override_saved_route_without_changing_source(self):
+        source = self.write_route("frame: odom\nlaps: 2\nwaypoints: [[1, 0], [0, 0]]\n"
+                                  "criteria: {must_succeed: true, max_contacts: 0}\n")
+        original = source.read_text()
+        _, call, _ = self.invoke(["open_floor", "--route", str(source), "--laps", "5"])
+        run = Path(call.kwargs["env"]["HARP_RUN_DIR"])
+        route = course.load_route(run / "route.yaml")
+        self.assertEqual(route.lap_limit, 5)
+        self.assertEqual(route.criteria, {"must_succeed": True, "max_contacts": 0})
+        self.assertEqual(source.read_text(), original)
+
+    def test_laps_without_route_are_rejected_before_launch(self):
+        for args in (["open_floor", "--laps", "3"],
+                     ["open_floor", "--goal", "1", "0", "--laps", "3"]):
+            with self.subTest(args=args):
+                self.assert_preflight_rejected(args, "--laps requires --route or --waypoint")
+
+    def test_invalid_laps_and_repeat_are_rejected_before_launch(self):
+        for option in ("--laps", "--repeat"):
+            for value in ("0", "-1", "1.5", "nan"):
+                with self.subTest(option=option, value=value):
+                    self.assert_preflight_rejected(
+                        ["open_floor", "--waypoint", "1", "0", option, value],
+                        "must be a positive integer")
+
+    def test_malformed_inline_waypoints_are_rejected_before_launch(self):
+        for point in (("1",), ("1", "2", "3", "4")):
+            with self.subTest(point=point):
+                self.assert_preflight_rejected(["open_floor", "--waypoint", *point],
+                                               "must contain X Y or X Y YAW_DEG")
+        for point in (("nan", "0"), ("0", "inf"), ("1", "2", "nan")):
+            with self.subTest(point=point):
+                self.assert_preflight_rejected(["open_floor", "--waypoint", *point],
+                                               "must be a finite number")
+
     def test_nonfinite_or_nonpositive_timeout_is_rejected_before_launch(self):
         for value in ("nan", "inf", "-inf", "0", "-1"):
             with self.subTest(timeout=value):

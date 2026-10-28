@@ -130,6 +130,10 @@ class LoadRouteTests(unittest.TestCase):
         self.assertEqual(route.current(), (2.0, 0.0, 0.0))
         self.assertIsNone(route.criteria)
 
+    def test_omitted_laps_default_to_one(self):
+        route = self.load_text("frame: odom\nwaypoints: [[1, 0], [0, 0]]\n")
+        self.assertEqual(route.lap_limit, 1)
+
     def test_valid_criteria_are_preserved(self):
         criteria = {"must_succeed": True, "max_time_s": 120, "min_clearance_m": 0.2,
                     "max_contacts": 0, "max_recoveries": 2, "max_end_error_m": 0.4}

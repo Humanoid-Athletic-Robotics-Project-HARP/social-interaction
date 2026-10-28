@@ -57,7 +57,7 @@ both the sim and the real robot, and we try everything in the sim first.
   `walker_node` through every course (`run_sim --world`), including the
   obstacle course with a table, pillars, a thin pole and an archway, without
   touching anything. The robot's own body is filtered out of the lidar.
-- ✅ Sim: repeat a waypoint route with Nav2 (`course --route rectangle`).
+- ✅ Sim: repeat configurable waypoint routes with Nav2 (`course --route`, `--waypoint`, `--laps`).
 - 🟡 Sim: more on obstacles and path following: closer margins, a
   collision-monitor stop, moving obstacles and people. Started: the
   costmaps forget where a person was once they've moved on (STVL), tested
@@ -341,19 +341,26 @@ falls. Each repeat starts fresh, and Ctrl-C stops it.
 To repeat a waypoint route in the same simulation:
 
 ```bash
-ros2 run harp_eval course one_box --route rectangle --tag waypoint-loop
+ros2 run harp_eval course one_box --route rectangle --laps 3 --tag waypoint-loop
 ```
 
 The bundled [rectangle route](ros2/src/harp_eval/config/rectangle.yaml) visits
-four points for two laps. Copy it to make your own and pass its path with
-`--route FILE.yaml`. Each point is `[x, y, heading]`: meters and degrees in
-`odom`, measured from the same starting origin for every lap. Heading is
-optional and defaults to zero. The robot advances after each successful
+four points. `--laps N` sets the number of laps, overriding a route file's
+`laps` value (one by default). Copy it and use `--route FILE.yaml`, or supply
+each point directly:
+
+```bash
+ros2 run harp_eval course open_floor --waypoint 2 0 --waypoint 2 2 90 --waypoint 0 0 --laps 3
+```
+
+Each point is `[x, y, heading]`: meters and degrees in `odom`, measured from
+the same starting origin for every lap. Heading is optional and defaults
+to zero. The robot advances after each successful
 arrival and ends the run on rejection, failure, or timeout (`--timeout` is
 per waypoint). Nav2 handles obstacles between points. `laps` repeats the
 route; `--repeat` restarts the entire simulation.
 
-The run saves `route.yaml` and each waypoint's result. Route pass/fail uses
+The run saves the effective `route.yaml` and each waypoint's result. Route pass/fail uses
 the YAML's optional `criteria`; single-goal course limits apply to single
 goals. A route without criteria still reports its navigation outcome.
 

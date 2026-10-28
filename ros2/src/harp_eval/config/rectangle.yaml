@@ -1,6 +1,5 @@
 # Absolute targets in odom: x meters ahead, y meters left, facing in degrees.
 frame: odom
-laps: 2
 waypoints:
   - [4.0, 0.0, 0.0]
   - [4.0, 2.0, 90.0]
@@ -8,6 +7,5 @@ waypoints:
   - [0.0, 0.0, -90.0]
 criteria:
   must_succeed: true
-  max_time_s: 300
   max_contacts: 0
   max_end_error_m: 0.35

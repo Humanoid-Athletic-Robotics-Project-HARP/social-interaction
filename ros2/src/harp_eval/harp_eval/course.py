@@ -33,10 +33,12 @@ import tempfile
 import time
 from pathlib import Path
 
+import yaml
+
 from harp_control import runlog
 from harp_eval import run_summary
 from harp_eval.run_recorder import CONDITIONS, run_name
-from harp_eval.waypoint_route import load_route
+from harp_eval.waypoint_route import load_route, route_from_data
 
 # Each program's lines in launch.log, by the launch's process name, go to these files.
 LOG_FILES = {"run_sim": "sim.log", "walker_node": "walker.log", "lidar_relay": "lidar_relay.log",
@@ -59,6 +61,16 @@ LOCKS = Path(tempfile.gettempdir()) / "harp-dds-domains"
 # and asks for the band's release only when no other run is still starting (for at
 # most MAX_START s) and its own sim has stopped lagging (see course_goal.py).
 MAX_START = 120.0
+
+
+def positive_int(value):
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
 
 
 def route_file(value):
@@ -171,7 +183,7 @@ def main():
     parser.add_argument("world", help="a course in harp_sim/worlds: open_floor, one_box, slalom, obstacle_course")
     parser.add_argument("--tag", default="", help="what this run tests, used to group runs when comparing")
     parser.add_argument("--note", default="")
-    parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--repeat", type=positive_int, default=1)
     parser.add_argument("--extras", default="", help="extra streams from logging.yaml, e.g. nav,lidar")
     parser.add_argument("--extras-reason", default="")
     destination = parser.add_mutually_exclusive_group()
@@ -179,6 +191,10 @@ def main():
                              help="X Y [YAW_DEG] in odom, instead of the course's goal")
     destination.add_argument("--route", type=route_file, metavar="FILE_OR_NAME",
                              help="waypoint YAML file or bundled route name, e.g. rectangle")
+    destination.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
+                             help="X Y [YAW_DEG] in odom; repeat this argument for each point")
+    parser.add_argument("--laps", type=positive_int,
+                        help="number of route laps; overrides YAML, defaults to 1 for inline points")
     parser.add_argument("--timeout", type=float, default=240.0, help="s to wait for Nav2's result")
     parser.add_argument("--no-rviz", action="store_true")
     parser.add_argument("--params", default="", metavar="FILE",
@@ -203,6 +219,17 @@ def main():
         parser.error("--goal values must be finite")
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be positive and finite")
+    if args.laps is not None and not (args.route or args.waypoint):
+        parser.error("--laps requires --route or --waypoint")
+    route = None
+    if args.route or args.waypoint:
+        try:
+            route = (load_route(args.route) if args.route else route_from_data(
+                {"frame": "odom", "waypoints": args.waypoint, "laps": args.laps or 1}))
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(str(exc))
+        if args.laps is not None:
+            route.lap_limit = args.laps
 
     command = " ".join(["ros2 run harp_eval course", *map(shlex.quote, sys.argv[1:])])
     runs = runlog.runs_dir()
@@ -213,8 +240,16 @@ def main():
             when += datetime.timedelta(seconds=1)   # another course started this second
         run = runs / run_name("sim", args.world, args.tag, when)
         (run / "ros_logs").mkdir(parents=True)
-        if args.route:
-            shutil.copyfile(args.route, run / "route.yaml")
+        if route:
+            if args.route and args.laps is None:
+                shutil.copyfile(args.route, run / "route.yaml")
+            else:
+                snapshot = {"frame": "odom", "laps": route.lap_limit,
+                            "waypoints": [list(point) for point in route.waypoints]}
+                if route.criteria is not None:
+                    snapshot["criteria"] = route.criteria
+                (run / "route.yaml").write_text(yaml.safe_dump(snapshot, sort_keys=False),
+                                               encoding="utf-8")
         lock, sim_domain, ros_domain = claim_domains()
         print(f"\n=== Run {i + 1}/{args.repeat}: {run}\n    DDS domains: sim {sim_domain}, "
               f"ROS 2 {ros_domain}", flush=True)
@@ -225,7 +260,7 @@ def main():
                   "extras": args.extras, "extras_reason": args.extras_reason, "command": command,
                   "timeout": args.timeout, "rviz": "false" if args.no_rviz else "true",
                   "goal": " ".join(str(v) for v in args.goal or []),
-                  "route": str(run / "route.yaml") if args.route else "",
+                  "route": str(run / "route.yaml") if route else "",
                   "replay": "true" if args.replay else "", "replay_reason": args.replay_reason,
                   "replay_dir": args.replay_dir, "lidar_fields": args.lidar_fields,
                   "lidar_rate": args.lidar_rate or "",
