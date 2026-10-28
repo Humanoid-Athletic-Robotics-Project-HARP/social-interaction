@@ -7,7 +7,7 @@ describes:
   metadata:
     type: reference
     updated: 2026-10-26T21:30:00Z        # UTC, written by this script, never by hand
-    covers: [ros2/src/harp_ros/config/nav2_params.yaml, ros2/src/harp_sim/worlds/*.xml]
+    covers: [submission/nav2/nav2_params.yaml, submission/worlds/*.xml]
 
 A memory is flagged when something it covers changed after its `updated`
 time: in a commit that didn't also change the memory, or uncommitted while

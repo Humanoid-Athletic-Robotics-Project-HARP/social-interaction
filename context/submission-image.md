@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T08:54:29Z
+  updated: 2026-10-28T08:59:18Z
   covers: [submission/**]
 ---
 
@@ -20,7 +20,7 @@ metadata:
 
 **Course tests:** `python3 submission/course.py NAME [--tag T --repeat N --view]` runs `sim.sh --world` into `runs/` and scores from HIM's `trace.npz` (truth) and `policy.log` (our events and "odom" lines): outcome, pass, time, path, end error, closest, contacts (movers included), recoveries, drift. Container output is only in `policy.log`; nothing else leaves the container. After scoring it deletes HIM's viewer output (`view/`, `live.jsonl`, tens of MB a watched run; `./desktop_sim.sh replay RUN/trace.npz` rebuilds it); `--prune` does the same for every run folder with a `run.json`. `run.json` also records the git commit and whether the tree was dirty (the diff in `git.diff`); `--compare [WORLD]` lists runs by world and tag. A run goes on for the world's `max_time_s` plus 30 s whatever happens, so after the goal GR00T stands, its heading creeping about 0.1°/s.
 
-**Planned moves** (`harp/moves.py`, the old `move_distance`): `G1_TASK_COMMAND='{"moves": [{"walk": M}, {"turn": DEG}, {"to": [X, Y, HEADING]}]}'` or just `{"to": [...]}` (also `speed`, `turn_speed`) reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. Moves run 2 s apart, each from where the last ended. In the sim (one run, `within_limits`): walk 1 m ended 1.02 m, turn 90° ended 90.2°, curve to (1, 1, 45°) ended about 7 cm and 5° off; leg odometry within 1 cm of the truth each time.
+**Planned moves** (`harp/moves.py`): `G1_TASK_COMMAND` with `"moves"` or `"to"` reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity ([[planned-moves]]).
 
 **Viewing:** `submission/sim.sh` opens HIM's browser viewer by default (press Start; `--no-view` to skip, which `course.py` uses). On a MacBook Air the viewer's load can make HIM stop a run (`observation_timeout` with `host_stall`, or `checked_command_expired`) that passes without it: rerun with `--no-view` before blaming our code, then watch it with HIM's `./desktop_sim.sh replay RUN/trace.npz`. HIM's first viewer use downloads Three.js; on a Python.org Python that needs `SSL_CERT_FILE` from `certifi`. **Open, 2026-10-28:** with the live viewer, a course run was often stopped 2.6–26 s in by `observation_timeout` or `checked_command_expired` without `host_stall` (our node answering states over 0.2 s old; 4 of 7 live `one_box` runs), mostly during HIM's start-up balance; no `--no-view` run has hit it. `entrypoint.sh` now starts the lidar, Nav2 and the course goal 5 s after our node and at `nice` 10: one live run passed since, too few to call it fixed. This MacBook Air (16 GB, 8 GB to Docker) had about 75 MB free at the time. Once, `course.py --view` didn't close HIM's viewer after the report, so `--repeat` hung.
 

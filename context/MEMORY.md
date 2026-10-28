@@ -2,19 +2,15 @@
 
 - [README and memory guidelines](readme-and-memory-guidelines.md) — read before editing README.md or anything in context/
 - [Team context](team-context.md) — before OS-specific commands or assuming who you're talking to
-- [Project overview](project-overview.md) — the big picture: robot, team, shaping decisions, open safety-layer question
+- [Project overview](project-overview.md) — the big picture: robot, team, the decisions that shape the code
 - [Minimal setup](feedback-minimal-setup.md) — before adding nodes, packages, messages or tooling
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
-- [Run logging and testing](run-logging.md) — before running, recording or comparing any test
-- [MuJoCo sim](mujoco-sim.md) — before running the sim (always with windows) or changing run_sim, its lidar or courses
-- [Nav2 in the sim](nav2-sim.md) — before tuning Nav2, changing a course, or running Nav2 by hand
-- [move_distance](move-distance.md) — when changing move_distance, curves or leg odometry, or needing its accuracy
-- [GR00T WBC](gr00t-wbc.md) — when changing the walking controller or preparing it for the robot
-- [Controls](controls.md) — before changing a key or remote button, manual takeover, or planning how the operator drives the robot
+- [Nav2](nav2-sim.md) — before tuning Nav2 or the Graceful port, changing a course, or comparing course results
+- [GR00T WBC](gr00t-wbc.md) — when the walking policy comes up: HIM's GR00T walker, its contract and behavior
+- [Planned moves](planned-moves.md) — when changing walks, turns, curves or leg odometry, or needing their accuracy
 - [HARP safety harness and sim](him-sim2real.md) — before work on simulation-migration or anything touching him-sim2real-management
 - [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run
-- [Safety](safety.md) — before changing how the walker stops, adding a safety check, a real-robot session, or HARP's safety layer
-- [ROS 2 workspace](ros2-mac.md) — when building or changing ros2/, hitting pixi/macOS errors, or changing walker_node
+- [Safety](safety.md) — before a real-robot session, or changing what stops the robot (HIM's harness and its buttons)
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body
 - [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, changing lidar_relay, adding mapping, or borrowing from other G1 stacks
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack

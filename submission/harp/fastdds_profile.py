@@ -33,7 +33,7 @@ def main():
       </interfaceWhiteList>
     </transport_descriptor>
   </transport_descriptors>
-  <participant profile_name="harp_sim_udp" is_default_profile="true">
+  <participant profile_name="harp_udp" is_default_profile="true">
     <rtps>
       <userTransports>
         <transport_id>udp_localhost</transport_id>

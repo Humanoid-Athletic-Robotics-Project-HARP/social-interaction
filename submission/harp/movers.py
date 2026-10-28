@@ -51,7 +51,7 @@ class Movers:
                 duration = numeric(model, name + "_duration")
             except KeyError:
                 raise SystemExit(f"Mover {name} needs a site {name}_end and a numeric "
-                                 f"{name}_duration (see harp_sim/movers.py)")
+                                 f"{name}_duration (see submission/harp/movers.py)")
             self.names.append(name)
             self.mocap.append(model.body_mocapid[b])
             self.start.append(model.body_pos[b].copy())

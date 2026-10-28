@@ -3,7 +3,7 @@ name: g1-official-docs
 description: Read when you need a Unitree G1 developer doc page, or the robot's network address, login and sensors
 metadata:
   type: reference
-  updated: 2026-10-26T22:40:10Z
+  updated: 2026-10-28T08:59:18Z
   covers: []
 ---
 

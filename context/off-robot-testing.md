@@ -3,7 +3,7 @@ name: off-robot-testing
 description: Read when considering a simulator other than ours
 metadata:
   type: reference
-  updated: 2026-10-28T00:11:43Z
+  updated: 2026-10-28T08:59:18Z
   covers: []
 ---
 
