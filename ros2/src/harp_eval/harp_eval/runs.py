@@ -197,6 +197,13 @@ def cmd_set(args):
 def cmd_summarize(args):
     runs = run_summary.run_dirs(runlog.runs_dir()) if args.all else [find_run(r) for r in args.runs]
     for run in runs:
+        meta = run_summary.read_meta(run)
+        if "ended" in meta and meta["ended"] is None:
+            message = f"Unfinished run {run.name}: stop its recorder before resummarizing."
+            if not args.all:
+                raise SystemExit(message)
+            print(f"Skipping {message}")
+            continue
         print(run_summary.one_screen(run_summary.summarize(run)))
 
 

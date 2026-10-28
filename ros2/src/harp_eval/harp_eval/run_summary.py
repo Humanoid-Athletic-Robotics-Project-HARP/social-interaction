@@ -6,9 +6,12 @@ is a small function of the run folder, so a new one is added here and
 """
 
 import csv
+import io
 import json
+import math
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -35,25 +38,66 @@ def read_meta(run):
 
 
 def write_meta(run, meta):
-    (Path(run) / "run.yaml").write_text(yaml.safe_dump(meta, sort_keys=False))
+    write_text_atomic(Path(run) / "run.yaml", yaml.safe_dump(meta, sort_keys=False))
+
+
+def write_text_atomic(path, text):
+    """Publish a complete document; readers retain the previous version until replacement."""
+    path = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent,
+                                         prefix=f".{path.name}.", delete=False) as file:
+            temporary = Path(file.name)
+            file.write(text)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def normalize_event(record, received, raw=None):
+    """Keep malformed inputs as unparsed data, outside the typed scoring events."""
+    if isinstance(record, dict):
+        stamp = record.get("t", received)
+        try:
+            t = float(stamp)
+        except (TypeError, ValueError, OverflowError):
+            t = float("nan")
+        source, name = record.get("source", "unknown"), record.get("event", "unknown")
+        details = record.get("details", {})
+        if not isinstance(stamp, bool) and math.isfinite(t) and isinstance(source, str) \
+                and isinstance(name, str) and isinstance(details, dict):
+            return {"t": t, "source": source, "event": name, "details": details}
+    return {"t": received, "source": "unknown", "event": "unparsed",
+            "details": {"data": record if raw is None else raw}}
 
 
 def merge_events(run):
     """Fold events-<program>.csv (from programs without ROS) into events.csv, in time order."""
     run = Path(run)
     rows = []
-    for path in [run / "events.csv", *sorted(run.glob("events-*.csv"))]:
+    parts = sorted(run.glob("events-*.csv"))
+    for path in [run / "events.csv", *parts]:
         if path.exists():
+            received = path.stat().st_mtime
             with open(path, newline="") as f:
-                rows += list(csv.DictReader(f))
-    rows.sort(key=lambda r: float(r["t"]))
-    with open(run / "events.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=runlog.EVENT_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-    for path in run.glob("events-*.csv"):
+                for row in csv.DictReader(f):
+                    original = dict(row)
+                    try:
+                        row["details"] = json.loads(row.get("details") or "{}")
+                    except ValueError:
+                        pass  # normalize_event preserves the original row as unparsed data.
+                    rows.append(normalize_event(row, received, raw=original))
+    rows.sort(key=lambda r: r["t"])
+    text = io.StringIO(newline="")
+    writer = csv.DictWriter(text, fieldnames=runlog.EVENT_FIELDS)
+    writer.writeheader()
+    writer.writerows({**r, "details": json.dumps(r["details"])} for r in rows)
+    write_text_atomic(run / "events.csv", text.getvalue())
+    for path in parts:
         path.unlink()
-    return [{**r, "t": float(r["t"]), "details": json.loads(r["details"] or "{}")} for r in rows]
+    return rows
 
 
 def first(events, source, name):
@@ -446,7 +490,7 @@ def summarize(run):
     s["check"] = check(s)
     s["passed"] = s["check"]["passed"] if s["check"] else None
 
-    (run / "summary.json").write_text(json.dumps(s, indent=2))
+    write_text_atomic(run / "summary.json", json.dumps(s, indent=2))
     meta["result"] = {k: s.get(k) for k in ("outcome", "reason", "passed", "duration_s", "path_m",
                                             "end_error_m", "closest_m", "contacts", "recoveries")}
     write_meta(run, meta)

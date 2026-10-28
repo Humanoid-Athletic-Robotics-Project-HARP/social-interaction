@@ -81,6 +81,12 @@ def replay_dir_for(run_dir, name, override=""):
     return Path(base) / name / "replay" if base else Path(run_dir) / "replay"
 
 
+def mark_active(runs, run, kind):
+    """Only live sessions receive no-ROS walk/move_distance events through ACTIVE."""
+    if kind != "replay":
+        (Path(runs) / runlog.ACTIVE).write_text(f"{Path(run).name} {os.getpid()}\n")
+
+
 def git_info(run_dir):
     """Commit, branch and uncommitted changes of the repo this code runs from."""
     repo = Path(__file__).resolve().parents[4]
@@ -239,7 +245,7 @@ class RunRecorder(Node):
         if not p["run_dir"]:
             # For programs without ROS started by hand. course gives its programs the run
             # folder (HARP_RUN_DIR) instead, so runs at the same time don't share this.
-            (runs / runlog.ACTIVE).write_text(f"{self.dir.name} {os.getpid()}\n")
+            mark_active(runs, self.dir, p["kind"])
         self.started = time.time()
         shutil.copy(config_path, self.dir / "logging.yaml")
         # The Nav2 parameters this run used: ours, or another file (replay.launch.py).
@@ -310,7 +316,7 @@ class RunRecorder(Node):
         self.get_logger().info(f"Recording run {self.dir}")
 
     def write_meta(self):
-        (self.dir / "run.yaml").write_text(yaml.safe_dump(self.meta, sort_keys=False))
+        run_summary.write_meta(self.dir, self.meta)
 
     def keep(self, topic, rate):
         """Thin a stream to rate (Hz): True if this message should be kept."""
@@ -331,12 +337,10 @@ class RunRecorder(Node):
         try:
             record = json.loads(msg.data)
         except ValueError:
-            record = {"event": "unparsed", "details": {"data": msg.data}}
-        if not isinstance(record, dict):
-            record = {"event": "unparsed", "details": {"data": msg.data}}
+            record = None
+        record = run_summary.normalize_event(record, time.time(), raw=msg.data)
         # Flushed at once, so events.csv can be watched while the run goes on.
-        self.events.write([record.get("t", time.time()), record.get("source", "unknown"),
-                           record.get("event", "unknown"), json.dumps(record.get("details", {}))],
+        self.events.write([record["t"], record["source"], record["event"], json.dumps(record["details"])],
                           flush=True)
 
     def on_sim_info(self, msg):
