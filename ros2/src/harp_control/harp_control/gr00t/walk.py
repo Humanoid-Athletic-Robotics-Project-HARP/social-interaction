@@ -20,6 +20,11 @@ Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
 
 Keys, typed in this terminal: ] start policy, w/s forward/back, a/d left/right, q/e turn left/right,
 z zero velocity, 1/2 raise/lower, o stop (damp) and quit.
+
+Every way of stopping goes through Walker.stop: o, Ctrl-C, L2+B on the robot's
+remote (the e-stop), a lost rt/lowstate, a fall, or an error. It damps every
+joint; on the real robot it then keeps damping until o or Ctrl-C, so the
+joints never go uncommanded while someone secures the robot.
 """
 
 import argparse
@@ -40,7 +45,7 @@ from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
 from unitree_sdk2py.utils.crc import CRC
 
-from harp_control import runlog
+from harp_control import remote, runlog
 
 POLICY_DIR = Path(__file__).resolve().parent / "policy"
 NUM_MOTORS = 29
@@ -97,6 +102,16 @@ STATE_TIMEOUT_REAL = 0.1  # s without lowstate before damping
 STATE_TIMEOUT_SIM = 0.5   # the sim's physics pauses when it stalls (macOS throttles its window), so a gap is harmless
 FALL_TILT = math.radians(60.0)  # damp if the pelvis tilts more than this
 STOP_TIME = 1.0           # s of damping commands sent when stopping
+# Stops that aren't failures: the program exits 0 after these.
+CLEAN_STOPS = ("quit", "ctrl_c", "remote_estop")
+
+
+class Stop(Exception):
+    """Raised in the control loop to stop; run() hands the reason to Walker.stop."""
+
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
 
 
 def gravity_in_body(quat):
@@ -153,6 +168,7 @@ class Walker:
         self.standing = False     # stand-up ramp finished; the policy may start
         self.policy_on = False
         self.quit = False
+        self.read_key = None
         self.on_policy_output = None   # (obs, action) after each policy step, for logging
         # Printed once the policy is on; move_distance.py replaces it.
         self.next_hint = ("Drive with w/s (forward/back), a/d (sideways), q/e (turn), "
@@ -187,17 +203,50 @@ class Walker:
         self.low_cmd.crc = self.crc.Crc(self.low_cmd)
         self.cmd_pub.Write(self.low_cmd)
 
+    def send_damping(self):
+        self.send(np.zeros(NUM_MOTORS), np.zeros(NUM_MOTORS), np.full(NUM_MOTORS, DAMPING_KD))
+
     def damp(self):
-        """Joints go soft (kp = 0) and the robot sinks; the standard safe state."""
+        """Joints go soft (kp = 0) and the robot sinks; the standard safe state.
+        Runs its full STOP_TIME even through Ctrl-C."""
         if self.state is None:
             return
-        end = time.monotonic() + STOP_TIME
+        next_tick = time.monotonic()
+        end = next_tick + STOP_TIME
         while time.monotonic() < end:
-            self.send(np.zeros(NUM_MOTORS), np.zeros(NUM_MOTORS),
-                      np.full(NUM_MOTORS, DAMPING_KD))
-            time.sleep(PUBLISH_DT)
+            try:
+                self.send_damping()
+                next_tick += PUBLISH_DT
+                time.sleep(max(0.0, next_tick - time.monotonic()))
+            except KeyboardInterrupt:
+                pass
         runlog.event("walker", "damped")
         print("Stopped: all joints damped, so the robot sinks.")
+
+    def stop(self, reason, message):
+        """The one way to stop: say why, damp every joint, and on the real robot
+        keep damping until o or Ctrl-C."""
+        print(message, file=sys.stderr if reason not in CLEAN_STOPS else sys.stdout)
+        self.policy_on = False
+        runlog.event("walker", "stop", reason=reason)
+        self.damp()
+        if self.real and self.state is not None:
+            self.hold()
+
+    def hold(self):
+        """Keep sending damping commands, so the joints stay soft and nothing
+        else is left commanding them, until o or Ctrl-C."""
+        print("Still damping. Press o or Ctrl-C to quit once the robot is secured.")
+        next_tick = time.monotonic()
+        try:
+            while True:
+                self.send_damping()
+                if self.read_key is not None and self.read_key() == "o":
+                    break
+                next_tick += PUBLISH_DT
+                time.sleep(max(0.0, next_tick - time.monotonic()))
+        except KeyboardInterrupt:
+            pass
 
     def handle_key(self, key):
         steps = {"w": (0, CMD_STEP), "s": (0, -CMD_STEP), "a": (1, CMD_STEP),
@@ -248,7 +297,28 @@ class Walker:
 
         on_policy_step(q, quat), if given, is called before each policy step
         (50 Hz, once the policy is on) and may change self.cmd or set self.quit.
+        However it ends, it ends in stop(), and returns why: "quit" (o), "ctrl_c",
+        "remote_estop", "state_lost", "fall" or "error" (CLEAN_STOPS aren't failures).
         """
+        self.read_key = read_key
+        try:
+            self.loop(read_key, on_policy_step)
+        except Stop as e:
+            if e.reason not in CLEAN_STOPS and e.reason != "fall":   # a fall has its own outcome
+                runlog.event("walker", "error", message=str(e))
+            self.stop(e.reason, str(e))
+            return e.reason
+        except KeyboardInterrupt:
+            self.stop("ctrl_c", "Interrupted (Ctrl-C).")
+            return "ctrl_c"
+        except Exception as e:
+            runlog.event("walker", "error", message=str(e))
+            self.stop("error", f"Error: {e}")
+            return "error"
+        self.stop("quit", "Stopping (o).")
+        return "quit"
+
+    def loop(self, read_key, on_policy_step):
         wait_until = time.monotonic() + 5.0
         while self.state is None:
             if time.monotonic() > wait_until:
@@ -269,9 +339,11 @@ class Walker:
             now = time.monotonic()
             if now - self.state_time > self.state_timeout:
                 runlog.event("walker", "state_lost", ms=round((now - self.state_time) * 1000))
-                raise RuntimeError(
-                    f"Robot state (rt/lowstate) stopped for {(now - self.state_time) * 1000:.0f} ms. "
-                    "Did the sim or the network stop?")
+                raise Stop("state_lost", f"Robot state (rt/lowstate) stopped for "
+                           f"{(now - self.state_time) * 1000:.0f} ms. Did the sim or the network stop?")
+            if remote.ESTOP <= remote.pressed(self.state.wireless_remote):
+                runlog.event("walker", "estop", by="remote")
+                raise Stop("remote_estop", "E-stop: L2+B on the remote.")
             key = read_key()
             if key:
                 self.handle_key(key)
@@ -282,8 +354,8 @@ class Walker:
             if self.policy_on:
                 if gravity_in_body(quat)[2] > -math.cos(FALL_TILT):
                     runlog.event("walker", "fall")
-                    raise RuntimeError(
-                        f"Fall detected: the pelvis tilted more than {math.degrees(FALL_TILT):.0f} degrees.")
+                    raise Stop("fall", f"Fall detected: the pelvis tilted more than "
+                               f"{math.degrees(FALL_TILT):.0f} degrees.")
                 if tick % round(CONTROL_DT / PUBLISH_DT) == 0:
                     if on_policy_step is not None:
                         on_policy_step(q, quat)
@@ -359,17 +431,9 @@ def main():
     if args.real:
         check_unitree_controller_off()
     walker = Walker(real=args.real)
-    try:
-        with TerminalKeys() as keys:
-            walker.run(keys.read)
-    except KeyboardInterrupt:
-        print("Interrupted (Ctrl-C).")
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        walker.damp()
-        return 1
-    walker.damp()
-    return 0
+    with TerminalKeys() as keys:
+        reason = walker.run(keys.read)
+    return 0 if reason in CLEAN_STOPS else 1
 
 
 if __name__ == "__main__":

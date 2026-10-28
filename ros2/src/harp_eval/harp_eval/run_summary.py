@@ -66,6 +66,9 @@ def outcome(events):
     fall = first(events, "walker", "fall")
     if fall and (goal is None or fall["t"] < goal["t"]):
         return "fell", "the walker detected a fall"
+    estop = first(events, "walker", "estop")
+    if estop and (goal is None or estop["t"] < goal["t"]):
+        return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, L2+B)"
     if goal:
         status = goal["details"].get("status", "")
         return {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out",
@@ -83,7 +86,8 @@ def window(events):
     start = (first(events, "goal", "goal_sent") or first(events, "move_distance", "move_start")
              or first(events, "walker", "policy_on"))
     end = (first(events, "goal", "goal_result") or first(events, "move_distance", "all_moves_done")
-           or first(events, "walker", "fall") or first(events, "move_distance", "error"))
+           or first(events, "walker", "fall") or first(events, "move_distance", "error")
+           or first(events, "walker", "stop"))
     return (start["t"] if start else None), (end["t"] if end else None)
 
 
@@ -367,7 +371,7 @@ def summarize(run):
     if truth is not None and len(truth["t"]) > 1 and t0:
         end = (t1 or truth["t"][-1]) + SETTLE
         # Not past the walker damping or falling: then the robot sinks to the floor.
-        for name in ("damped", "fall"):
+        for name in ("stop", "damped", "fall"):
             e = first(events, "walker", name)
             if e and e["t"] > t0:
                 end = min(end, e["t"])

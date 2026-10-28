@@ -3,7 +3,7 @@ name: move-distance
 description: Read when changing or debugging move_distance, curves (--to, smooth_control.py) or leg odometry, or when you need its accuracy in the sim
 metadata:
   type: reference
-  updated: 2026-10-26T22:40:10Z
+  updated: 2026-10-28T00:00:43Z
   covers: [ros2/src/harp_control/harp_control/move_distance.py, ros2/src/harp_control/harp_control/smooth_control.py, ros2/src/harp_control/harp_control/leg_odometry.py]
 ---
 

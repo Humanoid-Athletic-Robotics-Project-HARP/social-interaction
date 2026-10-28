@@ -1,9 +1,9 @@
 ---
 name: off-robot-testing
-description: Read when considering a simulator other than ours, or planning real-robot practice (gantry, damping, first motions)
+description: Read when considering a simulator other than ours
 metadata:
   type: reference
-  updated: 2026-10-26T22:40:10Z
+  updated: 2026-10-28T00:11:43Z
   covers: []
 ---
 
@@ -18,4 +18,4 @@ Web research, not tried by us.
 - unitree_rl_gym `deploy/deploy_mujoco`: its own 12-joint leg policy in MuJoCo, no DDS.
 - No official G1 Gazebo walking setup.
 
-**Real-robot practice:** start hanging from a gantry (rope through the shoulder buckles, feet clear). L1+A is damping, the safe state; the robot sinks, so lower it by hand. Small, reversible motions first; check the mode before sending commands. Code can run from a laptop on 192.168.123.x instead of the Jetson.
+Real-robot sessions: [[safety]].

@@ -35,7 +35,7 @@ import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 from harp_control import runlog
-from harp_control.gr00t.walk import (CONTROL_DT, TerminalKeys, Walker,
+from harp_control.gr00t.walk import (CLEAN_STOPS, CONTROL_DT, TerminalKeys, Walker,
                                      check_unitree_controller_off)
 from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
 from harp_control.smooth_control import command, ego_polar, wrap_angle
@@ -303,18 +303,9 @@ def main():
     walker.next_hint = "Then press g here to start the moves (o stops)."
     plan = Moves(walker, LegOdometry(args.scene), args.moves, args.speed, args.turn_speed)
     runlog.event("move_distance", "start", argv=sys.argv[1:])
-    try:
-        with TerminalKeys() as keys:
-            walker.run(lambda: plan.read_key(keys.read), plan.on_policy_step)
-    except KeyboardInterrupt:
-        print("Interrupted (Ctrl-C).")
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        runlog.event("move_distance", "error", message=str(e))
-        walker.damp()
-        return 1
-    walker.damp()
-    return 0
+    with TerminalKeys() as keys:
+        reason = walker.run(lambda: plan.read_key(keys.read), plan.on_policy_step)
+    return 0 if reason in CLEAN_STOPS else 1
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ name: ros2-mac
 description: Read when building or changing the ros2/ environment (pixi.toml, packages, executables), hitting a pixi or macOS library error, or changing walker_node
 metadata:
   type: reference
-  updated: 2026-10-27T23:03:59Z
+  updated: 2026-10-28T00:00:43Z
   covers: [ros2/pixi.toml, ros2/src/*/setup.py, ros2/src/*/package.xml, ros2/src/harp_ros/harp_ros/walker_node.py, ros2/src/spatio_temporal_voxel_layer/HARP_PATCHES.md, ros2/src/spatio_temporal_voxel_layer/spatio_temporal_voxel_layer/CMakeLists.txt]
 ---
 

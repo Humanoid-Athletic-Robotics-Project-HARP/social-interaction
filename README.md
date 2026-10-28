@@ -89,7 +89,8 @@ This has to happen before any of the "Robot" boxes above.
 
 - ⛔ Find out whether HARP's safety layer sits between our code and the
   motors, and if it does, send our commands through it.
-- ⬜ An e-stop besides the keyboard, e.g. on the remote.
+- 🟡 An e-stop besides the keyboard: L2+B on the remote, in `walk`,
+  `move_distance` and `walker_node`. Tested in the sim only.
 - ⬜ Check our robot: `mode_machine` 5, which hands it has, its ROS 2 version.
 - ⬜ A gantry procedure, and a first session with someone on the rope.
 
@@ -191,8 +192,8 @@ starts up the same way:
    robot goes limp and sinks.
 
 Keys go to whichever window you clicked last, so the band keys (`7`/`8`/`9`)
-go to MuJoCo and everything else to terminal 2. After `o`, restart both
-terminals to go again.
+go to MuJoCo and everything else to terminal 2. `6` in MuJoCo presses L2+B on
+the robot's remote, the e-stop. After `o`, restart both terminals to go again.
 
 ## Planned moves: `move_distance`
 
@@ -384,8 +385,11 @@ ros2 run harp_control walk --real --interface en0
 
 `--interface` is your laptop's network interface on `192.168.123.x`
 (`ifconfig` will show it). `move_distance` takes the same flags, and
-`walker_node` takes `--ros-args -p real:=true -p interface:=en0`. Pressing
-`o`, Ctrl-C, or any error damps every joint, so keep the robot supported.
+`walker_node` takes `--ros-args -p real:=true -p interface:=en0`.
+
+**L2+B on the remote is the e-stop.** It, `o`, Ctrl-C, a fall or any error
+damps every joint. On the real robot the program then keeps damping until
+you press `o` or Ctrl-C, so press that only once the robot is secured.
 
 For Nav2, also run `ros2 run harp_ros lidar_relay --ros-args -p real:=true
 -p interface:=en0`, which brings the head lidar into ROS 2.

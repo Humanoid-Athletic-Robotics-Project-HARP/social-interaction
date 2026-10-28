@@ -14,7 +14,10 @@ Like unitree_mujoco's simulate_python, and using its G1 model, but:
 Publishes rt/lowstate (unitree_hg) every step; reads rt/lowcmd. Until a
 command arrives the joints are limp. The robot starts hanging from a virtual
 elastic band on the torso. In the viewer: 7 shortens the band (raises the
-robot), 8 lengthens it (lowers it), 9 releases or re-attaches it.
+robot), 8 lengthens it (lowers it), 9 releases or re-attaches it. 6 holds L2+B
+on the robot's remote for half a second (the walker's e-stop); a "remote"
+event on /harp/events ({"buttons": ["L2", "B"], "seconds": 0.5}) presses
+buttons the same way, for scripted tests.
 
 --world NAME adds a course of obstacles from worlds/NAME.xml (or any MuJoCo
 file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
@@ -63,7 +66,7 @@ from unitree_sdk2py.core.channel import (
 from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
 
-from harp_control import runlog
+from harp_control import remote, runlog
 from harp_sim.movers import Movers, obstacle_geoms
 
 # Unitree's G1 model (unitree_mujoco, cloned next to this repo). The ROS 2
@@ -75,6 +78,7 @@ VIEWER_PERIOD = 0.02      # s
 BAND_POINT = np.array([0.0, 0.0, 3.0])   # band anchor above the robot, as in unitree_mujoco
 BAND_STIFFNESS, BAND_DAMPING = 200.0, 100.0
 BAND_STEP = 0.1           # m per key press
+REMOTE_PRESS = 0.5        # s a button press on the sim's remote is held
 STANDING_PELVIS_Z = 0.80  # auto-release: lower the band until the pelvis is this low,
 RELEASE_DELAY = 3.0       # then wait this long (time to start the policy) and release
 MODE_MACHINE = 5          # what a 29-joint G1 rev 1.0 reports in lowstate
@@ -82,6 +86,29 @@ TRUTH_PERIOD = 0.05       # s of sim time between /sim/qpos messages (20 Hz)
 MAX_LAG = 0.1             # s behind real time before giving up on catching up
 BOX_SIZE = (0.5, 0.5, 0.5)   # m, width (x), depth (y), height, when --box gives only X Y
 BOX_RGBA = (0.8, 0.5, 0.2, 1.0)
+
+
+class SimRemote:
+    """The robot's remote, as far as rt/lowstate shows it: buttons held until a time."""
+
+    def __init__(self):
+        self.buttons, self.until = frozenset(), 0.0
+
+    def press(self, buttons, seconds=REMOTE_PRESS):
+        unknown = set(buttons) - remote.BUTTONS.keys()
+        if unknown:
+            print(f"Remote: no button {', '.join(sorted(unknown))}; ignored.", flush=True)
+            return
+        self.buttons, self.until = frozenset(buttons), time.monotonic() + seconds
+        runlog.event("sim", "remote", buttons=sorted(self.buttons), seconds=seconds)
+        print(f"Remote: {'+'.join(sorted(self.buttons))} held for {seconds} s.", flush=True)
+
+    def on_key(self, key):
+        if key == ord("6"):
+            self.press(remote.ESTOP)
+
+    def write(self, wireless_remote):
+        remote.encode(self.buttons if time.monotonic() < self.until else (), wireless_remote)
 
 
 class Band:
@@ -245,11 +272,21 @@ def main():
     # releases the band when course_goal asks.
     goal_sent, release_asked = [], []
 
+    sim_remote = SimRemote()
+
     def on_event(msg):
         if '"goal_sent"' in msg.data:
             goal_sent.append(True)
         elif '"release_band"' in msg.data:
             release_asked.append(True)
+        elif '"remote"' in msg.data:
+            try:
+                event = json.loads(msg.data)
+                if event.get("event") == "remote" and event.get("source") != "sim":   # not our own log
+                    details = event.get("details", {})
+                    sim_remote.press(details.get("buttons", ()), details.get("seconds", REMOTE_PRESS))
+            except (ValueError, AttributeError, TypeError) as e:
+                print(f"Remote: ignored an event that isn't {{\"buttons\": [...]}}: {e}", flush=True)
     node.create_subscription(String, "/harp/events", on_event, latched)
 
     def spin():
@@ -288,7 +325,8 @@ def main():
     viewer = None
     quitting = threading.Event()
     if not args.headless:
-        viewer = mujoco.viewer.launch_passive(model, data, key_callback=band.on_key)
+        viewer = mujoco.viewer.launch_passive(
+            model, data, key_callback=lambda key: (band.on_key(key), sim_remote.on_key(key)))
 
         def draw():
             # Separate thread, so drawing never delays physics or rt/lowstate.
@@ -300,7 +338,8 @@ def main():
     print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C here quits.")
     if viewer is not None:
         print("MuJoCo window keys: 8 lowers the robot, 7 raises it, 9 releases or "
-              "re-attaches the band. Controller keys go to the controller's terminal.")
+              "re-attaches the band, 6 presses L2+B on the remote (e-stop). Controller keys "
+              "go to the controller's terminal.")
     if lidar is not None:
         print(f"Lidar: PointCloud2 on {ROBOT_TOPIC} (DDS domain {args.domain}, for lidar_relay), 10 Hz."
               if args.lidar_dds else f"Lidar: sensor_msgs/PointCloud2 on {TOPIC} (ROS 2), 10 Hz.")
@@ -381,6 +420,7 @@ def main():
             ]
             state.mode_machine = MODE_MACHINE
             state.tick = (state.tick + round(SIM_DT * 1000)) % 2**32  # ms, like the robot
+            sim_remote.write(state.wireless_remote)
             state_pub.Write(state)
             contacts.check(data)
             if lidar is not None and data.time >= next_scan:

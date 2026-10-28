@@ -3,7 +3,7 @@ name: gr00t-wbc
 description: Read when changing the walking controller (harp_control's gr00t/walk.py), its policy config or ONNX files, or preparing it for the real robot
 metadata:
   type: reference
-  updated: 2026-10-26T22:40:10Z
+  updated: 2026-10-28T00:11:43Z
   covers: [ros2/src/harp_control/harp_control/gr00t/**, ros2/src/harp_control/harp_control/leg_odometry.py]
 ---
 
@@ -16,6 +16,7 @@ metadata:
 
 **Licenses:** code Apache-2.0 (keep `LICENSE-GR00T-WholeBodyControl.txt`). Weights under the NVIDIA Open Model License: keep its text and the Notice line, follow NVIDIA's Trustworthy AI terms, don't bypass safety guardrails.
 
-**Real robot:** Unitree's controller must be off (gantry, L1+A, L2+R2), so our code alone keeps the robot up. The scripts check motion_switcher and `mode_machine` 5 (29-joint rev 1.0, NVIDIA's target). Low-level command flags (`mode_pr` 0, motor `mode` 1, `mode_machine` copied from lowstate, CRC) match Unitree's G1 low-level example. State timeout is 0.1 s on the robot, 0.5 s in the sim (macOS throttles the sim window). Open items are in the README's "Run safely on the real robot".
+**Real robot:** Unitree's controller must be off (gantry, L1+A, L2+R2), so our code alone keeps the robot up. The scripts check motion_switcher and `mode_machine` 5 (29-joint rev 1.0, NVIDIA's target). Low-level command flags (`mode_pr` 0, motor `mode` 1, `mode_machine` copied from lowstate, CRC) match Unitree's G1 low-level example. State timeout is 0.1 s on the robot, 0.5 s in the sim (macOS throttles the sim window).
+- How it stops, and every check that stops it: [[safety]].
 
 **Not used:** GEAR-SONIC (whole-body motion tracking, maybe for gestures later) needs Linux, an NVIDIA GPU and exact TensorRT, and on the Orin a JetPack 6 reflash ([[unitree-resources]]). The full Decoupled WBC stack (teleop, IK) needs Ubuntu 22.04, a GPU and Docker.

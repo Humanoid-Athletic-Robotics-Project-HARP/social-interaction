@@ -3,7 +3,7 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-27T22:32:18Z
+  updated: 2026-10-28T00:03:03Z
   covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 
@@ -19,7 +19,7 @@ metadata:
 - Pass criteria were set from the 2026-10-26 baselines, loosened for spread; tighten them as the robot improves.
 
 **How it fits together**
-- Programs publish, run_recorder writes. Events are JSON `std_msgs/String` on `/harp/events` (transient-local) from run_sim, walker_node and course_goal; truth comes from `/sim/qpos` ([[mujoco-sim]]).
+- Programs publish, run_recorder writes. Events are JSON `std_msgs/String` on `/harp/events` (transient-local) from run_sim, walker_node and course_goal; truth comes from `/sim/qpos` ([[mujoco-sim]]). An event missing `t`, `source` or `event`, or not JSON at all, is still recorded (filled in, or as `unparsed`), because a recorder that crashes shuts the whole run down.
 - Programs without ROS (`move_distance`, `walk`) log through `harp_control/runlog.py` into the active run (`$HARP_RUN_DIR` or `runs/ACTIVE`); summarizing merges their event files.
 - `course` exists because `ROS_LOG_DIR` can't be set from a launch file: it points the logs into the run folder, runs `course.launch.py`, splits `launch.log` per program and summarizes.
 - `course.launch.py` starts recorder, sim (`--lidar-dds --world W --auto-release 15 --hold-band --log`), walker_node (`auto_start`), lidar_relay (the robot's lidar path, [[lidar-nav2-research]]) and course_goal; Nav2 starts on "Policy on". The run ends when course_goal or walker_node exits.
@@ -38,4 +38,4 @@ metadata:
 - Don't give the sim a node `name=` in a launch file: it renames both its nodes.
 - If Nav2 isn't active 60 s after the policy starts (a plugin failed to load), `course_goal` ends the run with outcome `error`, reason `NAV2_NOT_ACTIVE`; the cause is in `nav2.log` ([[ros2-mac]]).
 - A course run can die when Nav2 and rviz2 start (sim lag → walker loses state → outcome `error`), about 1 in 6. Rerun; keep the MuJoCo window visible.
-- A run with only the recorder summarizes as "stopped".
+- A run with only the recorder summarizes as "stopped". So does a remote e-stop, reason `e-stop (remote, L2+B)`; the walker's `stop` event ends the scored window when nothing else does.

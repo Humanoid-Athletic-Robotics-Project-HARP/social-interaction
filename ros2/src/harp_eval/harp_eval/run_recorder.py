@@ -326,10 +326,18 @@ class RunRecorder(Node):
             self.replay.stop(f"only {free:.1f} GB free on the disk")
 
     def on_event(self, msg):
-        record = json.loads(msg.data)
+        # Anything can publish here (a person with ros2 topic pub, too), so a
+        # malformed event is kept as well as it can be rather than ending the run.
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            record = {"event": "unparsed", "details": {"data": msg.data}}
+        if not isinstance(record, dict):
+            record = {"event": "unparsed", "details": {"data": msg.data}}
         # Flushed at once, so events.csv can be watched while the run goes on.
-        self.events.write([record["t"], record["source"], record["event"],
-                           json.dumps(record.get("details", {}))], flush=True)
+        self.events.write([record.get("t", time.time()), record.get("source", "unknown"),
+                           record.get("event", "unknown"), json.dumps(record.get("details", {}))],
+                          flush=True)
 
     def on_sim_info(self, msg):
         self.meta["sim"] = json.loads(msg.data)

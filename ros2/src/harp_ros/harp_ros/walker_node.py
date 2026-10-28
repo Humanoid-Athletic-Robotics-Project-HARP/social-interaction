@@ -57,8 +57,8 @@ from tf2_ros import TransformBroadcaster
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 from harp_control import lidar_mount, runlog
-from harp_control.gr00t.walk import (CONTROL_DT, MAX_VX, MAX_VY, MAX_YAW_RATE, TerminalKeys,
-                                     Walker, check_unitree_controller_off)
+from harp_control.gr00t.walk import (CLEAN_STOPS, CONTROL_DT, MAX_VX, MAX_VY, MAX_YAW_RATE,
+                                     TerminalKeys, Walker, check_unitree_controller_off)
 from harp_control.leg_odometry import DEFAULT_SCENE, LegOdometry
 
 CMD_LIMITS = np.array([MAX_VX, MAX_VY, MAX_YAW_RATE], dtype=np.float32)
@@ -275,24 +275,15 @@ def main():
     else:
         print("Start the policy with ] here or: ros2 service call /walker/start std_srvs/srv/Trigger")
 
-    code = 0
-    try:
-        if sys.stdin.isatty():
-            with TerminalKeys() as keys:
-                walker.run(lambda: node.read_key(keys.read), node.on_policy_step)
-        else:
-            walker.run(lambda: node.read_key(None), node.on_policy_step)
-    except KeyboardInterrupt:
-        print("Interrupted (Ctrl-C).")
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        runlog.event("walker", "error", message=str(e))
-        code = 1
-    walker.damp()
+    if sys.stdin.isatty():
+        with TerminalKeys() as keys:
+            reason = walker.run(lambda: node.read_key(keys.read), node.on_policy_step)
+    else:
+        reason = walker.run(lambda: node.read_key(None), node.on_policy_step)
     executor.shutdown()
     node.destroy_node()
     rclpy.shutdown()
-    return code
+    return 0 if reason in CLEAN_STOPS else 1
 
 
 if __name__ == "__main__":
