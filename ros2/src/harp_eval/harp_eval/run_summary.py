@@ -69,15 +69,18 @@ def outcome(events):
     estop = first(events, "walker", "estop")
     if estop and (goal is None or estop["t"] < goal["t"]):
         return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, L2+B)"
+    moves_done = first(events, "move_distance", "all_moves_done")
+    finished = goal or moves_done
+    error = first(events, "move_distance", "error") or first(events, "walker", "error")
+    if error and (finished is None or error["t"] < finished["t"]):
+        # Launch shutdown can cancel Nav2 after the walker has already failed.
+        return "error", error["details"].get("message")
     if goal:
         status = goal["details"].get("status", "")
         return {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out",
                 "NAV2_NOT_ACTIVE": "error"}.get(status, "failed"), status
-    if first(events, "move_distance", "all_moves_done"):
+    if moves_done:
         return "succeeded", "all moves done"
-    error = first(events, "move_distance", "error") or first(events, "walker", "error")
-    if error:
-        return "error", error["details"].get("message")
     return "stopped", "ended before a goal or moves finished"
 
 
@@ -85,9 +88,11 @@ def window(events):
     """Wall-clock start and end of the part that counts: goal sent to result, or the moves."""
     start = (first(events, "goal", "goal_sent") or first(events, "move_distance", "move_start")
              or first(events, "walker", "policy_on"))
-    end = (first(events, "goal", "goal_result") or first(events, "move_distance", "all_moves_done")
-           or first(events, "walker", "fall") or first(events, "move_distance", "error")
-           or first(events, "walker", "stop"))
+    terminals = [first(events, source, name) for source, name in (
+        ("goal", "goal_result"), ("move_distance", "all_moves_done"),
+        ("walker", "fall"), ("walker", "estop"), ("move_distance", "error"),
+        ("walker", "error"), ("walker", "stop"))]
+    end = min((e for e in terminals if e is not None), key=lambda e: e["t"], default=None)
     return (start["t"] if start else None), (end["t"] if end else None)
 
 

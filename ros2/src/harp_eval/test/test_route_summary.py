@@ -123,6 +123,68 @@ class RouteSummaryTests(unittest.TestCase):
         self.assertFalse(summary["passed"])
         self.assertEqual(summary["check"]["failed"], ["must_succeed"])
 
+    def test_walker_error_precedes_shutdown_route_cancellation(self):
+        self.write_route({"must_succeed": True})
+        events = self.route_events(status="CANCELED")
+        events.extend([
+            {"t": 40, "source": "walker", "event": "error",
+             "details": {"message": "Robot state stopped"}},
+            {"t": 40.1, "source": "walker", "event": "stop",
+             "details": {"reason": "state_lost"}},
+        ])
+        self.write_events(events)
+        self.write_positions()
+
+        summary = self.summarize()
+
+        self.assertEqual(run_summary.window(events), (10, 40))
+        self.assertEqual(summary["outcome"], "error")
+        self.assertEqual(summary["reason"], "Robot state stopped")
+        self.assertEqual(summary["duration_s"], 30.0)
+        self.assertEqual(summary["route"]["completed_waypoints"], 2)
+        self.assertEqual(summary["route"]["completed_laps"], 1)
+        self.assertFalse(summary["passed"])
+
+    def test_remote_estop_precedes_shutdown_route_cancellation(self):
+        self.write_route({"must_succeed": True})
+        events = self.route_events(status="CANCELED")
+        events.extend([
+            {"t": 40, "source": "walker", "event": "estop",
+             "details": {"by": "remote"}},
+            {"t": 40.1, "source": "walker", "event": "stop",
+             "details": {"reason": "remote_estop"}},
+        ])
+        self.write_events(events)
+
+        summary = self.summarize()
+
+        self.assertEqual(run_summary.window(events), (10, 40))
+        self.assertEqual(summary["outcome"], "stopped")
+        self.assertEqual(summary["reason"], "e-stop (remote, L2+B)")
+        self.assertEqual(summary["duration_s"], 30.0)
+        self.assertEqual(summary["route"]["completed_waypoints"], 2)
+        self.assertFalse(summary["passed"])
+
+    def test_successful_route_is_not_overridden_by_later_ordinary_stop(self):
+        self.write_route({"must_succeed": True, "max_time_s": 100})
+        events = self.route_events()
+        events.extend([
+            {"t": 72, "source": "walker", "event": "stop",
+             "details": {"reason": "ctrl_c"}},
+            {"t": 73, "source": "walker", "event": "damped", "details": {}},
+        ])
+        self.write_events(events)
+
+        summary = self.summarize()
+
+        self.assertEqual(run_summary.window(events), (10, 70))
+        self.assertEqual(summary["outcome"], "succeeded")
+        self.assertEqual(summary["reason"], "SUCCEEDED")
+        self.assertEqual(summary["duration_s"], 60.0)
+        self.assertEqual(summary["route"]["completed_waypoints"], 4)
+        self.assertEqual(summary["route"]["completed_laps"], 2)
+        self.assertTrue(summary["passed"])
+
     def test_route_without_criteria_does_not_inherit_world_limits(self):
         for criteria in (None, {}):
             with self.subTest(criteria=criteria):

@@ -3,7 +3,7 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-28T00:25:23Z
+  updated: 2026-10-28T00:27:35Z
   covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 
@@ -39,4 +39,4 @@ metadata:
 - Don't give the sim a node `name=` in a launch file: it renames both its nodes.
 - If Nav2 isn't active 60 s after the policy starts (a plugin failed to load), `course_goal` ends the run with outcome `error`, reason `NAV2_NOT_ACTIVE`; the cause is in `nav2.log` ([[ros2-mac]]).
 - A course run can die when Nav2 and rviz2 start (sim lag → walker loses state → outcome `error`), about 1 in 6. Rerun; keep the MuJoCo window visible.
-- A run with only the recorder summarizes as "stopped". So does a remote e-stop, reason `e-stop (remote, L2+B)`; the walker's `stop` event ends the scored window when nothing else does.
+- A run with only the recorder summarizes as "stopped". So does a remote e-stop, reason `e-stop (remote, L2+B)`. An earlier walker error retains its cause when shutdown later cancels Nav2. The scored window ends at the earliest completion, failure, e-stop or walker stop; a later shutdown stop preserves an already successful result.
