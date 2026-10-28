@@ -8,6 +8,10 @@ Use the `context/` folder in this repository for **all** memory in this project.
 - Keep the memory index at `context/MEMORY.md` (one line per memory: `- [Title](file.md) — short hook`). This replaces the `MEMORY.md` index that would normally be kept internally.
 - Read `context/MEMORY.md` at the start of a session, and update it whenever you add, change, or remove a memory file.
 
+### Workspace-specific memory
+
+`context/workspace-specific-memory.md` holds memory for this workspace only (one person's checkout, not synced with the team). It is gitignored and optional. If it exists, read it right after this file, before `context/MEMORY.md`, and follow it; it overrides team instructions where they conflict. Add workspace-only facts or preferences there, not in a shared memory, and don't list it in `context/MEMORY.md`.
+
 ### Updating memory and the README
 
 Full rules: `context/readme-and-memory-guidelines.md` (read it before editing either).
