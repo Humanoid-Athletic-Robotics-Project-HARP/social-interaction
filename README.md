@@ -191,11 +191,11 @@ The run is passed when `report.json` in the output folder (`--output DIR`)
 says `within_limits`.
 
 If the browser view makes your computer stall, HARP's harness can stop the
-run (`host_stall`, `observation_timeout`). Add `--no-view` and watch the run
-afterwards from `him-sim2real-management/`:
+run (`host_stall`, `observation_timeout`). Add `--no-view --output RUN_FOLDER`
+and watch the run afterwards:
 
 ```bash
-./desktop_sim.sh replay RUN_FOLDER/trace.npz
+python3 submission/course.py --replay RUN_FOLDER
 ```
 
 Course tests run Nav2 (our Foxy port of its Graceful Controller) with the
@@ -208,6 +208,11 @@ python3 submission/course.py one_box
 
 Add `--view` to watch each run: once it's scored, its replay plays at the
 address printed, before the next run starts.
+
+Run folders are pruned after each run: the viewer's files go, and all but the
+two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
+53). `--replay RUN_FOLDER` still shows any run with its obstacles, and
+`--prune` prunes every folder in `runs/` now.
 
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the

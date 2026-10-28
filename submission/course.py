@@ -5,11 +5,13 @@
   python3 submission/course.py open_floor --waypoint 2 0 --waypoint 2 2 90 --waypoint 0 0
   python3 submission/course.py --score runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --prune
+  python3 submission/course.py --replay runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --compare slalom
 
 Each run gets a folder in runs/ (HARP_RUNS_DIR to change it) holding our run.json
 (world, tag, start, git commit, whether the tree was dirty; git.diff then holds the
-uncommitted changes), HIM's
+uncommitted changes; and from sim.sh, "sim": its arguments, image, G1_TASK_COMMAND and
+HIM's commit), the scene HIM loaded without HIM's G1 (scene/), HIM's
 report.json, trace.npz (the true pose every 20 ms) and policy.log (our image's
 output: events and the once-a-second "odom" lines), and our summary.json:
   outcome    succeeded / failed / timed_out / error / violation (HIM stopped the policy) /
@@ -32,9 +34,13 @@ It exits 1 if any run didn't succeed or failed its criteria.
 passed, time (mean, min-max), closest, end error, recoveries and drift.
 Runs never use HIM's live viewer (its load stopped about 1 in 4 watched runs on a
 deadline). --view instead replays each run once it is scored, at the URL it prints,
-for the run's length, before starting the next. After that, HIM's viewer output
-(view/, tens of MB) is deleted: HIM's ./desktop_sim.sh replay RUN/trace.npz rebuilds it. --prune does
-the same for every run folder course.py made (those with a run.json).
+for the run's length, before starting the next.
+Pruning, after every run (sim.sh's with --output too) or with --prune [RUN]: HIM's viewer
+output (view/, tens of MB) is deleted, and every trace.npz but the newest KEEP_FULL of each
+world loses STRIPPED (about 52 of its 53 MB), once the scene rebuilt from run.json and
+scene/ (HIM's G1 read at HIM's commit) matches the one in the trace. Runs from before
+run.json kept a scene get theirs filled in the same way. --replay RUN serves HIM's replay
+with the scene put back, from a copy of the trace; a stripped run's thrash panel is empty.
 
 Needs MuJoCo, so it runs under HIM's .venv-policy-safety (it re-executes
 itself there). Build the image first: submission/build.sh.
@@ -45,10 +51,12 @@ import datetime
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -62,6 +70,11 @@ CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
 REPLAY_SLACK = 10.0     # s the --view replay stays up beyond the run's length
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
+KEEP_FULL = 2           # newest runs of each world whose trace.npz keeps everything (tags are
+                        # mostly one-off experiments: per world and tag kept 60 of 69 whole)
+STRIPPED = ("model", "thrash")   # the rest lose these: the compiled scene (about 47 of a trace's
+                                 # 53 MB; rebuilt from run.json) and HIM's thrash telemetry (5 MB)
+G1 = "packages/policy_safety/src/policy_safety/robots/g1"   # HIM's G1 model, in its checkout
 ROUTES = HERE / "routes"
 ROUTE_SPEED = 0.15      # m/s along a route's straight legs, for its run length (Nav2's mean is about this)
 ROUTE_POINT_TIME = 10.0 # s more per point: turning to it and settling
@@ -235,6 +248,183 @@ def git_state():
     return git("rev-parse", "--short", "HEAD").strip() or None, git("diff", "HEAD")
 
 
+def him_git(*args, **kwargs):
+    """Read-only git in HIM's checkout."""
+    return subprocess.run(["git", "-C", str(HIM), *args], capture_output=True, **kwargs)
+
+
+def stamp_now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
+
+
+def new_run_json(run, started=None):
+    """run.json's common part, and git.diff when the tree has uncommitted changes."""
+    commit, diff = git_state()
+    if diff:
+        (run / "git.diff").write_text(diff)
+    return {"world": None, "tag": None, "started": started or stamp_now(), "commit": commit,
+            "dirty": bool(diff)}
+
+
+def scene_files(scene):
+    """The scene file and the files it includes, other than HIM's G1 (in MODEL)."""
+    scene = Path(scene)
+    files, todo = [], [scene]
+    while todo:
+        path = todo.pop()
+        files.append(path)
+        for name in re.findall(r'<include\s+file="([^"]+)"', path.read_text()):
+            child = path.parent / name
+            if not (MODEL / name).exists() and child not in files:
+                todo.append(child)
+    return files
+
+
+def save_scene(run, scene):
+    """Copy the scene (HIM's flat one without --scene) into run/scene/; its file name."""
+    folder = run / "scene"
+    folder.mkdir(exist_ok=True)
+    files = scene_files(scene) if scene else [MODEL / "scene.xml"]
+    for path in files:
+        shutil.copy(path, folder / path.relative_to(files[0].parent))
+    return files[0].name
+
+
+def record(run, scene, image, args):
+    """How sim.sh ran, in run.json (made here for a plain sim.sh run), and its scene."""
+    run = Path(run)
+    run.mkdir(parents=True, exist_ok=True)
+    path = run / "run.json"
+    meta = json.loads(path.read_text()) if path.is_file() else new_run_json(run)
+    image_id = subprocess.run(["docker", "image", "inspect", "-f", "{{.Id}}", image],
+                              capture_output=True, text=True).stdout.strip()
+    meta["sim"] = {
+        "args": args, "image": image, "image_id": image_id or None,
+        "task_command": os.environ.get("G1_TASK_COMMAND") or None,
+        "scene": save_scene(run, scene),
+        "him_commit": him_git("rev-parse", "HEAD", text=True).stdout.strip() or None,
+        "him_g1_dirty": bool(him_git("status", "--porcelain", "--", G1, text=True).stdout.strip()),
+    }
+    path.write_text(json.dumps(meta) + "\n")
+
+
+def build_model(scene_dir, scene, him_commit):
+    """Compile a saved scene with HIM's G1 as it was at him_commit (read with git archive)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = him_git("archive", him_commit, G1)
+        if archive.returncode:
+            raise ValueError(f"HIM's checkout has no commit {him_commit}")
+        subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
+        g1 = Path(tmp) / G1
+        shutil.copytree(scene_dir, g1, dirs_exist_ok=True)
+        return mujoco.MjModel.from_xml_path(str(g1 / scene))
+
+
+def rebuild_model(run):
+    """The run's compiled scene, from run.json and run/scene (what a stripped trace lacks)."""
+    sim = json.loads((run / "run.json").read_text()).get("sim") or {}
+    if not sim.get("scene") or not sim.get("him_commit"):
+        raise ValueError(f"{run.name} has no saved scene")
+    return build_model(run / "scene", sim["scene"], sim["him_commit"])
+
+
+def same_model(a, b):
+    """True if two compiled scenes have the same joints, bodies and geoms."""
+    names = lambda m: [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) for i in range(m.ngeom)]
+    return (a.nq == b.nq and a.nbody == b.nbody and a.ngeom == b.ngeom and a.nmesh == b.nmesh
+            and names(a) == names(b) and np.array_equal(a.geom_type, b.geom_type)
+            and all(np.allclose(getattr(a, k), getattr(b, k))
+                    for k in ("geom_size", "geom_pos", "geom_quat", "body_pos", "body_quat", "mesh_vert")))
+
+
+def saved_model(run):
+    """The compiled scene HIM saved in the run's trace, or None once stripped."""
+    with np.load(run / "trace.npz") as trace:
+        if "model" not in trace.files:
+            return None
+        return mujoco.MjModel.from_binary_path("scene.mjb", {"scene.mjb": trace["model"].tobytes()})
+
+
+def backfill(run):
+    """For a run from before run.json kept its scene: save the scene it must have used (its
+    world at its commit, or HIM's flat scene) if that rebuilds exactly the trace's model."""
+    path = run / "run.json"
+    meta = json.loads(path.read_text()) if path.is_file() else None
+    if meta and meta.get("sim"):
+        return
+    saved = saved_model(run)
+    if saved is None:
+        return
+    him = him_git("rev-parse", "HEAD", text=True).stdout.strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        if meta and meta.get("world"):
+            rev = meta.get("commit") or "HEAD"    # runs from before run.json had it: try today's
+            world = subprocess.run(["git", "-C", str(REPO), "show",
+                                    f"{rev}:submission/worlds/{meta['world']}.xml"], capture_output=True)
+            if world.returncode:
+                return
+            (tmp / "world.xml").write_bytes(world.stdout)
+            scene = stage_world.main(meta["world"], MODEL, tmp / "staged", tmp / "world.xml")
+            files = scene_files(scene)
+        else:
+            files = [MODEL / "scene.xml"]
+        (tmp / "scene").mkdir()
+        for f in files:
+            shutil.copy(f, tmp / "scene" / f.name)
+        try:
+            ok = same_model(saved, build_model(tmp / "scene", files[0].name, him))
+        except (ValueError, OSError):
+            ok = False
+        if not ok:
+            return
+        shutil.copytree(tmp / "scene", run / "scene", dirs_exist_ok=True)
+    # A plain sim.sh run from before then: when it ran, but not from which commit.
+    meta = meta or {"world": None, "tag": None, "started": run.name[:20], "commit": None, "dirty": None}
+    meta["sim"] = {"args": None, "image": None, "image_id": None, "task_command": None,
+                   "scene": files[0].name, "him_commit": him, "him_g1_dirty": False,
+                   "backfilled": True}     # rebuilt and checked against the trace, afterwards
+    path.write_text(json.dumps(meta) + "\n")
+
+
+def strip(run):
+    """Drop STRIPPED from the run's trace once a rebuilt scene matches the saved one."""
+    saved = saved_model(run)
+    if saved is None:
+        return True
+    try:
+        if not same_model(saved, rebuild_model(run)):
+            print(f"{run.name}: rebuilt scene differs from the trace's; keeping it whole", flush=True)
+            return False
+    except (ValueError, OSError):
+        return False
+    with np.load(run / "trace.npz") as trace:
+        kept = {k: trace[k] for k in trace.files if k not in STRIPPED}
+    part = run / "trace.part.npz"
+    np.savez_compressed(part, **kept)
+    os.replace(part, run / "trace.npz")
+    return True
+
+
+def run_folders():
+    """Every run folder in runs/ with a trace, oldest first."""
+    return sorted(p.parent for p in RUNS.glob("*/trace.npz"))
+
+
+def slim(runs):
+    """Strip every trace but the newest KEEP_FULL of each world (plain sim.sh runs count as
+    one), filling in old runs' scenes first."""
+    groups = {}
+    for run in runs:
+        backfill(run)
+        path = run / "run.json"
+        meta = json.loads(path.read_text()) if path.is_file() else {}
+        groups.setdefault(meta.get("world"), []).append(run)
+    for group in groups.values():
+        for run in sorted(group)[:-KEEP_FULL]:
+            strip(run)
+
+
 def compare(world=None):
     """One line per world and tag over every scored run in runs/."""
     groups = {}
@@ -285,23 +475,39 @@ def run_once(name, tag, route=None):
     return run
 
 
-def replay(run):
-    """Serve HIM's replay of a run until it has had time to play once, then close it."""
-    with open(run / "replay.log", "w") as log:
-        server = subprocess.Popen([str(HIM / "desktop_sim.sh"), "replay", str(run / "trace.npz")],
-                                  stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        while server.poll() is None and "Open http" not in (run / "replay.log").read_text(errors="replace"):
-            time.sleep(0.5)
-        url = next((line.split()[-1] for line in (run / "replay.log").read_text().splitlines()
-                    if line.startswith("Open http")), None)
-        if url:
-            length = float(np.load(run / "trace.npz", allow_pickle=True)["time"][-1])
-            print(f"{run.name}: replay at {url} for {length + REPLAY_SLACK:.0f} s", flush=True)
-            time.sleep(length + REPLAY_SLACK)
-        else:
-            print(f"{run.name}: no replay; see {run / 'replay.log'}", flush=True)
-        stop(server, run.name)
-    (run / "replay.log").unlink()
+def replay(run, seconds=None):
+    """Serve HIM's replay of a run, with its scene put back if the trace was stripped, from
+    a copy of the trace (HIM writes view/ beside it): for seconds, or until Ctrl-C."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        with np.load(run / "trace.npz") as trace:
+            parts = {k: trace[k] for k in trace.files}
+        if "model" not in parts:
+            model = rebuild_model(run)
+            parts["model"] = np.empty(mujoco.mj_sizeModel(model), dtype=np.uint8)
+            mujoco.mj_saveModel(model, None, parts["model"])
+        np.savez(tmp / "trace.npz", **parts)
+        shutil.copy(run / "report.json", tmp / "report.json")
+        log_path = tmp / "replay.log"
+        with open(log_path, "w") as log:
+            server = subprocess.Popen([str(HIM / "desktop_sim.sh"), "replay", str(tmp / "trace.npz")],
+                                      stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            while server.poll() is None and "Open http" not in log_path.read_text(errors="replace"):
+                time.sleep(0.5)
+            url = next((line.split()[-1] for line in log_path.read_text().splitlines()
+                        if line.startswith("Open http")), None)
+            if not url:
+                print(f"{run.name}: no replay:\n{log_path.read_text()}", flush=True)
+            elif seconds is None:
+                print(f"{run.name}: replay at {url}; Ctrl-C to stop", flush=True)
+                try:
+                    server.wait()
+                except KeyboardInterrupt:
+                    pass
+            else:
+                print(f"{run.name}: replay at {url} for {seconds:.0f} s", flush=True)
+                time.sleep(seconds)
+            stop(server, run.name)
 
 
 def stop(process, name):
@@ -337,8 +543,14 @@ def main():
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
     parser.add_argument("--compare", nargs="?", const="", metavar="WORLD",
                         help="only list the scored runs in runs/ by world and tag")
-    parser.add_argument("--prune", action="store_true",
-                        help="only delete HIM's viewer output from every course run in runs/")
+    parser.add_argument("--prune", nargs="?", const="", metavar="RUN",
+                        help="only prune this run folder, or every one in runs/: delete HIM's viewer "
+                             "output, and strip all but the newest traces of each world")
+    parser.add_argument("--replay", metavar="RUN", help="only replay this run folder, until Ctrl-C")
+    parser.add_argument("--record", metavar="RUN", help=argparse.SUPPRESS)   # for sim.sh
+    parser.add_argument("--scene", default="", help=argparse.SUPPRESS)       # with --record
+    parser.add_argument("--image", default="", help=argparse.SUPPRESS)       # with --record
+    parser.add_argument("--sim-args", nargs=argparse.REMAINDER, default=[], help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.laps and not (args.route or args.waypoint):
         parser.error("--laps needs --route or --waypoint")
@@ -353,9 +565,17 @@ def main():
     if args.compare is not None:
         compare(args.compare or None)
         return 0
-    if args.prune:
-        for run in sorted(p.parent for p in RUNS.glob("*/run.json")):
+    if args.record:
+        record(args.record, args.scene or None, args.image, args.sim_args)
+        return 0
+    if args.replay:
+        replay(Path(args.replay))
+        return 0
+    if args.prune is not None:
+        runs = [Path(args.prune)] if args.prune else run_folders()
+        for run in runs:
             prune(run)
+        slim(run_folders())
         return 0
     runs = [Path(args.score)] if args.score else range(args.repeat)
     failed = False
@@ -374,8 +594,10 @@ def main():
                  if "route" in s else ""))
         failed |= s["outcome"] != "succeeded" or s["passed"] is False
         if args.view and not args.score:
-            replay(run)    # before the next run, so its load can't delay that run's states
+            # Before the next run, so its load can't delay that run's states.
+            replay(run, float(np.load(run / "trace.npz")["time"][-1]) + REPLAY_SLACK)
         prune(run)
+        slim(run_folders())
     return 1 if failed else 0
 
 
