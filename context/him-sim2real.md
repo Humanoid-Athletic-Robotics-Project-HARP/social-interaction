@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before any work on the simulation-migration branch, or anything that touches HARP's safety harness/simulator (him-sim2real-management)
 metadata:
   type: project
-  updated: 2026-10-28T05:20:46Z
+  updated: 2026-10-28T05:22:05Z
   covers: []
 ---
 
@@ -21,11 +21,13 @@ metadata:
 
 **State of the branch (2026-10-28):** `submission/` works in HIM's sim (walker on `/cmd_vel`, leg odometry, move to a point, and a first Nav2 course), [[submission-image]]. Nothing has run on the real robot. The old `ros2/` stack is broken on this branch: its worlds, `movers.py` and Nav2 config were moved into `submission/`, so `run_sim` fails on import. The README doesn't describe `submission/` yet.
 
-**Next steps, in order:**
-1. Run the move on the robot through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first, then ours standing, then a short `{"to": ...}`), and check leg odometry with a tape.
-2. Add the README section for `submission/` (setup, sim with the viewer, move to a point, robot steps) and a milestone under "Run safely on the real robot".
-3. A parity checklist, kept as README milestones: each old feature, where it lives now (HIM or our image) or why it was dropped, and the test that shows it matches the old numbers.
-4. Run the other courses with `submission/course.py` (`open_floor`, `slalom`, `obstacle_course`, `crossing`, `oncoming`) against their criteria.
-5. Port the rest of `move_distance` (straight walks, turns in place).
-6. `lidar_relay` in the image for the robot (CycloneDDS and Unitree's SDK built in), then Nav2 on the robot.
-7. Only then remove the old `ros2/` stack, and rewrite the memories that describe it ([[safety]], [[controls]], [[mujoco-sim]], [[nav2-sim]], [[run-logging]], [[gr00t-wbc]], [[ros2-mac]], [[move-distance]]). Tell the teammate behind the remote-button rule in [[controls]] first that HIM's controls replace ours.
+**Next steps without the robot, in order:**
+1. Review the whole `submission/` diff once (it was built in pieces), and fix what it turns up.
+2. README section for `submission/`: setup (HIM checkout, its venv, Docker Desktop, Holosoma checkpoint), the sim with the viewer, move to a point, the robot steps. Add a milestone under "Run safely on the real robot".
+3. Parity checklist, kept as README milestones: each old feature, where it lives now (HIM or our image) or why it was dropped, and the sim test that shows it matches the old numbers.
+4. Prepare the first robot session in the sim (`--no-view` for the numbers): the targets planned for it (standing with no target, `{"to": [0.5, 0, 0]}`, `{"to": [1, 1, 45]}`), each passing `within_limits` and within about 8 cm and 5°. Write the session's checklist from HIM's steps.
+5. Port the rest of `move_distance` (straight walks, turns in place) into `harp/move_to_point.py`'s process, with the same sim checks.
+6. Run the other courses with `submission/course.py` (`open_floor`, `slalom`, `obstacle_course`, `crossing`, `oncoming`), fix what fails their criteria, then repeat runs for spread.
+7. Build `lidar_relay` into the image (CycloneDDS and Unitree's SDK), started only outside the sim. In the sim, check it builds, starts and exits cleanly; real data needs the robot.
+
+**Needs the robot:** run the move through HIM's launcher (preflight, dry run, real; HIM's walker example with `stand.yaml` first) and check leg odometry with a tape; real lidar through `lidar_relay`, then Nav2 on the robot. Only after those, remove the old `ros2/` stack and rewrite the memories that describe it ([[safety]], [[controls]], [[mujoco-sim]], [[nav2-sim]], [[run-logging]], [[gr00t-wbc]], [[ros2-mac]], [[move-distance]]); tell the teammate behind the remote-button rule in [[controls]] first that HIM's controls replace ours.
