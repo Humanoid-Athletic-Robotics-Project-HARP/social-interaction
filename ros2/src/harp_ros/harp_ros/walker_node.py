@@ -79,8 +79,12 @@ class WalkerNode(Node):
         # 1 otherwise. course gives each run its own, so several can run at once.
         self.declare_parameter("domain", -1)
         self.auto_start = self.get_parameter("auto_start").value
+        if self.auto_start and self.get_parameter("real").value:
+            raise ValueError("auto_start is only available in the sim")
         self.feet_down = False          # the sim reported its feet on the floor (auto_start)
         self.cmd_timeout = self.get_parameter("cmd_timeout").value
+        if not math.isfinite(self.cmd_timeout) or self.cmd_timeout <= 0:
+            raise ValueError("cmd_timeout must be positive and finite")
         self.cmd = np.zeros(3, dtype=np.float32)
         self.cmd_time = -math.inf
         self.requests = queue.Queue()   # ] and o from the services, read by Walker.run
@@ -130,12 +134,22 @@ class WalkerNode(Node):
                 self.get_clock().now().to_msg(), *lidar_mount.from_base_link()))
 
     def on_event(self, msg):
-        record = json.loads(msg.data)
-        if record["source"] == "sim" and record["event"] == "feet_down":
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            return
+        if isinstance(record, dict) and record.get("source") == "sim" \
+                and record.get("event") == "feet_down":
             self.feet_down = True
 
     def on_cmd_vel(self, msg):
-        self.cmd = np.array([msg.linear.x, msg.linear.y, msg.angular.z], dtype=np.float32)
+        cmd = np.array([msg.linear.x, msg.linear.y, msg.angular.z], dtype=float)
+        if not np.isfinite(cmd).all():
+            self.cmd = np.zeros(3, dtype=np.float32)
+            self.cmd_time = -math.inf
+            self.get_logger().warning("Non-finite /cmd_vel: clearing the movement request.")
+            return
+        self.cmd = np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).astype(np.float32)
         self.cmd_time = time.monotonic()
 
     def on_start(self, request, response):
