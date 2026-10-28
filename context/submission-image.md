@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T05:24:15Z
+  updated: 2026-10-28T06:34:11Z
   covers: [submission/**]
 ---
 
@@ -20,8 +20,8 @@ metadata:
 
 **Course tests:** `python3 submission/course.py NAME [--tag T --repeat N --view]` runs `sim.sh --world` into `runs/` and scores from HIM's `trace.npz` (truth) and `policy.log` (our events and "odom" lines): outcome, pass, time, path, end error, closest, contacts (movers included), recoveries, drift. Container output is only in `policy.log`; nothing else leaves the container.
 
-**Move to a point** (`harp/move_to_point.py`, the old `move_distance --to`): `G1_TASK_COMMAND='{"to": [X, Y, HEADING]}'` (also `speed`, `turn_speed`) reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. In the sim, (1, 1, 45°) ends about 7 cm and 5° off with leg odometry within 1 cm of the truth (`within_limits`).
+**Planned moves** (`harp/moves.py`, the old `move_distance`): `G1_TASK_COMMAND='{"moves": [{"walk": M}, {"turn": DEG}, {"to": [X, Y, HEADING]}]}'` or just `{"to": [...]}` (also `speed`, `turn_speed`) reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. Moves run 2 s apart, each from where the last ended. In the sim (one run, `within_limits`): walk 1 m ended 1.02 m, turn 90° ended 90.2°, curve to (1, 1, 45°) ended about 7 cm and 5° off; leg odometry within 1 cm of the truth each time.
 
 **Viewing:** `submission/sim.sh` opens HIM's browser viewer by default (press Start; `--no-view` to skip, which `course.py` uses). On a MacBook Air the viewer's load can make HIM stop a run (`observation_timeout` with `host_stall`, or `checked_command_expired`) that passes without it: rerun with `--no-view` before blaming our code, then watch it with HIM's `./desktop_sim.sh replay RUN/trace.npz`. HIM's first viewer use downloads Three.js; on a Python.org Python that needs `SSL_CERT_FILE` from `certifi`.
 
-**Not built yet:** `lidar_relay` in the image for the robot (needs CycloneDDS and Unitree's SDK in the image), the rest of `move_distance` (straight walks, turns).
+**Not built yet:** `lidar_relay` in the image for the robot (needs CycloneDDS and Unitree's SDK in the image).

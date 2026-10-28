@@ -36,7 +36,7 @@ class HarpPolicyNode(client.PolicyNode):
     def __init__(self, policy, mode="sim"):
         super().__init__(policy, mode)
         # Without a task velocity the shared walker walks forward at 0.3 m/s; stand instead.
-        # A {"to": ...} task is a target for harp/move_to_point.py, which drives /cmd_vel.
+        # A {"moves": ...} or {"to": ...} task is for harp/moves.py, which drives /cmd_vel.
         if self.task_command is None or isinstance(self.task_command, dict):
             self.task_command = [0.0, 0.0, 0.0]
         self.cmd_time = None

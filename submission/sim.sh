@@ -34,6 +34,9 @@ args+=(${view[@]+"${view[@]}"})
 mkdir -p "$him/.cache/harp"
 cp "$profile" "$him/.cache/harp/joint_profile.json"
 export G1_JOINT_PROFILE="$him/.cache/harp/joint_profile.json"
+# HIM's sim needs the Holosoma recovery checkpoint; by default it sits in models/ beside this repo.
+holosoma="$(cd -- "$here/../.." && pwd -P)/models/fastsac_g1_29dof.onnx"
+[[ -z "${HIM_HOLOSOMA_ONNX:-}" && -f "$holosoma" ]] && export HIM_HOLOSOMA_ONNX="$holosoma"
 image="${HARP_IMAGE:-harp-submission:local}"
 if [[ -n "$world" ]]; then
   scenes="$him/.cache/harp/scenes"

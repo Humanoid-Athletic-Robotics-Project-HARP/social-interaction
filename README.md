@@ -17,6 +17,7 @@ the project structure:
 | `ros2/src/harp_ros` | The ROS 2 side. `walker_node` takes `/cmd_vel` and publishes `/odom` and `/tf`; `lidar_relay` brings the robot's lidar into ROS 2; Nav2's launch file and config. |
 | `ros2/src/harp_eval` | Testing. Course tests in the sim (`course`), recording any run (`run_recorder`), comparing and checking runs (`runs`), and replaying a run into Nav2. |
 | `ros2/src/spatio_temporal_voxel_layer` | STVL, the Nav2 costmap layer that lets lidar marks fade once an obstacle has moved on. A copy of the upstream package, built from here; our changes and how to update it are in `HARP_PATCHES.md`. |
+| `submission/` | Our code inside HARP's safety harness and simulator (HIMRobotics' `him-sim2real-management`): the Docker image the harness runs on the robot and in its sim, the move to a point, leg odometry, the lidar sim, Nav2 and the course tests in `worlds/`. |
 | `ros2/pixi.toml`, `pixi.lock` | The pinned environment: ROS 2 Jazzy, Python 3.12, MuJoCo and Unitree's SDK. |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
@@ -35,7 +36,7 @@ both the sim and the real robot, and we try everything in the sim first.
 | Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
 | Find people and walk up to them | ⬜ | ⬜ | Pick a person detector for the camera |
 | Talk with people | ⬜ | ⬜ | Make the speaker talk |
-| Run safely on the real robot | – | ⛔ | Settle how HARP's safety layer fits in |
+| Run safely on the real robot | 🟡 | ⬜ | **Next:** first robot run of the move to a point through HARP's harness |
 
 ### Move like a person
 
@@ -45,6 +46,9 @@ both the sim and the real robot, and we try everything in the sim first.
 - ✅ Sim: set distances, turns and curves to a point and heading
   (`move_distance`), with our own leg odometry.
 - ✅ Sim: driven over ROS 2, `/cmd_vel` in and `/odom` + `/tf` out (`walker_node`).
+- ✅ Sim: inside HARP's harness, `/cmd_vel` drives HARP's GR00T walker, our leg
+  odometry gives `/odom`, and walks, turns and moves to a point work
+  (`submission/`, `G1_TASK_COMMAND`).
 - ⬜ Robot: all of the above, and leg odometry checked against a tape measure.
 - ⬜ Body language: facing the person, gestures.
 
@@ -87,8 +91,11 @@ both the sim and the real robot, and we try everything in the sim first.
 
 This has to happen before any of the "Robot" boxes above.
 
-- ⛔ Find out whether HARP's safety layer sits between our code and the
-  motors, and if it does, send our commands through it.
+- ✅ Our commands go through HARP's safety harness (`him-sim2real-management`),
+  which owns stand-up, stops and the motors ("HARP's safety harness" below).
+- 🟡 Move everything onto the harness (`submission/`). Sim: the walker, leg
+  odometry, walks, turns and moves to a point, the lidar and Nav2 on
+  `one_box`. Robot: not yet run.
 - 🟡 Everything from the remote, the same as the keyboard, in `walk`,
   `move_distance` and `walker_node` ("Controls" below): B stops, L1 + sticks
   take over by hand from any program. Sim: tested through scripted remote
@@ -163,6 +170,137 @@ packages and Unitree's messages. Python edits take effect right away, but
 you'll need to rebuild after adding a new file or package. If you update
 any versions (the commits in step 3 or `pixi.lock`), update them together
 and re-test in the sim.
+
+## HARP's safety harness: `submission/`
+
+HARP's safety harness and simulator, HIMRobotics' `him-sim2real-management`,
+is the only way our code reaches the motors. It stands the robot up, stops
+it, checks every joint command, and runs our code as a Docker image. We use
+it unchanged, cloned next to this repo, and keep only our code here.
+
+### Setup
+
+Clone it and download its recovery policy next to this repo. The repo is
+private, so you need HARP's GitHub access. Docker Desktop must be running.
+
+```
+harp/
+├── stanford-harp-social-interaction/   this repo
+├── him-sim2real-management/            HARP's harness and simulator
+└── models/fastsac_g1_29dof.onnx        its recovery policy (Holosoma)
+```
+
+From inside `harp/`:
+
+```bash
+git clone https://github.com/HIMRobotics/him-sim2real-management.git
+```
+
+```bash
+mkdir -p models && curl -L -o models/fastsac_g1_29dof.onnx https://raw.githubusercontent.com/amazon-far/holosoma/d1e8499c10670f44c49d161b9876a4c17ac305f7/src/holosoma_inference/holosoma_inference/models/loco/g1_29dof/fastsac_g1_29dof.onnx
+```
+
+```bash
+echo "8346fd90778439395922a8c7256f24125ae84b8dea949128bac9e23c02bc7717  models/fastsac_g1_29dof.onnx" | shasum -a 256 -c
+```
+
+Then, inside `him-sim2real-management/`, make its Python environment and
+download its 3D viewer once:
+
+```bash
+python3 -m venv .venv-policy-safety && .venv-policy-safety/bin/pip install './packages/policy_safety[test]' certifi
+```
+
+```bash
+SSL_CERT_FILE="$(.venv-policy-safety/bin/python -m certifi)" .venv-policy-safety/bin/python containers/sim/viewer_assets.py
+```
+
+### Build and try it in the sim
+
+From this repo, build the image (`submission/submission.tar`, for the robot,
+and `submission/joint_profile.json`, its joint limits and gains):
+
+```bash
+submission/build.sh
+```
+
+This walks the robot in one curve to 1 m ahead and 1 m left, ending facing
+45° left:
+
+```bash
+G1_TASK_COMMAND='{"to": [1, 1, 45]}' submission/sim.sh --seconds 35
+```
+
+A page opens in your browser; press Start. For the first 5 s HARP's GR00T
+balance holds the robot (on the robot, until the operator hands over), then
+our image takes over and the move starts 2 s later. `"to": [X, Y, HEADING]`
+is meters ahead, meters left and degrees left of where the robot stands.
+
+Moves can also be chained, like `move_distance`: this walks 1 m, turns 90°
+left, then curves to a point. They run in order, 2 s apart, each from where
+the last one ended:
+
+```bash
+G1_TASK_COMMAND='{"moves": [{"walk": 1}, {"turn": 90}, {"to": [1, 1, 45]}]}' submission/sim.sh --seconds 50
+```
+
+`"walk"` is meters (negative walks backward), `"turn"` degrees (positive
+turns left). `"speed"` (m/s, up to 0.4) and `"turn_speed"` (deg/s, up to 30)
+are optional, next to `"moves"` or `"to"`. Without moves the robot stands.
+The run is passed when `report.json` in the output folder (`--output DIR`)
+says `within_limits`.
+
+If the browser view makes your computer stall, HARP's harness can stop the
+run (`host_stall`, `observation_timeout`). Add `--no-view` and watch the run
+afterwards from `him-sim2real-management/`:
+
+```bash
+./desktop_sim.sh replay RUN_FOLDER/trace.npz
+```
+
+Course tests run Nav2 with the simulated lidar on one of `submission/worlds/`
+and score it against that world's criteria, in a folder in `runs/`:
+
+```bash
+python3 submission/course.py one_box
+```
+
+### On the robot
+
+HARP's operators set the harness up on the robot (its checkout in
+`~/him-sim2real-management` and its background safety service). Copy our
+image and joint profile over (`<g1>` is the robot's address):
+
+```bash
+scp submission/submission.tar unitree@<g1>:~/him-sim2real-management/containers/upload/
+```
+
+```bash
+scp submission/joint_profile.json unitree@<g1>:~/harp_joint_profile.json
+```
+
+Hang the robot from the gantry with its feet bearing weight, and put it in
+Unitree's locked standing mode. Then, on the robot, in
+`~/him-sim2real-management`, check the image (nothing moves), run it with
+the motors off, and finally run it for real:
+
+```bash
+./setup.sh --profile ~/harp_joint_profile.json
+```
+
+```bash
+G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./setup.sh --mode dry-run --profile ~/harp_joint_profile.json
+```
+
+```bash
+G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./submit.sh --mode real --profile ~/harp_joint_profile.json
+```
+
+GR00T balance takes over from Unitree's controller. Once it prints
+`startup_phase: ready`, press **D-pad Left + B** to hand control to our
+image. **Double Start damps the robot** at any time, and double F3 switches
+to the recovery policy. Before running again, double-press Start, check it
+damped, and put the robot back in locked standing mode.
 
 ## Run it in the sim
 
