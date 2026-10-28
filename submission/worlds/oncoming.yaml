@@ -1,0 +1,11 @@
+# Pass criteria for course tests on this world (runs check, summary.json).
+# From the 2026-10-28 runs (25-31 s, closest 0.16-0.18 m, end 0.17-0.18 m off,
+# 0-1 recoveries), loosened for run-to-run spread. The clearance only guards
+# against getting worse: the person passing that close is an open problem
+# (context/nav2-sim.md), not the goal.
+must_succeed: true
+max_time_s: 45
+min_clearance_m: 0.10
+max_contacts: 0
+max_recoveries: 2
+max_end_error_m: 0.35

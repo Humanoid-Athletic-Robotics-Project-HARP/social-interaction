@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-28T09:26:33Z
+  updated: 2026-10-28T22:46:37Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py]
 ---
 
@@ -14,7 +14,7 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - NavFn (`allow_unknown`) + the **Graceful Controller** (Park & Kuipers, the same law as our `{"to": ...}` move), so a goal is reached in one curve already facing its heading: the way to walk up to a person. Foxy lacks it, so it is our port, `submission/nav2_graceful_controller/` (Nav2 commit `d5d768b`, `HARP_PATCHES.md`). Speed minimums stay well above GR00T's 0.05 Balance switch.
 - `failure_tolerance` 0.3 (ours, in the port): without it each moment with no collision-free trajectory (a person crossing) aborted the path, 6 recoveries and a failed `crossing`. `goal_dist_tolerance` 0.25 matches the goal checker, which Foxy doesn't hand to the controller.
 - Regulated Pure Pursuit was the first Foxy controller (settings in commit `ca382d5`): faster (slalom 40 s), but no final-heading curve, and its 1 s collision look-ahead tripped on the walker's sway (0.5 s needed).
-- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recoveries are Wait and Spin. Removing Spin is deferred ([[him-sim2real]]'s to-do).
+- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). The only recovery is Wait: Spin turned on the costmap it had without checking the lidar was still live. No course run needs a recovery.
 - **A lost lidar doesn't stop Nav2 on Foxy.** `expected_update_rate` stays 0: at 1.0, Foxy's costmaps logged "should be updated every 0.00s" on every update (each one stale, even with fresh 10 Hz clouds), and Nav2 still walked `one_box` normally and passed (`runs/2026-10-28_09-19-44Z_sim_one_box_stale-lidar`). So nothing in Foxy's controller acts on a stale costmap: a stop on lost lidar would have to be ours, outside Nav2.
 - **Footprint:** a circle, `robot_radius` 0.4: the forearms reach 0.355 m from `base_link`, and a polygon gives NavFn an inscribed radius of only 0.09 m.
 - **Inflation** 0.8 m, factor 3 keeps the body edge about 0.45 m from obstacles (personal space). Only `robot_radius` blocks a gap. 1.0 / factor 2 made NavFn detour round slalom's side walls.
@@ -23,8 +23,8 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 
 **Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.5 m to its left). `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
 
-**Results with Graceful** (2026-10-28, one run each, `runs/*_graceful*`, all `within_limits`, 0 contacts, drift under 4 cm): open_floor 17.4 s; one_box 24.8 s, closest 0.60 m; slalom 52.5 s, 0.37 m, 0 recoveries; obstacle_course 48.0 s, 0.25 m, 0 recoveries; crossing 32.1 s, 0.62 m, 0 recoveries; oncoming 31.2 s, 0.17 m, 1 recovery. RPP's (`runs/*_rpp-ttc05`): 16.8, 20.5, 40.4, 43.2, 29.2, 25.1 s. The live viewer often makes HIM stop Nav2 runs on a MacBook Air (`host_stall`, `inconclusive`): numbers come from `--no-view` reruns when that happens.
+**Results** (2026-10-28, Graceful, Wait only, two runs each, `runs/*_wait-only`, 0 contacts, 0 recoveries, drift under 6 cm): open_floor 17.4–17.6 s; one_box 23.8–25.1 s, closest 0.60 m; slalom 53 s, 0.37 m; obstacle_course 48 s, 0.28–0.30 m; crossing 34–38 s, 0.59 m; oncoming 27 s, 0.19 m. One slalom and one obstacle_course run were stopped by HIM 40 s after the goal ([[sim-deadline-stops]]). RPP's, earlier (`runs/*_rpp-ttc05`): 16.8, 20.5, 40.4, 43.2, 29.2, 25.1 s.
 
 **Open problem — oncoming people:** the person passes within 0.16–0.17 m (wrist): Nav2 treats them as standing still, and they're marked only within 3 m, about 2 s before they arrive.
 
-**Next in the sim:** criteria for `crossing`/`oncoming`, repeat runs for spread, yielding to oncoming people, a collision monitor, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).
+**Next in the sim:** yielding to oncoming people, a collision monitor, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).
