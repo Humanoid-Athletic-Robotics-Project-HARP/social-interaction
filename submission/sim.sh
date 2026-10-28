@@ -46,6 +46,16 @@ if [[ -n "$world" ]]; then
   image="harp-submission:$world"
   args+=(--scene "$scenes/$world.xml")
 fi
+# HIM's viewer takes the first free port from 8765. Right after a run, macOS holds 8765
+# for up to a minute after the browser's connections, so wait for it to stay on 8765.
+port="${G1_SIM_VIEW_PORT:-8765}"
+if ((${#view[@]})); then
+  for _ in $(seq 60); do
+    python3 -c "import socket, sys; socket.socket().bind(('127.0.0.1', int(sys.argv[1])))" "$port" \
+      2>/dev/null && break
+    sleep 1
+  done
+fi
 launcher="sim.sh"
 [[ "$(uname)" == Darwin ]] && launcher="desktop_sim.sh"
 exec "$him/$launcher" --image "$image" ${args[@]+"${args[@]}"}

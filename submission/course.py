@@ -6,7 +6,8 @@
 Each run gets a folder in runs/ (HARP_RUNS_DIR to change it) holding HIM's
 report.json, trace.npz (the true pose every 20 ms) and policy.log (our image's
 output: events and the once-a-second "odom" lines), and our summary.json:
-  outcome    succeeded / failed / timed_out / error / violation (HIM stopped the policy)
+  outcome    succeeded / failed / timed_out / error / violation (HIM stopped the policy) /
+             inconclusive (HIM stopped it while the host had paused its sim: host_stall)
   passed     against the world's criteria, submission/worlds/NAME.yaml
   seconds, recoveries   from course_goal's goal_result
   path_m, end_error_m   from the true pose (end: distance from the goal site)
@@ -23,8 +24,10 @@ import argparse
 import datetime
 import json
 import os
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -35,6 +38,7 @@ RUNS = Path(os.environ.get("HARP_RUNS_DIR", REPO / "runs"))
 STARTUP = 30.0          # s added to the world's max_time_s: HIM's 5 s balance, Nav2, settling
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
+VIEW_LINGER = 5.0       # s the live viewer stays up after the report, with --view
 
 try:
     import mujoco
@@ -112,7 +116,9 @@ def score(run):
     drift = (round(float(np.hypot(*(np.array(odom[-1]["legs"][:2]) - odom[-1]["truth"][:2]))), 3)
              if odom else None)
 
-    if report["status"] not in ("within_limits", "completed"):
+    if report["status"] not in ("within_limits", "completed") and report.get("host_stall"):
+        outcome = "inconclusive"    # HIM's sim was paused by the host: rerun, maybe with --no-view
+    elif report["status"] not in ("within_limits", "completed"):
         outcome = "violation"
     elif result is None:
         outcome = "error"
@@ -160,7 +166,16 @@ def run_once(name, tag, view):
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
                "--output", str(run)] + ([] if view else ["--no-view"])
     with open(run / "sim.log", "w") as log:
-        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+        sim = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        if view:
+            print(f"{run.name}: press Start at http://127.0.0.1:8765", flush=True)
+            # HIM's viewer keeps serving after the run; close it once the report is written.
+            while sim.poll() is None and not (run / "report.json").is_file():
+                time.sleep(1)
+            time.sleep(VIEW_LINGER)
+            if sim.poll() is None:
+                os.killpg(sim.pid, signal.SIGINT)
+        sim.wait()
     if not (run / "report.json").is_file():
         print(f"{run.name}: no report; see {run / 'sim.log'}")
         return None

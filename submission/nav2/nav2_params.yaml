@@ -70,7 +70,10 @@ controller_server:
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.1
       use_cost_regulated_linear_velocity_scaling: false
-      max_allowed_time_to_collision: 1.0
+      # s ahead RPP projects the footprint along the command and stops if it touches
+      # inflated cost. At 1.0 the walker's sway on slalom's corners tripped it 6 times
+      # a run (each a recovery) with the path clear; 0.5 s is still about a step.
+      max_allowed_time_to_collision: 0.5
 
 # Both costmaps read the head lidar the same way, through STVL
 # (spatio_temporal_voxel_layer), whose marks fade:
