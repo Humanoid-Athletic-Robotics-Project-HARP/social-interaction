@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (nav2_params.yaml, nav2.launch.py, the behavior tree), changing a course, or running Nav2 by hand — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-28T00:46:21Z
+  updated: 2026-10-28T00:46:31Z
   covers: [ros2/src/harp_ros/config/nav2_params.yaml, ros2/src/harp_ros/launch/nav2.launch.py, ros2/src/harp_ros/behavior_trees/*, ros2/src/harp_sim/worlds/*.xml, ros2/src/harp_sim/harp_sim/movers.py, ros2/src/harp_control/harp_control/lidar_mount.py]
 ---
 
