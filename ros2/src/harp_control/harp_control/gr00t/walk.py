@@ -18,12 +18,17 @@ Sim (start it first: ros2 run harp_sim run_sim, see README):
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
   ros2 run harp_control walk --real --interface eth0
 
-Keys, typed in this terminal: ] start policy, w/s forward/back, a/d left/right, q/e turn left/right,
-z zero velocity, 1/2 raise/lower, o stop (damp) and quit.
+Keys in this terminal and buttons on the robot's remote do the same things,
+in every program built on Walker (the table is in harp_control/remote.py):
+Space/o or B stops (damps), w/s a/d q/e or L1 + sticks drive by hand, z or
+letting go of L1 stops moving, Shift+P or R1+start starts the policy,
+Shift+R/F or R1+up/down raises or lowers. A program that drives the robot
+itself (move_distance, walker_node) sets manual = False: driving by hand then
+takes over from it, and Shift+G or R1+A hands control back.
 
-Every way of stopping goes through Walker.stop: o, Ctrl-C, L2+B on the robot's
-remote (the e-stop), a lost rt/lowstate, a fall, or an error. It damps every
-joint; on the real robot it then keeps damping until o or Ctrl-C, so the
+Every way of stopping goes through Walker.stop: Space or o, Ctrl-C, B on the
+robot's remote (the e-stop), a lost rt/lowstate, a fall, or an error. It damps
+every joint; on the real robot it then keeps damping until o or Ctrl-C, so the
 joints never go uncommanded while someone secures the robot.
 """
 
@@ -92,6 +97,7 @@ DEFAULT_HEIGHT = 0.74
 
 # Our own limits, kept well inside what the policy was trained on.
 MAX_VX, MAX_VY, MAX_YAW_RATE = 0.6, 0.4, 1.0
+CMD_LIMITS = np.array([MAX_VX, MAX_VY, MAX_YAW_RATE], dtype=np.float32)
 HEIGHT_RANGE = (0.6, 0.8)
 CMD_STEP, HEIGHT_STEP = 0.2, 0.05
 
@@ -170,9 +176,20 @@ class Walker:
         self.quit = False
         self.read_key = None
         self.on_policy_output = None   # (obs, action) after each policy step, for logging
-        # Printed once the policy is on; move_distance.py replaces it.
-        self.next_hint = ("Drive with w/s (forward/back), a/d (sideways), q/e (turn), "
-                          "z (stop moving), 1/2 (raise/lower); o stops.")
+        # Driven by hand (keys or the remote's sticks) rather than by a program. Programs
+        # that drive set it False, name themselves in program, and may set on_take_over
+        # (called when driving by hand takes over) and on_hand_back (Shift+G or R1+A).
+        self.manual = True
+        self.manual_cmd = np.zeros(3, dtype=np.float32)
+        self.program = None
+        self.on_take_over = None
+        self.on_hand_back = None
+        self.remote_held = set()      # remote buttons held at the previous tick
+        self.remote_driving = False   # L1 held since the policy started: the sticks drive
+        # Printed once the policy is on; move_distance.py and walker_node replace it.
+        self.next_hint = ("Drive with w/s (forward/back), a/d (sideways), q/e (turn) or hold L1 "
+                          "and use the sticks; z or letting go of L1 stops moving; Shift+R/F "
+                          "raise/lower; Space or B stops.")
 
         self.low_cmd = unitree_hg_msg_dds__LowCmd_()
         self.crc = CRC()
@@ -236,6 +253,7 @@ class Walker:
     def hold(self):
         """Keep sending damping commands, so the joints stay soft and nothing
         else is left commanding them, until o or Ctrl-C."""
+        # Only o, not Space too, so a stop pressed twice doesn't end the damping.
         print("Still damping. Press o or Ctrl-C to quit once the robot is secured.")
         next_tick = time.monotonic()
         try:
@@ -249,39 +267,103 @@ class Walker:
             pass
 
     def handle_key(self, key):
-        steps = {"w": (0, CMD_STEP), "s": (0, -CMD_STEP), "a": (1, CMD_STEP),
-                 "d": (1, -CMD_STEP), "q": (2, CMD_STEP), "e": (2, -CMD_STEP)}
-        if key == "]" and not self.policy_on:
-            if not self.standing:
-                print("Not yet: wait for 'Stand pose reached' (about 3 s after start).")
-                return
-            self.policy_on = True
-            runlog.event("walker", "policy_on")
-            if self.real:
-                print("Policy on: GR00T is balancing. Slacken the gantry, leaving the rope "
-                      "just loose enough to catch a fall.")
-            else:
-                print("Policy on: GR00T is balancing. Release the band (9 in the MuJoCo "
-                      "window) and give the robot a few seconds to settle.")
-            print(self.next_hint)
-            return
-        if key == "o":
+        """One key from the terminal, or the key a remote press stands for (remote.py)."""
+        if key in remote.STOP_KEYS:
             self.quit = True
+        elif key == remote.START_KEY:
+            self.start_policy()
+        elif key == remote.HAND_BACK_KEY:
+            self.hand_back()
+        elif key in (remote.RAISE_KEY, remote.LOWER_KEY):
+            step = HEIGHT_STEP if key == remote.RAISE_KEY else -HEIGHT_STEP
+            self.height = float(np.clip(self.height + step, *HEIGHT_RANGE))
+            print(f"height={self.height:.2f}")
+        elif key in remote.DRIVE_KEYS or key == remote.HALT_KEY:
+            if not self.policy_on:
+                print("Not yet: start the policy first (Shift+P, or R1+start on the remote).")
+                return
+            self.take_over("keyboard")
+            if key == remote.HALT_KEY:
+                self.manual_cmd[:] = 0.0
+            else:
+                axis, sign = remote.DRIVE_KEYS[key]
+                self.manual_cmd[axis] += sign * CMD_STEP
+                self.manual_cmd = np.clip(self.manual_cmd, -CMD_LIMITS, CMD_LIMITS).astype(np.float32)
+            print(f"cmd vx={self.manual_cmd[0]:+.1f} vy={self.manual_cmd[1]:+.1f} "
+                  f"yaw={self.manual_cmd[2]:+.1f}  height={self.height:.2f}")
+
+    def start_policy(self):
+        if self.policy_on:
             return
-        if key in steps:
-            axis, step = steps[key]
-            self.cmd[axis] += step
-        elif key == "z":
-            self.cmd[:] = 0.0
-        elif key in ("1", "2"):
-            self.height += HEIGHT_STEP if key == "1" else -HEIGHT_STEP
+        if not self.standing:
+            print("Not yet: wait for 'Stand pose reached' (about 3 s after start).")
+            return
+        self.manual_cmd[:] = 0.0
+        self.cmd[:] = 0.0
+        self.policy_on = True
+        runlog.event("walker", "policy_on")
+        if self.real:
+            print("Policy on: GR00T is balancing. Slacken the gantry, leaving the rope "
+                  "just loose enough to catch a fall.")
         else:
+            print("Policy on: GR00T is balancing. Release the band (9 in the MuJoCo "
+                  "window) and give the robot a few seconds to settle.")
+        print(self.next_hint)
+
+    def take_over(self, by):
+        """Driving by hand overrides the program until hand_back()."""
+        if self.manual:
             return
-        self.cmd = np.clip(self.cmd, [-MAX_VX, -MAX_VY, -MAX_YAW_RATE],
-                           [MAX_VX, MAX_VY, MAX_YAW_RATE]).astype(np.float32)
-        self.height = float(np.clip(self.height, *HEIGHT_RANGE))
-        print(f"cmd vx={self.cmd[0]:+.1f} vy={self.cmd[1]:+.1f} "
-              f"yaw={self.cmd[2]:+.1f}  height={self.height:.2f}")
+        self.manual = True
+        self.manual_cmd[:] = 0.0
+        runlog.event("walker", "manual", by=by)
+        print(f"Manual control ({by}), overriding {self.program}. Shift+G or R1+A hands control back.")
+        if self.on_take_over is not None:
+            self.on_take_over()
+
+    def hand_back(self):
+        """Shift+G or R1+A: the program drives again (move_distance: starts the moves)."""
+        if self.program is None:
+            print("Nothing to hand control back to: this program is driven by hand.")
+            return
+        if not self.policy_on:
+            print("Not yet: start the policy first (Shift+P, or R1+start on the remote).")
+            return
+        was_manual = self.manual
+        self.manual = False
+        self.remote_driving = False
+        self.manual_cmd[:] = 0.0
+        self.cmd[:] = 0.0
+        if was_manual:
+            runlog.event("walker", "hand_back")
+            print(f"Control handed back to {self.program}.")
+        if self.on_hand_back is not None:
+            self.on_hand_back()
+
+    def read_remote(self):
+        """Called every tick: B stops, R1 combos act as their keys, L1 drives with the sticks."""
+        held = remote.pressed(self.state.wireless_remote)
+        if remote.ESTOP in held:
+            runlog.event("walker", "estop", by="remote")
+            raise Stop("remote_estop", "E-stop: B on the remote.")
+        for key in remote.combo_keys(held, self.remote_held):
+            self.handle_key(key)
+        if remote.MANUAL in held and remote.MANUAL not in self.remote_held and self.policy_on:
+            self.take_over("remote")
+            self.remote_driving = True
+        if self.remote_driving:
+            if remote.MANUAL in held:
+                s = remote.sticks(self.state.wireless_remote)
+                # Stick forward is +ly, right is +lx and +rx; the command's y and yaw are positive left.
+                self.manual_cmd = np.array([s["ly"], -s["lx"], -s["rx"]], dtype=np.float32) * CMD_LIMITS
+            else:
+                self.remote_driving = False
+                self.manual_cmd[:] = 0.0
+                runlog.event("walker", "manual_release")
+                hint = (f" Shift+G or R1+A hands control back to {self.program}."
+                        if self.program is not None and self.manual else "")
+                print(f"L1 released: balancing in place.{hint}")
+        self.remote_held = held
 
     def check_mode_machine(self):
         mode = self.state.mode_machine
@@ -297,7 +379,7 @@ class Walker:
 
         on_policy_step(q, quat), if given, is called before each policy step
         (50 Hz, once the policy is on) and may change self.cmd or set self.quit.
-        However it ends, it ends in stop(), and returns why: "quit" (o), "ctrl_c",
+        However it ends, it ends in stop(), and returns why: "quit" (Space or o), "ctrl_c",
         "remote_estop", "state_lost", "fall" or "error" (CLEAN_STOPS aren't failures).
         """
         self.read_key = read_key
@@ -315,7 +397,7 @@ class Walker:
             runlog.event("walker", "error", message=str(e))
             self.stop("error", f"Error: {e}")
             return "error"
-        self.stop("quit", "Stopping (o).")
+        self.stop("quit", "Stopping (keyboard).")
         return "quit"
 
     def loop(self, read_key, on_policy_step):
@@ -334,16 +416,15 @@ class Walker:
         next_tick = t0
         target = start_q
         tick = 0
-        print("Moving to the stand pose (3 s). Keys go to this terminal; o stops at any time.")
+        print("Moving to the stand pose (3 s). Keys go to this terminal; Space (or B on the "
+              "remote) stops at any time.")
         while not self.quit:
             now = time.monotonic()
             if now - self.state_time > self.state_timeout:
                 runlog.event("walker", "state_lost", ms=round((now - self.state_time) * 1000))
                 raise Stop("state_lost", f"Robot state (rt/lowstate) stopped for "
                            f"{(now - self.state_time) * 1000:.0f} ms. Did the sim or the network stop?")
-            if remote.ESTOP <= remote.pressed(self.state.wireless_remote):
-                runlog.event("walker", "estop", by="remote")
-                raise Stop("remote_estop", "E-stop: L2+B on the remote.")
+            self.read_remote()
             key = read_key()
             if key:
                 self.handle_key(key)
@@ -359,6 +440,8 @@ class Walker:
                 if tick % round(CONTROL_DT / PUBLISH_DT) == 0:
                     if on_policy_step is not None:
                         on_policy_step(q, quat)
+                    if self.manual:
+                        self.cmd = self.manual_cmd.copy()
                     target = STAND_POSE.copy()
                     target[:NUM_ACTIONS] = self.policy.step(
                         q, dq, quat, gyro, self.cmd, self.height)
@@ -372,10 +455,12 @@ class Walker:
                     runlog.event("walker", "stand_pose")
                     if self.real:
                         print("Stand pose reached. Lower the gantry until the feet are flat on "
-                              "the floor, then press ] here to start the policy.")
+                              "the floor, then press R1+start on the remote (or Shift+P here) "
+                              "to start the policy.")
                     else:
                         print("Stand pose reached. Lower the robot onto its feet (press 8 a few "
-                              "times in the MuJoCo window), then press ] here to start the policy.")
+                              "times in the MuJoCo window), then press Shift+P here to start "
+                              "the policy.")
             self.send(target, KP, KD)
 
             tick += 1

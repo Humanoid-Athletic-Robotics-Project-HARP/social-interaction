@@ -3,7 +3,7 @@ name: gr00t-wbc
 description: Read when changing the walking controller (harp_control's gr00t/walk.py), its policy config or ONNX files, or preparing it for the real robot
 metadata:
   type: reference
-  updated: 2026-10-28T00:11:43Z
+  updated: 2026-10-28T03:10:45Z
   covers: [ros2/src/harp_control/harp_control/gr00t/**, ros2/src/harp_control/harp_control/leg_odometry.py]
 ---
 

@@ -68,7 +68,7 @@ def outcome(events):
         return "fell", "the walker detected a fall"
     estop = first(events, "walker", "estop")
     if estop and (goal is None or estop["t"] < goal["t"]):
-        return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, L2+B)"
+        return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, B)"
     if goal:
         status = goal["details"].get("status", "")
         return {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out",

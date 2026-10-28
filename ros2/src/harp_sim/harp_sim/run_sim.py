@@ -14,10 +14,11 @@ Like unitree_mujoco's simulate_python, and using its G1 model, but:
 Publishes rt/lowstate (unitree_hg) every step; reads rt/lowcmd. Until a
 command arrives the joints are limp. The robot starts hanging from a virtual
 elastic band on the torso. In the viewer: 7 shortens the band (raises the
-robot), 8 lengthens it (lowers it), 9 releases or re-attaches it. 6 holds L2+B
+robot), 8 lengthens it (lowers it), 9 releases or re-attaches it. 6 holds B
 on the robot's remote for half a second (the walker's e-stop); a "remote"
-event on /harp/events ({"buttons": ["L2", "B"], "seconds": 0.5}) presses
-buttons the same way, for scripted tests.
+event on /harp/events ({"buttons": ["L1"], "sticks": {"ly": 0.5}, "seconds": 2})
+holds buttons and sticks the same way, for scripted tests (harp_control/remote.py
+has the buttons and what each does).
 
 --world NAME adds a course of obstacles from worlds/NAME.xml (or any MuJoCo
 file with geoms in its worldbody); --box X Y puts a fixed box on the floor,
@@ -89,26 +90,34 @@ BOX_RGBA = (0.8, 0.5, 0.2, 1.0)
 
 
 class SimRemote:
-    """The robot's remote, as far as rt/lowstate shows it: buttons held until a time."""
+    """The robot's remote, as far as rt/lowstate shows it: buttons and sticks held until a time."""
 
     def __init__(self):
-        self.buttons, self.until = frozenset(), 0.0
+        self.buttons, self.sticks, self.until = frozenset(), {}, 0.0
 
-    def press(self, buttons, seconds=REMOTE_PRESS):
-        unknown = set(buttons) - remote.BUTTONS.keys()
+    def press(self, buttons, seconds=REMOTE_PRESS, sticks=None):
+        sticks = dict(sticks or {})
+        unknown = (set(buttons) - remote.BUTTONS.keys()) | (sticks.keys() - remote.STICKS.keys())
         if unknown:
-            print(f"Remote: no button {', '.join(sorted(unknown))}; ignored.", flush=True)
+            print(f"Remote: no button or stick {', '.join(sorted(unknown))}; ignored.", flush=True)
             return
-        self.buttons, self.until = frozenset(buttons), time.monotonic() + seconds
-        runlog.event("sim", "remote", buttons=sorted(self.buttons), seconds=seconds)
-        print(f"Remote: {'+'.join(sorted(self.buttons))} held for {seconds} s.", flush=True)
+        sticks = {name: max(-1.0, min(1.0, float(value))) for name, value in sticks.items()}
+        self.buttons, self.sticks = frozenset(buttons), sticks
+        self.until = time.monotonic() + seconds
+        runlog.event("sim", "remote", buttons=sorted(self.buttons), sticks=sticks, seconds=seconds)
+        held = "+".join(sorted(self.buttons)) or "no buttons"
+        moved = ", ".join(f"{name} {value:+.2f}" for name, value in sticks.items())
+        print(f"Remote: {held}{f' ({moved})' if moved else ''} held for {seconds} s.", flush=True)
 
     def on_key(self, key):
         if key == ord("6"):
-            self.press(remote.ESTOP)
+            self.press({remote.ESTOP})
 
     def write(self, wireless_remote):
-        remote.encode(self.buttons if time.monotonic() < self.until else (), wireless_remote)
+        if time.monotonic() < self.until:
+            remote.encode(self.buttons, wireless_remote, self.sticks)
+        else:
+            remote.encode((), wireless_remote)
 
 
 class Band:
@@ -284,9 +293,11 @@ def main():
                 event = json.loads(msg.data)
                 if event.get("event") == "remote" and event.get("source") != "sim":   # not our own log
                     details = event.get("details", {})
-                    sim_remote.press(details.get("buttons", ()), details.get("seconds", REMOTE_PRESS))
+                    sim_remote.press(details.get("buttons", ()), details.get("seconds", REMOTE_PRESS),
+                                     details.get("sticks"))
             except (ValueError, AttributeError, TypeError) as e:
-                print(f"Remote: ignored an event that isn't {{\"buttons\": [...]}}: {e}", flush=True)
+                print(f"Remote: ignored an event that isn't {{\"buttons\": [...], \"sticks\": {{...}}}}: {e}",
+                      flush=True)
     node.create_subscription(String, "/harp/events", on_event, latched)
 
     def spin():
@@ -338,7 +349,7 @@ def main():
     print(f"G1 sim on DDS domain {args.domain}, {args.interface}. Ctrl-C here quits.")
     if viewer is not None:
         print("MuJoCo window keys: 8 lowers the robot, 7 raises it, 9 releases or "
-              "re-attaches the band, 6 presses L2+B on the remote (e-stop). Controller keys "
+              "re-attaches the band, 6 presses B on the remote (e-stop). Controller keys "
               "go to the controller's terminal.")
     if lidar is not None:
         print(f"Lidar: PointCloud2 on {ROBOT_TOPIC} (DDS domain {args.domain}, for lidar_relay), 10 Hz."

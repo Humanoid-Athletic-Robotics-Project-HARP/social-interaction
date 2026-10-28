@@ -21,9 +21,11 @@ Run against the sim (start it first: ros2 run harp_sim run_sim, see README):
 Real robot (untested; hang it, damp it, then debug mode L2+R2 first):
   ros2 run harp_control move_distance --real --interface eth0 --distance 0.5
 
-Keys, typed in this terminal: ] start the policy (balance in place), g start the moves once the robot
-stands on its own, o stop (damp) and quit. After the last move the robot
-keeps balancing until o.
+Keys and remote buttons are walk.py's (harp_control/remote.py). Once the
+robot stands on its own, Shift+G or R1+A starts the moves; before that, L1 +
+sticks or w/s a/d q/e can position it by hand. Driving by hand during the
+moves cancels the moves left, and the robot balances in place. After the last
+move the robot keeps balancing until Space or B stops it.
 """
 
 import argparse
@@ -96,7 +98,7 @@ class PointArg(argparse.Action):
 
 
 class Moves:
-    """Waits for g, then runs each walk or turn until the estimate reaches it."""
+    """Waits for Shift+G or R1+A, then runs each walk or turn until the estimate reaches it."""
 
     def __init__(self, walker, odometry, moves, speed, turn_speed):
         self.walker = walker
@@ -105,22 +107,26 @@ class Moves:
         self.speed = min(speed, MAX_SPEED)
         self.turn_speed = math.radians(min(turn_speed, MAX_TURN_SPEED))
         self.index = 0
-        self.phase = "waiting"    # waiting -> (moving -> settling) per move -> done
+        self.phase = "waiting"    # waiting -> (moving -> settling) per move -> done; manual control cancels
         self.start_position = None
         self.start_heading = 0.0
         self.give_up_at = self.settle_until = 0.0
         self.next_log = 0.0
 
-    def read_key(self, read):
-        """Pass ], g and o through; ignore the walking keys."""
-        key = read()
-        if key == "g" and self.phase == "waiting":
-            if not self.walker.policy_on:
-                print("Not yet: press ] first to start the policy, then g.")
-            else:
-                self.begin()
-            return None
-        return key if key in ("]", "o") else None
+    def hand_back(self):
+        """Walker.on_hand_back: the first starts the moves."""
+        if self.phase == "waiting":
+            self.begin()
+        elif self.phase == "done":
+            print("No moves left. Drive by hand, or stop with Space or B.")
+
+    def take_over(self):
+        """Walker.on_take_over: driving by hand during the moves cancels the rest."""
+        if self.phase in ("moving", "settling"):
+            runlog.event("move_distance", "moves_cancelled", move=self.index + 1)
+            left = len(self.moves) - self.index
+            print(f"Manual control cancelled the {left} move{'s' if left > 1 else ''} left.")
+            self.phase = "done"
 
     def begin(self):
         kind, value = self.moves[self.index]
@@ -257,8 +263,8 @@ class Moves:
             if self.index < len(self.moves):
                 self.begin()
             else:
-                print("All moves done. GR00T keeps balancing; support the robot, then press o "
-                      "to stop (it will sink).")
+                print("All moves done. GR00T keeps balancing; support the robot, then press "
+                      "Space or B to stop (it will sink).")
                 runlog.event("move_distance", "all_moves_done")
                 self.phase = "done"
 
@@ -300,11 +306,15 @@ def main():
     if args.real:
         check_unitree_controller_off()
     walker = Walker(real=args.real)
-    walker.next_hint = "Then press g here to start the moves (o stops)."
+    walker.next_hint = "Then press Shift+G here or R1+A on the remote to start the moves (Space or B stops)."
     plan = Moves(walker, LegOdometry(args.scene), args.moves, args.speed, args.turn_speed)
+    walker.manual = False
+    walker.program = "the moves"
+    walker.on_hand_back = plan.hand_back
+    walker.on_take_over = plan.take_over
     runlog.event("move_distance", "start", argv=sys.argv[1:])
     with TerminalKeys() as keys:
-        reason = walker.run(lambda: plan.read_key(keys.read), plan.on_policy_step)
+        reason = walker.run(keys.read, plan.on_policy_step)
     return 0 if reason in CLEAN_STOPS else 1
 
 
