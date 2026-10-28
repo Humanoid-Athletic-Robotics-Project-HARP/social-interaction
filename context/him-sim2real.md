@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before anything that touches HARP's safety harness/simulator (him-sim2real-management), or to see what moving our code onto it dropped and what is left to do
 metadata:
   type: project
-  updated: 2026-10-28T09:48:21Z
+  updated: 2026-10-28T18:53:29Z
   covers: []
 ---
 
@@ -43,4 +43,4 @@ metadata:
 
 The first robot session's moves are rehearsed in the sim (2026-10-28, all `within_limits`): standing; `{"moves": [{"walk": 0.5}]}` ended 0.51 m (a `"to"` straight ahead stops inside its 8 cm tolerance, 0.43 m for 0.5 m, so walk straight lines); `{"to": [1, 1, 45]}` about 7 cm and 5° off. The session's steps are the README's "On the robot".
 
-The session: HIM's walker example with `stand.yaml` first, then ours standing, then the moves above through HIM's launcher (preflight, dry run, real), checking leg odometry with a tape ([[safety]]).
+The session: HIM's walker example with `stand.yaml` first, then ours standing (`G1_TASK_COMMAND='[0,0,0]'`: with no task our image walks its default move, [[submission-image]]), then the moves above through HIM's launcher (preflight, dry run, real), checking leg odometry with a tape ([[safety]]).

@@ -45,4 +45,6 @@ COPY harp /harp/harp
 COPY nav2 /harp/nav2
 RUN python3 -c "import sys; sys.path.insert(0, '/example'); from controllers import ExamplePolicy; ExamplePolicy('walker', '/example/project')" \
     && python3 -c "import sys; sys.path.insert(0, '/harp'); from harp.leg_odometry import LegOdometry; LegOdometry('/harp/model/g1_robot.xml')"
+# The moves when G1_TASK_COMMAND is empty (entrypoint.sh).
+ENV HARP_DEFAULT_TASK='{"to": [0.5, 0.5]}'
 ENTRYPOINT ["/bin/bash", "/harp/entrypoint.sh"]

@@ -184,7 +184,9 @@ G1_TASK_COMMAND='{"moves": [{"walk": 1}, {"turn": 90}, {"to": [1, 1, 45]}]}' sub
 
 `"walk"` is meters (negative walks backward), `"turn"` degrees (positive
 turns left). `"speed"` (m/s, up to 0.4) and `"turn_speed"` (deg/s, up to 30)
-are optional, next to `"moves"` or `"to"`. Without moves the robot stands.
+are optional, next to `"moves"` or `"to"`. Without `G1_TASK_COMMAND` the
+image runs its default, `{"to": [0.5, 0.5]}` (`HARP_DEFAULT_TASK` in
+`submission/Dockerfile`); `G1_TASK_COMMAND='[0,0,0]'` stands still.
 The run is passed when `report.json` in the output folder (`--output DIR`)
 says `within_limits`.
 

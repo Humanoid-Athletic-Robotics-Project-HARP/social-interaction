@@ -22,7 +22,13 @@ if [[ "${G1_EXECUTION_MODE:-sim}" != sim ]]; then
   LD_LIBRARY_PATH="$CYCLONEDDS_HOME/lib:$LD_LIBRARY_PATH" PYTHONPATH="/harp:$PYTHONPATH" \
     nice -n 10 python3 /harp/harp/lidar_relay.py &
 fi
-if [[ "${G1_TASK_COMMAND:-}" == *'"to"'* || "${G1_TASK_COMMAND:-}" == *'"moves"'* ]]; then
+# No task, outside a world's image: the image's default moves (HARP_DEFAULT_TASK, the
+# Dockerfile). HIM always passes G1_TASK_COMMAND, empty if unset, so the image can't set it.
+# '[0,0,0]' stands still.
+if [[ -z "${G1_TASK_COMMAND:-}" && ! -f /harp/model/world.xml ]]; then
+  export G1_TASK_COMMAND="${HARP_DEFAULT_TASK:-}"
+fi
+if [[ "${G1_TASK_COMMAND:-}" == *'"to"'*|| "${G1_TASK_COMMAND:-}" == *'"moves"'* ]]; then
   PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/moves.py &
 elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   # After our node has armed, and at lower priority: starting about ten processes beside

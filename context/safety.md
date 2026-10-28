@@ -3,7 +3,7 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-10-28T09:26:49Z
+  updated: 2026-10-28T18:53:29Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
@@ -18,6 +18,6 @@ metadata:
 
 **To check on the robot:** what `wireless_remote` reads with the remote off or out of range (if all zeros, the remote can't stop it then; only the laptop and HIM's deadlines can), and whether anything else reacts to HIM's button gestures.
 
-**Sessions:** an operator owns power, the gantry, the remote and stopping; someone else runs the laptop and the recording. Gantry with feet bearing weight, Unitree's stock controller in locked standing mode (HIM's profile accepts only FSM 4), Start and F3 released. HIM's stages: preflight (`./setup.sh`), dry run (motors off), real (`./submit.sh --mode real`), README "On the robot". First a stationary recording with HIM's recorder, then HIM's own walker example standing, then ours standing, then small reversible moves. Never two motor controllers at once. Stopping a recording doesn't stop the robot.
+**Sessions:** an operator owns power, the gantry, the remote and stopping; someone else runs the laptop and the recording. Gantry with feet bearing weight, Unitree's stock controller in locked standing mode (HIM's profile accepts only FSM 4), Start and F3 released. HIM's stages: preflight (`./setup.sh`), dry run (motors off), real (`./submit.sh --mode real`), README "On the robot". First a stationary recording with HIM's recorder, then HIM's own walker example standing, then ours standing (`G1_TASK_COMMAND='[0,0,0]'`; without a task it walks its default move), then small reversible moves. Never two motor controllers at once. Stopping a recording doesn't stop the robot.
 
 **What others do:** Unitree `g1_ctrl` (unitree_rl_mjlab): an FSM starting in Passive, LT+B to Passive from any state, Passive on lost state, refuses to start while another program sends `rt/lowcmd`; its fall check is written but always returns false. NVIDIA GR00T WBC: `JointSafetyMonitor` (arm speed over 6 rad/s shuts down) and a deploy checklist (sim first, check state with no commands, first test at 2–5× lower kp, an e-stop ready). humanoid_bridge: latches damping on lost state, NaN, overspeed or a second `rt/lowcmd` sender. Go2 projects report motor power cut about 20 ms after `rt/lowcmd` stops; unconfirmed for the G1.
