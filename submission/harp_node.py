@@ -3,7 +3,8 @@
 
 The client (/example/client.py, copied in at build time) reads /safety/policy_state,
 arms the safety checker and answers every state with the NVIDIA walker's joint
-command. This replaces its fixed velocity with the latest /cmd_vel.
+command. This replaces its fixed velocity with the latest /cmd_vel. A velocity
+schedule (HIM's --command FILE) still wins over /cmd_vel, as in HIM's client.
 
 Events go out as JSON on /harp/events (std_msgs/String, transient local):
 {"source": ..., "event": ..., ...}: control_ready once HIM hands control to our

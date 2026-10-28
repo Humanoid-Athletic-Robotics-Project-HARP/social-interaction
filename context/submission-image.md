@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-28T05:16:30Z
+  updated: 2026-10-28T05:24:15Z
   covers: [submission/**]
 ---
 
@@ -13,7 +13,7 @@ metadata:
 
 **Worlds** (`submission/worlds/`, criteria in `NAME.yaml`): `stage_world.py` writes HIM's scene (the G1, `safety_floor`, fixed obstacles; movers left out, or HIM would hold them still where they start) and the image's copy with movers. Worlds must be includable next to HIM's G1: defaults go in a named class (`obstacle`), never the top-level default. The comments' "--" breaks XML parsers, so `stage_world.py` strips comments.
 
-**In a world's image** (`entrypoint.sh`): `harp/lidar.py`, Nav2 (`nav2/`) and `harp/course_goal.py`, each its own process, beside `harp_node.py`.
+**In a world's image** (`entrypoint.sh`): `harp/lidar.py`, Nav2 (`nav2/`) and `harp/course_goal.py`, each its own process, beside `harp_node.py`, unless a `{"to": ...}` target is given: only one thing drives `/cmd_vel`.
 - The lidar must stay out of the policy's process: publishing its 190 KB cloud there made the node miss HIM's 0.2 s deadline (`action_timeout`, HIM's Holosoma caught the robot).
 - HIM's sim Fast DDS profile finds only participants 0-4; with Nav2 we run about ten, and Nav2's bringup hung. `harp/fastdds_profile.py` lists peers for 32 on the same localhost transport, only when HIM's `/fastdds.xml` is set.
 - Foxy Nav2 (0.4.7): no Graceful Controller (Regulated Pure Pursuit instead), `recoveries_server`, `plugin_lib_names` must be listed (the default names a library Foxy doesn't ship), `server_timeout="200"` on each BT action node.

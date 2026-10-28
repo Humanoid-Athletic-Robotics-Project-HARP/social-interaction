@@ -1,5 +1,4 @@
-"""Leg odometry for the G1, for when /safety/policy_state has no base position
-(on the robot unless a base-state source is configured):
+"""Leg odometry for the G1, our /odom in the sim and on the robot alike (harp/state.py):
   - Heading: yaw from the pelvis IMU quaternion.
   - Position: joint angles and the IMU orientation give each foot's position
     relative to the pelvis (forward kinematics of the G1 model in MuJoCo).

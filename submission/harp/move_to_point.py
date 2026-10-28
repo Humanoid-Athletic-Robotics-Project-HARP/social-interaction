@@ -52,13 +52,17 @@ def target_from_env():
         return None
     if not isinstance(task, dict) or "to" not in task:
         return None
-    to = [float(v) for v in task["to"]]
+    try:
+        to = [float(v) for v in task["to"]]
+        speed = min(float(task.get("speed", 0.2)), MAX_SPEED)
+        turn_speed = math.radians(min(float(task.get("turn_speed", 20.0)), MAX_TURN_SPEED))
+    except (TypeError, ValueError):
+        raise SystemExit('G1_TASK_COMMAND takes {"to": [X, Y, HEADING], "speed": M/S, '
+                         '"turn_speed": DEG/S}, all numbers')
     if len(to) not in (2, 3) or not all(math.isfinite(v) for v in to):
         raise SystemExit('G1_TASK_COMMAND "to" takes [X, Y] or [X, Y, HEADING]')
     if math.hypot(to[0], to[1]) < 2 * POSITION_TOLERANCE:
         raise SystemExit("The point is too close to walk to")
-    speed = min(float(task.get("speed", 0.2)), MAX_SPEED)
-    turn_speed = math.radians(min(float(task.get("turn_speed", 20.0)), MAX_TURN_SPEED))
     if not (speed > 0 and turn_speed > 0):
         raise SystemExit("speed and turn_speed must be positive")
     return to[0], to[1], (to[2] if len(to) == 3 else None), speed, turn_speed
