@@ -21,6 +21,7 @@ Real robot (untested):
   ros2 run harp_ros lidar_relay --ros-args -p real:=true -p interface:=en0
 """
 
+from contextlib import ExitStack
 import sys
 import time
 
@@ -78,29 +79,30 @@ class LidarRelay(Node):
 
 def main():
     rclpy.init()
-    node = LidarRelay()
-    real = node.get_parameter("real").value
-    interface = node.get_parameter("interface").value
-    if real and not interface:
-        print("Error: real:=true needs interface:=<the one on 192.168.123.x>", file=sys.stderr)
-        node.destroy_node()
-        rclpy.shutdown()
-        return 1
-    domain = node.get_parameter("domain").value
-    if domain < 0:
-        domain = 0 if real else 1
-    interface = interface or ("lo0" if sys.platform == "darwin" else "lo")
-    ChannelFactoryInitialize(domain, interface)
-    sub = ChannelSubscriber(ROBOT_TOPIC, PointCloud2_)
-    sub.Init(node.on_cloud, 0)
-    print(f"Relaying {ROBOT_TOPIC} (domain {domain}, {interface}) to {TOPIC}.", flush=True)
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
-        pass
-    sub.Close()   # with its reader still open, the interpreter hangs on the way out
-    node.destroy_node()
-    rclpy.try_shutdown()
+    with ExitStack() as cleanup:
+        cleanup.callback(rclpy.try_shutdown)
+        node = LidarRelay()
+        cleanup.callback(node.destroy_node)
+        real = node.get_parameter("real").value
+        interface = node.get_parameter("interface").value
+        if real and not interface:
+            print("Error: real:=true needs interface:=<the one on 192.168.123.x>", file=sys.stderr)
+            return 1
+        domain = node.get_parameter("domain").value
+        if domain < 0:
+            domain = 0 if real else 1
+        interface = interface or ("lo0" if sys.platform == "darwin" else "lo")
+        ChannelFactoryInitialize(domain, interface)
+        sub = ChannelSubscriber(ROBOT_TOPIC, PointCloud2_)
+        # Close the SDK reader before ROS teardown, including failed Init/spin.
+        # Leaving it open can hang Python during interpreter shutdown.
+        cleanup.callback(sub.Close)
+        sub.Init(node.on_cloud, 0)
+        print(f"Relaying {ROBOT_TOPIC} (domain {domain}, {interface}) to {TOPIC}.", flush=True)
+        try:
+            rclpy.spin(node)
+        except (KeyboardInterrupt, ExternalShutdownException):
+            pass
     return 0
 
 
