@@ -114,6 +114,27 @@ class Stop(Exception):
         self.reason = reason
 
 
+def require_finite(name, *values):
+    if any(not np.isfinite(value).all() for value in values):
+        raise ValueError(f"{name} must contain only finite values")
+
+
+def stop_message(message, *, error=False):
+    """A closed terminal must not interrupt damping or the real-robot hold."""
+    try:
+        print(message, file=sys.stderr if error else sys.stdout)
+    except (Exception, KeyboardInterrupt):
+        pass
+
+
+def stop_event(name, **details):
+    """Record a stop without letting failed telemetry bypass motor damping."""
+    try:
+        runlog.event("walker", name, **details)
+    except (Exception, KeyboardInterrupt) as exc:
+        stop_message(f"Could not record walker {name}: {exc}", error=True)
+
+
 def gravity_in_body(quat):
     """Unit gravity vector in the pelvis frame, from a (w, x, y, z) quaternion."""
     w, x, y, z = quat
@@ -146,11 +167,14 @@ class Gr00tPolicy:
         obs[13:42] = q - OBS_DEFAULTS
         obs[42:71] = dq * DOF_VEL_SCALE
         obs[71:86] = self.action
+        require_finite("policy observation", obs)
         self.history.append(obs)
 
         session = self.balance if np.linalg.norm(cmd) < STAND_CMD else self.walk
         stacked = np.concatenate(self.history)[None, :]
-        self.action = session.run(None, {session.get_inputs()[0].name: stacked})[0][0]
+        action = session.run(None, {session.get_inputs()[0].name: stacked})[0][0]
+        require_finite("policy action", action)
+        self.action = action
         return STAND_POSE[:NUM_ACTIONS] + self.action * ACTION_SCALE
 
 
@@ -189,9 +213,11 @@ class Walker:
         motors = self.state.motor_state
         q = np.array([motors[i].q for i in range(NUM_MOTORS)], dtype=np.float32)
         dq = np.array([motors[i].dq for i in range(NUM_MOTORS)], dtype=np.float32)
+        require_finite("joint state", q, dq)
         return q, dq
 
     def send(self, q, kp, kd):
+        require_finite("motor target and gains", q, kp, kd)
         self.low_cmd.mode_pr = 0  # ankles commanded as pitch/roll joints
         self.low_cmd.mode_machine = self.state.mode_machine
         q = np.clip(q, Q_LOWER, Q_UPPER)
@@ -220,15 +246,15 @@ class Walker:
                 time.sleep(max(0.0, next_tick - time.monotonic()))
             except KeyboardInterrupt:
                 pass
-        runlog.event("walker", "damped")
-        print("Stopped: all joints damped, so the robot sinks.")
+        stop_event("damped")
+        stop_message("Stopped: all joints damped, so the robot sinks.")
 
     def stop(self, reason, message):
         """The one way to stop: say why, damp every joint, and on the real robot
         keep damping until o or Ctrl-C."""
-        print(message, file=sys.stderr if reason not in CLEAN_STOPS else sys.stdout)
+        stop_message(message, error=reason not in CLEAN_STOPS)
         self.policy_on = False
-        runlog.event("walker", "stop", reason=reason)
+        stop_event("stop", reason=reason)
         self.damp()
         if self.real and self.state is not None:
             self.hold()
@@ -236,7 +262,7 @@ class Walker:
     def hold(self):
         """Keep sending damping commands, so the joints stay soft and nothing
         else is left commanding them, until o or Ctrl-C."""
-        print("Still damping. Press o or Ctrl-C to quit once the robot is secured.")
+        stop_message("Still damping. Press o or Ctrl-C to quit once the robot is secured.")
         next_tick = time.monotonic()
         try:
             while True:
@@ -305,14 +331,14 @@ class Walker:
             self.loop(read_key, on_policy_step)
         except Stop as e:
             if e.reason not in CLEAN_STOPS and e.reason != "fall":   # a fall has its own outcome
-                runlog.event("walker", "error", message=str(e))
+                stop_event("error", message=str(e))
             self.stop(e.reason, str(e))
             return e.reason
         except KeyboardInterrupt:
             self.stop("ctrl_c", "Interrupted (Ctrl-C).")
             return "ctrl_c"
         except Exception as e:
-            runlog.event("walker", "error", message=str(e))
+            stop_event("error", message=str(e))
             self.stop("error", f"Error: {e}")
             return "error"
         self.stop("quit", "Stopping (o).")
@@ -338,11 +364,11 @@ class Walker:
         while not self.quit:
             now = time.monotonic()
             if now - self.state_time > self.state_timeout:
-                runlog.event("walker", "state_lost", ms=round((now - self.state_time) * 1000))
+                stop_event("state_lost", ms=round((now - self.state_time) * 1000))
                 raise Stop("state_lost", f"Robot state (rt/lowstate) stopped for "
                            f"{(now - self.state_time) * 1000:.0f} ms. Did the sim or the network stop?")
             if remote.ESTOP <= remote.pressed(self.state.wireless_remote):
-                runlog.event("walker", "estop", by="remote")
+                stop_event("estop", by="remote")
                 raise Stop("remote_estop", "E-stop: L2+B on the remote.")
             key = read_key()
             if key:
@@ -351,9 +377,10 @@ class Walker:
             q, dq = self.joints()
             quat = np.array(self.state.imu_state.quaternion, dtype=np.float32)
             gyro = np.array(self.state.imu_state.gyroscope, dtype=np.float32)
+            require_finite("IMU state", quat, gyro)
             if self.policy_on:
                 if gravity_in_body(quat)[2] > -math.cos(FALL_TILT):
-                    runlog.event("walker", "fall")
+                    stop_event("fall")
                     raise Stop("fall", f"Fall detected: the pelvis tilted more than "
                                f"{math.degrees(FALL_TILT):.0f} degrees.")
                 if tick % round(CONTROL_DT / PUBLISH_DT) == 0:
