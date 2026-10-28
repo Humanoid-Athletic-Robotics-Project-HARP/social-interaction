@@ -21,9 +21,11 @@ Compare runs with: ros2 run harp_eval runs compare --world slalom
 import argparse
 import datetime
 import fcntl
+import math
 import os
 import random
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -34,6 +36,7 @@ from pathlib import Path
 from harp_control import runlog
 from harp_eval import run_summary
 from harp_eval.run_recorder import CONDITIONS, run_name
+from harp_eval.waypoint_route import load_route
 
 # Each program's lines in launch.log, by the launch's process name, go to these files.
 LOG_FILES = {"run_sim": "sim.log", "walker_node": "walker.log", "lidar_relay": "lidar_relay.log",
@@ -56,6 +59,21 @@ LOCKS = Path(tempfile.gettempdir()) / "harp-dds-domains"
 # and asks for the band's release only when no other run is still starting (for at
 # most MAX_START s) and its own sim has stopped lagging (see course_goal.py).
 MAX_START = 120.0
+
+
+def route_file(value):
+    """A user file or a route bundled in harp_eval/config, validated before startup."""
+    path = Path(value).expanduser()
+    if not path.is_file() and path.parent == Path("."):
+        from ament_index_python.packages import get_package_share_directory
+        name = path.name if path.suffix else path.name + ".yaml"
+        path = Path(get_package_share_directory("harp_eval")) / "config" / name
+    try:
+        path = path.resolve(strict=True)
+        load_route(path)
+    except (OSError, ValueError, TypeError) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return path
 
 
 def read_lock(lock):
@@ -156,8 +174,11 @@ def main():
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--extras", default="", help="extra streams from logging.yaml, e.g. nav,lidar")
     parser.add_argument("--extras-reason", default="")
-    parser.add_argument("--goal", nargs="+", type=float, metavar="NUM",
-                        help="X Y [YAW_DEG] in odom, instead of the course's goal")
+    destination = parser.add_mutually_exclusive_group()
+    destination.add_argument("--goal", nargs="+", type=float, metavar="NUM",
+                             help="X Y [YAW_DEG] in odom, instead of the course's goal")
+    destination.add_argument("--route", type=route_file, metavar="FILE_OR_NAME",
+                             help="waypoint YAML file or bundled route name, e.g. rectangle")
     parser.add_argument("--timeout", type=float, default=240.0, help="s to wait for Nav2's result")
     parser.add_argument("--no-rviz", action="store_true")
     parser.add_argument("--params", default="", metavar="FILE",
@@ -178,15 +199,22 @@ def main():
         parser.error("--replay needs --replay-reason: it is only for when a person asks for it")
     if args.goal and len(args.goal) not in (2, 3):
         parser.error("--goal takes X Y or X Y YAW_DEG")
+    if args.goal and not all(math.isfinite(v) for v in args.goal):
+        parser.error("--goal values must be finite")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout must be positive and finite")
 
     command = " ".join(["ros2 run harp_eval course", *map(shlex.quote, sys.argv[1:])])
     runs = runlog.runs_dir()
+    failed = False
     for i in range(args.repeat):
         when = datetime.datetime.now(datetime.timezone.utc)
         while (runs / run_name("sim", args.world, args.tag, when)).exists():
             when += datetime.timedelta(seconds=1)   # another course started this second
         run = runs / run_name("sim", args.world, args.tag, when)
         (run / "ros_logs").mkdir(parents=True)
+        if args.route:
+            shutil.copyfile(args.route, run / "route.yaml")
         lock, sim_domain, ros_domain = claim_domains()
         print(f"\n=== Run {i + 1}/{args.repeat}: {run}\n    DDS domains: sim {sim_domain}, "
               f"ROS 2 {ros_domain}", flush=True)
@@ -197,6 +225,7 @@ def main():
                   "extras": args.extras, "extras_reason": args.extras_reason, "command": command,
                   "timeout": args.timeout, "rviz": "false" if args.no_rviz else "true",
                   "goal": " ".join(str(v) for v in args.goal or []),
+                  "route": str(run / "route.yaml") if args.route else "",
                   "replay": "true" if args.replay else "", "replay_reason": args.replay_reason,
                   "replay_dir": args.replay_dir, "lidar_fields": args.lidar_fields,
                   "lidar_rate": args.lidar_rate or "",
@@ -217,15 +246,20 @@ def main():
         wait_while_walking(lock, None)
         split_launch_log(run)
         if (run / "run.yaml").exists():
-            print(run_summary.one_screen(run_summary.summarize(run)), flush=True)
+            summary = run_summary.summarize(run)
+            print(run_summary.one_screen(summary), flush=True)
+            failed |= summary["outcome"] != "succeeded" or summary.get("passed") is False
         else:
+            failed = True
             print(f"No run.yaml in {run}: the recorder didn't start (launch exit code {code}).")
         if interrupted:
             print("Interrupted: no more repeats.")
-            break
+            return 130
+        failed |= code != 0
     print(f"\nCompare: ros2 run harp_eval runs compare --world {args.world}"
           + (f" --tag {args.tag}" if args.tag else ""))
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

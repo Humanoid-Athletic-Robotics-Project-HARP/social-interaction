@@ -3,7 +3,7 @@ name: run-logging
 description: Read before running, recording or comparing any sim or robot test — the course command, run_recorder, runs check/compare, what a run folder holds, replay rules and gotchas
 metadata:
   type: reference
-  updated: 2026-10-28T00:03:03Z
+  updated: 2026-10-28T00:25:23Z
   covers: [ros2/src/harp_eval/harp_eval/*.py, ros2/src/harp_eval/launch/*.py, ros2/src/harp_eval/config/logging.yaml, ros2/src/harp_control/harp_control/runlog.py, ros2/src/harp_sim/worlds/*.yaml]
 ---
 
@@ -11,6 +11,7 @@ metadata:
 
 **Which tool**
 - Nav2 course test: `pixi run --as-is ros2 run harp_eval course WORLD --tag T [--repeat N]`. Prints a summary ending in PASS/FAIL. Each repeat restarts everything (costmaps and odometry start where the policy starts). About 1–2.5 min per run. Run it in a Terminal-panel tab; the windows open.
+- `course WORLD --route NAME_OR_FILE` visits a finite route in the same run; usage, coordinates and event boundaries are in [[waypoint-loop]]. Each run saves `route.yaml`. Route criteria apply to the full route; world single-goal limits remain for single goals.
 - Several `course` commands can run at once in different tabs: each claims its own DDS domains ([[ros2-mac]]), and run folders, `index.csv` and logs don't collide. They start up together and walk together: the lock's state goes waiting → starting → ready → walking; a run waits to start (and to summarize) while another robot walks, and `course_goal` asks the sim to release the band (`release_band` event, `run_sim --hold-band`) once Nav2 is active, no other run is still starting, and its sim has gone 5 s without lag. **Not usable on a MacBook Air (8 cores, 16 GB) as of 2026-10-27:** a start-up while another robot walked made it fall, and two start-ups together ran both sims at about 2/3 real time for 15 s, so the hanging v2 robot's walker stopped on a 504 ms gap in `rt/lowstate`; the STVL robot then walked alone with no lag. Two robots have never walked at once there. Run pairs one at a time; try parallel on a bigger machine. Those runs are tagged `*-parallel` and `*-together`.
 - Anything else (driving by hand, `walk`, `move_distance`, the real robot): start `ros2 run harp_eval run_recorder --ros-args -p tag:=T` first, then the programs; Ctrl-C on the recorder ends the run.
 - `runs check` (pass rate against `harp_sim/worlds/<world>.yaml`; missing values fail), `runs compare` (mean ± sd per world and tag; `--plot` draws true paths), `runs list/show/set/pin/resummarize/prune`. `runs/index.csv` has one line per run.

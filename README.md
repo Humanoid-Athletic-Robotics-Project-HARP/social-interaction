@@ -57,6 +57,7 @@ both the sim and the real robot, and we try everything in the sim first.
   `walker_node` through every course (`run_sim --world`), including the
   obstacle course with a table, pillars, a thin pole and an archway, without
   touching anything. The robot's own body is filtered out of the lidar.
+- ✅ Sim: repeat a waypoint route with Nav2 (`course --route rectangle`).
 - 🟡 Sim: more on obstacles and path following: closer margins, a
   collision-monitor stop, moving obstacles and people. Started: the
   costmaps forget where a person was once they've moved on (STVL), tested
@@ -336,6 +337,31 @@ ros2 run harp_eval runs compare --world slalom --plot paths.png
 `course` starts the sim, `walker_node`, Nav2 and the course's goal for you
 (the windows open as usual), and stops when the robot arrives, gives up or
 falls. Each repeat starts fresh, and Ctrl-C stops it.
+
+To repeat a waypoint route in the same simulation:
+
+```bash
+ros2 run harp_eval course one_box --route rectangle --tag waypoint-loop
+```
+
+The bundled [rectangle route](ros2/src/harp_eval/config/rectangle.yaml) visits
+four points for two laps. Copy it to make your own and pass its path with
+`--route FILE.yaml`. Each point is `[x, y, heading]`: meters and degrees in
+`odom`, measured from the same starting origin for every lap. Heading is
+optional and defaults to zero. The robot advances after each successful
+arrival and ends the run on rejection, failure, or timeout (`--timeout` is
+per waypoint). Nav2 handles obstacles between points. `laps` repeats the
+route; `--repeat` restarts the entire simulation.
+
+The run saves `route.yaml` and each waypoint's result. Route pass/fail uses
+the YAML's optional `criteria`; single-goal course limits apply to single
+goals. A route without criteria still reports its navigation outcome.
+
+From `ros2/`, check the waypoint code with:
+
+```bash
+pixi run --as-is python -m unittest discover -s src/harp_eval/test
+```
 
 Every run gets its own folder in `runs/` (which git ignores). It has the
 settings, the git commit, what happened when, the true and estimated

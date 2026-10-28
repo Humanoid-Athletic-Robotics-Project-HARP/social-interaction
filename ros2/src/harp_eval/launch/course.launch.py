@@ -57,7 +57,8 @@ def generate_launch_description():
     relay = Node(package="harp_ros", executable="lidar_relay", name="lidar_relay", output="both",
                  parameters=[{"domain": ParameterValue(arg("sim_domain"), value_type=int)}])
     goal = Node(package="harp_eval", executable="course_goal", name="course_goal", output="both",
-                parameters=[{"goal": arg("goal"), "timeout": arg("timeout")}])
+                parameters=[{"goal": arg("goal"), "timeout": arg("timeout"),
+                             "route": arg("route")}])
 
     started = []
 
@@ -75,6 +76,7 @@ def generate_launch_description():
         DeclareLaunchArgument("extras_reason", default_value=""),
         DeclareLaunchArgument("command", default_value=""),
         DeclareLaunchArgument("goal", default_value="", description='"X Y [YAW_DEG]" in odom'),
+        DeclareLaunchArgument("route", default_value="", description="optional waypoint YAML file"),
         DeclareLaunchArgument("timeout", default_value="240.0"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("sim_domain", default_value="1",

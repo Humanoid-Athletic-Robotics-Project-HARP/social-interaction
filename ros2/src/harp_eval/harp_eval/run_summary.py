@@ -16,8 +16,8 @@ import yaml
 
 from harp_control import runlog
 
-SUMMARY_VERSION = 2
-FOREVER = {"run.yaml", "events.csv", "summary.json"}   # never pruned
+SUMMARY_VERSION = 3
+FOREVER = {"run.yaml", "events.csv", "summary.json", "route.yaml"}   # never pruned
 NEAR = 0.3                # m: "time within NEAR of an obstacle"
 CLEARANCE_MAX = 2.0       # m: clearances beyond this aren't computed
 CLEARANCE_PERIOD = 0.1    # s between poses checked for clearance
@@ -300,10 +300,37 @@ def criteria_for(world):
     return (yaml.safe_load(path.read_text()), path.name) if path.exists() else (None, None)
 
 
+def route_summary(run, events):
+    """Route plan and waypoint results, including routes that ended before the first goal."""
+    path = Path(run) / "route.yaml"
+    sent = first(events, "goal", "goal_sent")
+    plan = sent["details"] if sent else {}
+    if not path.exists() and "waypoints" not in plan:
+        return None
+    config = (yaml.safe_load(path.read_text()) or {}) if path.exists() else {}
+    waypoints = plan.get("waypoints", config.get("waypoints", []))
+    laps = plan.get("laps", config.get("laps", 1))
+    results = [{**e["details"], "t": e["t"]} for e in events
+               if e["source"] == "goal" and e["event"] == "waypoint_result"]
+    result = first(events, "goal", "goal_result")
+    terminal = result["details"] if result else {}
+    completed = terminal.get("completed_waypoints",
+                             sum(r.get("status") == "SUCCEEDED" for r in results))
+    return {"waypoints": waypoints, "planned_waypoints": len(waypoints) * laps,
+            "planned_laps": laps, "completed_waypoints": completed,
+            "completed_laps": terminal.get("completed_laps", completed // len(waypoints)
+                                           if waypoints else 0),
+            "waypoint_results": results, "criteria": config.get("criteria")}
+
+
 def check(s):
     """Pass/fail per criterion and overall, for course runs (started by course, or a goal
     was sent). A run that ended before its goal fails: its values are missing."""
-    criteria, name = criteria_for(s.get("world"))
+    if s.get("route") is not None:
+        # A whole route has its own limits; the world's one-goal time limit does not apply.
+        criteria, name = s["route"].get("criteria"), "route.yaml"
+    else:
+        criteria, name = criteria_for(s.get("world"))
     if not criteria or not s.get("course_run"):
         return None
     rules = {"must_succeed": (lambda v, lim: v == "succeeded" or not lim, "outcome"),
@@ -354,6 +381,9 @@ def summarize(run):
     moves = [e["details"] for e in events if e["event"] == "move_done"]
     if moves:
         s["moves"] = moves
+    route = route_summary(run, events)
+    if route is not None:
+        s["route"] = route
 
     truth = load_truth(run)
     # /odom from walker_node, or leg_odom.csv that move_distance writes without ROS.
@@ -432,6 +462,10 @@ def one_screen(s):
              f"{s.get('recovery_types') or ''}",
              f"  contacts {s['contacts']}, closest {get('closest_m', '{:.2f}', ' m')}, "
              f"odometry error at the end {get('odom_error_end_m', '{:.2f}', ' m')}"]
+    if s.get("route") is not None:
+        route = s["route"]
+        lines.append(f"  route {route['completed_waypoints']}/{route['planned_waypoints']} waypoints, "
+                     f"{route['completed_laps']}/{route['planned_laps']} laps")
     fwd = s.get("speed_forward_ratio_odom")
     if fwd:
         lines.append(f"  achieved/commanded forward speed {fwd['mean']:.2f} ± {fwd['sd']:.2f} (odom)"
@@ -492,7 +526,7 @@ def prune(runs, retention, replay=None, dry_run=False):
     for run in keep[retention["baseline_keep_runs"]:]:
         extra = [p for p in run.iterdir() if p.name not in FOREVER]
         if extra:
-            actions.append((run, "keep only run.yaml, events.csv, summary.json", extra))
+            actions.append((run, "keep only run.yaml, events.csv, summary.json and route.yaml", extra))
     with_bags = [r for r in keep[:retention["baseline_keep_runs"]] if (r / "bag").exists()]
     total = 0.0
     for i, run in enumerate(with_bags):
