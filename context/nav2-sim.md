@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (nav2_params.yaml, nav2.launch.py, the behavior tree), changing a course, or running Nav2 by hand — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-28T00:46:31Z
+  updated: 2026-10-28T00:54:43Z
   covers: [ros2/src/harp_ros/config/nav2_params.yaml, ros2/src/harp_ros/launch/nav2.launch.py, ros2/src/harp_ros/behavior_trees/*, ros2/src/harp_sim/worlds/*.xml, ros2/src/harp_sim/harp_sim/movers.py, ros2/src/harp_control/harp_control/lidar_mount.py]
 ---
 
@@ -13,7 +13,7 @@ Values are in `harp_ros/config/nav2_params.yaml`; this note gives the reasons. R
 - `nav2.launch.py` starts each server as its own node (controller, planner, behavior, bt_navigator, one lifecycle manager, rviz2) rather than nav2_bringup, which starts docking_server (not on RoboStack). Args: `rviz:=false`, `params_file:=`, `use_sim_time:=true` (for replay, [[run-logging]]).
 - No map: everything in `odom`, goals relative to where the policy started; global costmap is a 20 × 20 m rolling window.
 - NavFn (`allow_unknown`) + Graceful Controller (same law as `move_distance --to`). Speed minimums stay well above GR00T's 0.05 Balance switch.
-- `behavior_trees/navigate.xml`: stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recoveries are Wait and Spin.
+- `behavior_trees/navigate.xml`: stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). Recovery waits, then retries planning. Spin and BackUp are disabled: the installed behavior server can publish motion from cached costmaps without checking STVL freshness. Normal turning stays in the freshness-checked path controller.
 - `default_server_timeout` 200 ms: at Nav2's 20 ms, bt_navigator gave up waiting for the planner's ack on a busy Mac, and each replan became a recovery.
 - **Footprint:** a circle, `robot_radius` 0.4. The body's farthest point (forearms, held bent) is 0.355 m from `base_link`. A polygon would give NavFn an inscribed radius of only 0.09 m.
 - **Inflation** 0.8 m, factor 3 keeps the robot's centre about 0.8 m (body edge about 0.45 m, personal space) from obstacles. It's only a preference; only `robot_radius` blocks a gap. Graceful follows NavFn's path and doesn't read the gradient. Inflation 1.0 / factor 2 was rejected: on `slalom` NavFn then preferred a long detour round the side walls (198 s, 42.5 m vs 52 s, 9.9 m).

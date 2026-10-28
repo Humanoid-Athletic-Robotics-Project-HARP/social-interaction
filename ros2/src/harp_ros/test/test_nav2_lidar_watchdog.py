@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -50,6 +51,24 @@ class LidarWatchdogTests(unittest.TestCase):
                 layer = self.config[name][name]["ros__parameters"]["stvl_layer"]
                 self.assertEqual(layer["lidar_marking"]["topic"], layer["lidar_clearing"]["topic"])
                 self.assertEqual(layer["lidar_clearing"]["expected_update_rate"], 0.0)
+
+    def test_enabled_recovery_actions_are_nonmoving_and_match_the_tree(self):
+        behaviors = self.config["behavior_server"]["ros__parameters"]
+        enabled = {behaviors[name]["plugin"] for name in behaviors["behavior_plugins"]}
+        self.assertEqual(enabled, {"nav2_behaviors::Wait"})
+
+        tree = ET.parse(SOURCE / "harp_ros/behavior_trees/navigate.xml")
+        recovery = tree.find(".//ReactiveFallback[@name='RecoveryFallback']")
+        self.assertIsNotNone(recovery)
+        # GoalUpdated lets a new goal interrupt recovery. Every action leaf
+        # after it must be a nonmoving behavior provided by the enabled server.
+        actions = {node.tag for node in recovery.iter()
+                   if len(node) == 0 and node.tag != "GoalUpdated"}
+        self.assertEqual(actions, {"Wait"})
+        self.assertEqual(enabled, {"nav2_behaviors::" + action for action in actions})
+        # Prevent a motion recovery from being moved to another branch.
+        self.assertFalse(any(node.tag in {"Spin", "BackUp", "DriveOnHeading", "AssistedTeleop"}
+                             for node in tree.iter()))
 
 
 if __name__ == "__main__":

@@ -244,10 +244,8 @@ behavior_server:
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
     enable_stamped_cmd_vel: false
-    # Only turning and waiting: backing up is risky for a walking robot.
-    behavior_plugins: ["spin", "wait"]
-    spin:
-      plugin: "nav2_behaviors::Spin"
+    # Wait, then retry planning. Spin's cached costmap cannot check lidar freshness.
+    behavior_plugins: ["wait"]
     wait:
       plugin: "nav2_behaviors::Wait"
     local_frame: odom
