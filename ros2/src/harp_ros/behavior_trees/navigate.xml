@@ -1,10 +1,11 @@
 <!--
   Nav2's navigate_to_pose_w_replanning_and_recovery.xml (Jazzy) without its
-  costmap clearing and BackUp: replan at 1 Hz, follow the path, and when stuck,
-  turn in place or wait, then try again.
+  costmap clearing and motion recoveries: replan at 1 Hz, follow the path,
+  and when stuck, wait, then try again.
   Clearing the costmaps would forget obstacles in the lidar's blind ring near
   the feet, which it can't see again until it steps back from them; backing
-  up is risky for a walking robot.
+  up is risky for a walking robot. Spin's cached costmap does not expose
+  lidar freshness, so it could rotate after the sensor stops.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -18,10 +19,7 @@
       </PipelineSequence>
       <ReactiveFallback name="RecoveryFallback">
         <GoalUpdated/>
-        <RoundRobin name="RecoveryActions">
-          <Wait wait_duration="3.0"/>
-          <Spin spin_dist="0.8" error_code_id="{spin_error_code}"/>
-        </RoundRobin>
+        <Wait wait_duration="3.0"/>
       </ReactiveFallback>
     </RecoveryNode>
   </BehaviorTree>

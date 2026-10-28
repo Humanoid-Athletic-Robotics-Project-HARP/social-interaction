@@ -10,7 +10,7 @@ odom -> base_link transform), with the sim's lidar or the real one on
 Only the Nav2 servers we use, each as its own node (nav2_bringup's launch
 files also start docking_server, which RoboStack doesn't have): the planner
 (a path on the costmap), the controller (Graceful, /cmd_vel to walker_node),
-the behaviors (turn, wait), and the navigator (behavior_trees/navigate.xml),
+the behaviors (wait), and the navigator (behavior_trees/navigate.xml),
 brought up by one lifecycle manager. In rviz2, "2D Goal Pose" sends a goal.
 """
 

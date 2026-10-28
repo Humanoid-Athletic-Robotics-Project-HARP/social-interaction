@@ -57,6 +57,7 @@ both the sim and the real robot, and we try everything in the sim first.
   `walker_node` through every course (`run_sim --world`), including the
   obstacle course with a table, pillars, a thin pole and an archway, without
   touching anything. The robot's own body is filtered out of the lidar.
+- ✅ Sim: repeat configurable waypoint routes with Nav2 (`course --route`, `--waypoint`, `--laps`).
 - 🟡 Sim: more on obstacles and path following: closer margins, a
   collision-monitor stop, moving obstacles and people. Started: the
   costmaps forget where a person was once they've moved on (STVL), tested
@@ -358,6 +359,41 @@ ros2 run harp_eval runs compare --world slalom --plot paths.png
 (the windows open as usual), and stops when the robot arrives, gives up or
 falls. Each repeat starts fresh, and Ctrl-C stops it.
 
+To repeat a waypoint route in the same simulation:
+
+```bash
+ros2 run harp_eval course one_box --route rectangle --laps 3 --tag waypoint-loop
+```
+
+The bundled [rectangle route](ros2/src/harp_eval/config/rectangle.yaml) visits
+four points. `--laps N` sets the number of laps, overriding a route file's
+`laps` value (one by default). Copy it and use `--route FILE.yaml`, or supply
+each point directly:
+
+```bash
+ros2 run harp_eval course open_floor --waypoint 2 0 --waypoint 2 2 90 --waypoint 0 0 --laps 3
+```
+
+Each point is `[x, y, heading]`: meters and degrees in `odom`, measured from
+the same starting origin for every lap. Heading is optional and defaults
+to zero. The robot advances after each successful
+arrival and ends the run on rejection, failure, or timeout (`--timeout` is
+per waypoint). Nav2 handles obstacles between points. `laps` repeats the
+route; `--repeat` restarts the entire simulation.
+
+Taking manual control pauses the current waypoint. Hand control back with
+Shift+G or R1+A to resume it; the waypoint timeout excludes the pause.
+
+The run saves the effective `route.yaml` and each waypoint's result. Route pass/fail uses
+the YAML's optional `criteria`; single-goal course limits apply to single
+goals. A route without criteria still reports its navigation outcome.
+
+After building, run the offline checks from `ros2/`:
+
+```bash
+pixi run --as-is python -m pytest src/harp_*/test -q
+```
+
 Every run gets its own folder in `runs/` (which git ignores). It has the
 settings, the git commit, what happened when, the true and estimated
 paths, every program's output, and a `summary.json` with the result and
@@ -380,6 +416,8 @@ A few more things you can do:
 - `--replay --replay-reason "why"` saves enough to replay the run into Nav2
   later with different settings (`replay.launch.py`). These recordings are
   large, so only make one when someone asks for it.
+  Replay runs use their own ROS domain (100 by default); use `domain:=ID`
+  with another unused domain for concurrent replays.
 - `runs list` and `runs show RUN` let you browse, `runs set RUN key=value`
   records conditions such as `tether=gantry`, and `runs pin RUN` keeps a
   run around for good. Older runs get trimmed automatically.

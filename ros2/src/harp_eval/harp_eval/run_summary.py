@@ -6,9 +6,12 @@ is a small function of the run folder, so a new one is added here and
 """
 
 import csv
+import io
 import json
+import math
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -16,8 +19,8 @@ import yaml
 
 from harp_control import runlog
 
-SUMMARY_VERSION = 2
-FOREVER = {"run.yaml", "events.csv", "summary.json"}   # never pruned
+SUMMARY_VERSION = 3
+FOREVER = {"run.yaml", "events.csv", "summary.json", "route.yaml"}   # never pruned
 NEAR = 0.3                # m: "time within NEAR of an obstacle"
 CLEARANCE_MAX = 2.0       # m: clearances beyond this aren't computed
 CLEARANCE_PERIOD = 0.1    # s between poses checked for clearance
@@ -35,25 +38,66 @@ def read_meta(run):
 
 
 def write_meta(run, meta):
-    (Path(run) / "run.yaml").write_text(yaml.safe_dump(meta, sort_keys=False))
+    write_text_atomic(Path(run) / "run.yaml", yaml.safe_dump(meta, sort_keys=False))
+
+
+def write_text_atomic(path, text):
+    """Publish a complete document; readers retain the previous version until replacement."""
+    path = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=path.parent,
+                                         prefix=f".{path.name}.", delete=False) as file:
+            temporary = Path(file.name)
+            file.write(text)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def normalize_event(record, received, raw=None):
+    """Keep malformed inputs as unparsed data, outside the typed scoring events."""
+    if isinstance(record, dict):
+        stamp = record.get("t", received)
+        try:
+            t = float(stamp)
+        except (TypeError, ValueError, OverflowError):
+            t = float("nan")
+        source, name = record.get("source", "unknown"), record.get("event", "unknown")
+        details = record.get("details", {})
+        if not isinstance(stamp, bool) and math.isfinite(t) and isinstance(source, str) \
+                and isinstance(name, str) and isinstance(details, dict):
+            return {"t": t, "source": source, "event": name, "details": details}
+    return {"t": received, "source": "unknown", "event": "unparsed",
+            "details": {"data": record if raw is None else raw}}
 
 
 def merge_events(run):
     """Fold events-<program>.csv (from programs without ROS) into events.csv, in time order."""
     run = Path(run)
     rows = []
-    for path in [run / "events.csv", *sorted(run.glob("events-*.csv"))]:
+    parts = sorted(run.glob("events-*.csv"))
+    for path in [run / "events.csv", *parts]:
         if path.exists():
+            received = path.stat().st_mtime
             with open(path, newline="") as f:
-                rows += list(csv.DictReader(f))
-    rows.sort(key=lambda r: float(r["t"]))
-    with open(run / "events.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=runlog.EVENT_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-    for path in run.glob("events-*.csv"):
+                for row in csv.DictReader(f):
+                    original = dict(row)
+                    try:
+                        row["details"] = json.loads(row.get("details") or "{}")
+                    except ValueError:
+                        pass  # normalize_event preserves the original row as unparsed data.
+                    rows.append(normalize_event(row, received, raw=original))
+    rows.sort(key=lambda r: r["t"])
+    text = io.StringIO(newline="")
+    writer = csv.DictWriter(text, fieldnames=runlog.EVENT_FIELDS)
+    writer.writeheader()
+    writer.writerows({**r, "details": json.dumps(r["details"])} for r in rows)
+    write_text_atomic(run / "events.csv", text.getvalue())
+    for path in parts:
         path.unlink()
-    return [{**r, "t": float(r["t"]), "details": json.loads(r["details"] or "{}")} for r in rows]
+    return rows
 
 
 def first(events, source, name):
@@ -69,15 +113,18 @@ def outcome(events):
     estop = first(events, "walker", "estop")
     if estop and (goal is None or estop["t"] < goal["t"]):
         return "stopped", f"e-stop ({estop['details'].get('by', 'remote')}, B)"
+    moves_done = first(events, "move_distance", "all_moves_done")
+    finished = goal or moves_done
+    error = first(events, "move_distance", "error") or first(events, "walker", "error")
+    if error and (finished is None or error["t"] < finished["t"]):
+        # Launch shutdown can cancel Nav2 after the walker has already failed.
+        return "error", error["details"].get("message")
     if goal:
         status = goal["details"].get("status", "")
         return {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out",
                 "NAV2_NOT_ACTIVE": "error"}.get(status, "failed"), status
-    if first(events, "move_distance", "all_moves_done"):
+    if moves_done:
         return "succeeded", "all moves done"
-    error = first(events, "move_distance", "error") or first(events, "walker", "error")
-    if error:
-        return "error", error["details"].get("message")
     return "stopped", "ended before a goal or moves finished"
 
 
@@ -85,9 +132,11 @@ def window(events):
     """Wall-clock start and end of the part that counts: goal sent to result, or the moves."""
     start = (first(events, "goal", "goal_sent") or first(events, "move_distance", "move_start")
              or first(events, "walker", "policy_on"))
-    end = (first(events, "goal", "goal_result") or first(events, "move_distance", "all_moves_done")
-           or first(events, "walker", "fall") or first(events, "move_distance", "error")
-           or first(events, "walker", "stop"))
+    terminals = [first(events, source, name) for source, name in (
+        ("goal", "goal_result"), ("move_distance", "all_moves_done"),
+        ("walker", "fall"), ("walker", "estop"), ("move_distance", "error"),
+        ("walker", "error"), ("walker", "stop"))]
+    end = min((e for e in terminals if e is not None), key=lambda e: e["t"], default=None)
     return (start["t"] if start else None), (end["t"] if end else None)
 
 
@@ -300,10 +349,37 @@ def criteria_for(world):
     return (yaml.safe_load(path.read_text()), path.name) if path.exists() else (None, None)
 
 
+def route_summary(run, events):
+    """Route plan and waypoint results, including routes that ended before the first goal."""
+    path = Path(run) / "route.yaml"
+    sent = first(events, "goal", "goal_sent")
+    plan = sent["details"] if sent else {}
+    if not path.exists() and "waypoints" not in plan:
+        return None
+    config = (yaml.safe_load(path.read_text()) or {}) if path.exists() else {}
+    waypoints = plan.get("waypoints", config.get("waypoints", []))
+    laps = plan.get("laps", config.get("laps", 1))
+    results = [{**e["details"], "t": e["t"]} for e in events
+               if e["source"] == "goal" and e["event"] == "waypoint_result"]
+    result = first(events, "goal", "goal_result")
+    terminal = result["details"] if result else {}
+    completed = terminal.get("completed_waypoints",
+                             sum(r.get("status") == "SUCCEEDED" for r in results))
+    return {"waypoints": waypoints, "planned_waypoints": len(waypoints) * laps,
+            "planned_laps": laps, "completed_waypoints": completed,
+            "completed_laps": terminal.get("completed_laps", completed // len(waypoints)
+                                           if waypoints else 0),
+            "waypoint_results": results, "criteria": config.get("criteria")}
+
+
 def check(s):
     """Pass/fail per criterion and overall, for course runs (started by course, or a goal
     was sent). A run that ended before its goal fails: its values are missing."""
-    criteria, name = criteria_for(s.get("world"))
+    if s.get("route") is not None:
+        # A whole route has its own limits; the world's one-goal time limit does not apply.
+        criteria, name = s["route"].get("criteria"), "route.yaml"
+    else:
+        criteria, name = criteria_for(s.get("world"))
     if not criteria or not s.get("course_run"):
         return None
     rules = {"must_succeed": (lambda v, lim: v == "succeeded" or not lim, "outcome"),
@@ -354,6 +430,9 @@ def summarize(run):
     moves = [e["details"] for e in events if e["event"] == "move_done"]
     if moves:
         s["moves"] = moves
+    route = route_summary(run, events)
+    if route is not None:
+        s["route"] = route
 
     truth = load_truth(run)
     # /odom from walker_node, or leg_odom.csv that move_distance writes without ROS.
@@ -411,7 +490,7 @@ def summarize(run):
     s["check"] = check(s)
     s["passed"] = s["check"]["passed"] if s["check"] else None
 
-    (run / "summary.json").write_text(json.dumps(s, indent=2))
+    write_text_atomic(run / "summary.json", json.dumps(s, indent=2))
     meta["result"] = {k: s.get(k) for k in ("outcome", "reason", "passed", "duration_s", "path_m",
                                             "end_error_m", "closest_m", "contacts", "recoveries")}
     write_meta(run, meta)
@@ -432,6 +511,10 @@ def one_screen(s):
              f"{s.get('recovery_types') or ''}",
              f"  contacts {s['contacts']}, closest {get('closest_m', '{:.2f}', ' m')}, "
              f"odometry error at the end {get('odom_error_end_m', '{:.2f}', ' m')}"]
+    if s.get("route") is not None:
+        route = s["route"]
+        lines.append(f"  route {route['completed_waypoints']}/{route['planned_waypoints']} waypoints, "
+                     f"{route['completed_laps']}/{route['planned_laps']} laps")
     fwd = s.get("speed_forward_ratio_odom")
     if fwd:
         lines.append(f"  achieved/commanded forward speed {fwd['mean']:.2f} ± {fwd['sd']:.2f} (odom)"
@@ -492,7 +575,7 @@ def prune(runs, retention, replay=None, dry_run=False):
     for run in keep[retention["baseline_keep_runs"]:]:
         extra = [p for p in run.iterdir() if p.name not in FOREVER]
         if extra:
-            actions.append((run, "keep only run.yaml, events.csv, summary.json", extra))
+            actions.append((run, "keep only run.yaml, events.csv, summary.json and route.yaml", extra))
     with_bags = [r for r in keep[:retention["baseline_keep_runs"]] if (r / "bag").exists()]
     total = 0.0
     for i, run in enumerate(with_bags):

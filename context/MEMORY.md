@@ -6,6 +6,7 @@
 - [Minimal setup](feedback-minimal-setup.md) — before adding nodes, packages, messages or tooling
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
 - [Run logging and testing](run-logging.md) — before running, recording or comparing any test
+- [Waypoint route](waypoint-loop.md) — route state and waypoint sequencing integration
 - [MuJoCo sim](mujoco-sim.md) — before running the sim (always with windows) or changing run_sim, its lidar or courses
 - [Nav2 in the sim](nav2-sim.md) — before tuning Nav2, changing a course, or running Nav2 by hand
 - [move_distance](move-distance.md) — when changing move_distance, curves or leg odometry, or needing its accuracy

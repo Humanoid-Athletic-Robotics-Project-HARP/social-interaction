@@ -12,6 +12,8 @@ It walks in a straight line at a constant speed, back and forth:
     Without it, the mover starts at sim time 0.
   - an optional numeric <body>_trips: how many one-way walks before it stops
     where it is (1 = start to end once). Without it, it never stops.
+All numeric settings must be finite scalars. Duration must be positive;
+delay and trips must be nonnegative.
 
   <custom>
     <numeric name="person_duration" data="5"/>
@@ -30,6 +32,8 @@ start. (Robot drift doesn't count: a lagging sim once moved a standing robot
 mover_start event (mover, starts_at: the sim time it starts walking);
 run_summary places movers from those events and the recorded sim time.
 """
+
+import math
 
 import numpy as np
 
@@ -51,13 +55,19 @@ class Movers:
             except KeyError:
                 raise SystemExit(f"Mover {name} needs a site {name}_end and a numeric "
                                  f"{name}_duration (see harp_sim/movers.py)")
+            if duration <= 0:
+                raise SystemExit(f"Mover {name}_duration must be positive")
+            delay, trips = optional(model, name + "_delay"), optional(model, name + "_trips")
+            for suffix, value in (("delay", delay), ("trips", trips)):
+                if value is not None and value < 0:
+                    raise SystemExit(f"Mover {name}_{suffix} must be nonnegative")
             self.names.append(name.removeprefix("course/"))
             self.mocap.append(model.body_mocapid[b])
             self.start.append(model.body_pos[b].copy())
             self.end.append(model.site_pos[end].copy())
             self.duration.append(duration)
-            self.delay.append(optional(model, name + "_delay"))
-            self.trips.append(optional(model, name + "_trips"))
+            self.delay.append(delay)
+            self.trips.append(trips)
         # Sim time each mover starts walking; None until the robot has moved.
         self.started = [0.0 if d is None else None for d in self.delay]
         for i, name in enumerate(self.names):
@@ -97,7 +107,10 @@ class Movers:
 
 def numeric(model, name):
     i = model.numeric(name).id
-    return float(model.numeric_data[model.numeric_adr[i]])
+    value = float(model.numeric_data[model.numeric_adr[i]])
+    if model.numeric_size[i] != 1 or not math.isfinite(value):
+        raise SystemExit(f"Mover {name} must contain one finite number")
+    return value
 
 
 def optional(model, name):

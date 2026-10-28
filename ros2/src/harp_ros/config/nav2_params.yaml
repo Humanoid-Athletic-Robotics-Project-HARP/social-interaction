@@ -123,7 +123,7 @@ local_costmap:
           obstacle_range: 3.0
           min_obstacle_height: 0.08
           max_obstacle_height: 1.8
-          expected_update_rate: 0.0
+          expected_update_rate: 1.0  # s without a usable 10 Hz cloud before the costmap is stale
           observation_persistence: 0.0
           inf_is_valid: false
           filter: "passthrough"   # "voxel" overflows PCL with our 40 m range
@@ -141,6 +141,8 @@ local_costmap:
           vertical_fov_padding: 0.05  # m
           horizontal_fov_angle: 6.29  # all around
           decay_acceleration: 10.0
+          # Guard this same cloud through marking. This STVL version does not
+          # refresh its timestamp in the clearing-only BufferROSCloud path.
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
@@ -193,7 +195,7 @@ global_costmap:
           obstacle_range: 3.0
           min_obstacle_height: 0.08
           max_obstacle_height: 1.8
-          expected_update_rate: 0.0
+          expected_update_rate: 1.0  # s without a usable 10 Hz cloud before the costmap is stale
           observation_persistence: 0.0
           inf_is_valid: false
           filter: "passthrough"   # "voxel" overflows PCL with our 40 m range
@@ -211,6 +213,8 @@ global_costmap:
           vertical_fov_padding: 0.05  # m
           horizontal_fov_angle: 6.29  # all around
           decay_acceleration: 10.0
+          # Guard this same cloud through marking. This STVL version does not
+          # refresh its timestamp in the clearing-only BufferROSCloud path.
           expected_update_rate: 0.0
           observation_persistence: 0.0
           inf_is_valid: false
@@ -240,10 +244,8 @@ behavior_server:
     global_footprint_topic: global_costmap/published_footprint
     cycle_frequency: 10.0
     enable_stamped_cmd_vel: false
-    # Only turning and waiting: backing up is risky for a walking robot.
-    behavior_plugins: ["spin", "wait"]
-    spin:
-      plugin: "nav2_behaviors::Spin"
+    # Wait, then retry planning. Spin's cached costmap cannot check lidar freshness.
+    behavior_plugins: ["wait"]
     wait:
       plugin: "nav2_behaviors::Wait"
     local_frame: odom

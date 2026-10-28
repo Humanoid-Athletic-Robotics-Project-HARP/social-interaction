@@ -3,7 +3,7 @@ name: controls
 description: Read before changing a key or remote button, how driving by hand takes over from a program, or planning how the operator controls the robot in a session
 metadata:
   type: project
-  updated: 2026-10-28T03:10:45Z
+  updated: 2026-10-28T04:43:14Z
   covers: [ros2/src/harp_control/harp_control/remote.py, ros2/src/harp_control/harp_control/gr00t/walk.py, ros2/src/harp_control/harp_control/move_distance.py, ros2/src/harp_ros/harp_ros/walker_node.py]
 ---
 
