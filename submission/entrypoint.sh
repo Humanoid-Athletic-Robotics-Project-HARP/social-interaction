@@ -28,7 +28,7 @@ fi
 if [[ -z "${G1_TASK_COMMAND:-}" && ! -f /harp/model/world.xml ]]; then
   export G1_TASK_COMMAND="${HARP_DEFAULT_TASK:-}"
 fi
-if [[ "${G1_TASK_COMMAND:-}" == *'"to"'*|| "${G1_TASK_COMMAND:-}" == *'"moves"'* ]]; then
+if [[ "${G1_TASK_COMMAND:-}" == *'"to"'* || "${G1_TASK_COMMAND:-}" == *'"moves"'* ]]; then
   PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/moves.py &
 elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   # After our node has armed, and at lower priority: starting about ten processes beside

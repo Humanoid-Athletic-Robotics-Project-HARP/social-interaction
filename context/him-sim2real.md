@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before anything that touches HARP's safety harness/simulator (him-sim2real-management), or to see what moving our code onto it dropped and what is left to do
 metadata:
   type: project
-  updated: 2026-10-28T18:53:29Z
+  updated: 2026-10-28T21:38:27Z
   covers: []
 ---
 
@@ -34,7 +34,7 @@ metadata:
 - Lam's Spin removal (PR #2, recoveries Wait only): deferred, not dropped; why and what it needs are in the to-do list below.
 
 **To do, without the robot** (the maintainer's call):
-- [ ] Fix the live-viewer stops (`observation_timeout`, `checked_command_expired` during start-up balance; findings and the staggered-start attempt in [[submission-image]]), and `course.py --view` sometimes not closing HIM's viewer.
+- [ ] Fix the live-viewer stops (`observation_timeout`, `checked_command_expired`; HIM's state delivery is late, not our reply; findings in [[submission-image]]).
 - [ ] Pass criteria for `crossing` and `oncoming` (`submission/worlds/NAME.yaml`).
 - [ ] Three runs of every course for spread, compared with `course.py --compare` (all six succeed once with Graceful, [[nav2-sim]]).
 - [ ] Remove Nav2's Spin recovery (`navigate.xml`, `recoveries_server`; Wait only): Spin turns on a cached costmap without checking the lidar is live. Removing it changes recoveries, so it needs the six courses rerun (deferred 2026-10-28).

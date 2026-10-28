@@ -58,7 +58,8 @@ RUNS = Path(os.environ.get("HARP_RUNS_DIR", REPO / "runs"))
 STARTUP = 30.0          # s added to the world's max_time_s: HIM's 5 s balance, Nav2, settling
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
-VIEW_LINGER = 5.0       # s the live viewer stays up after the report, with --view
+VIEW_LINGER = 5.0       # s the live viewer stays up after the run, with --view
+VIEWER_IDLE = "Viewer is still at"   # HIM's sim.sh, once the run is over and only the page is left
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
 ROUTES = HERE / "routes"
 ROUTE_SPEED = 0.15      # m/s along a route's straight legs, for its run length (Nav2's mean is about this)
@@ -278,12 +279,20 @@ def run_once(name, tag, view, route=None):
                                env=env)
         if view:
             print(f"{run.name}: press Start at http://127.0.0.1:8765", flush=True)
-            # HIM's viewer keeps serving after the run; close it once the report is written.
-            while sim.poll() is None and not (run / "report.json").is_file():
+            # HIM's viewer keeps serving after the run, until Ctrl-C. Send it only once HIM
+            # has torn the sim down and says so: one during the teardown could leave sim.sh
+            # waiting for good, and --repeat hung.
+            while sim.poll() is None and VIEWER_IDLE not in (run / "sim.log").read_text(errors="replace"):
                 time.sleep(1)
             time.sleep(VIEW_LINGER)
-            if sim.poll() is None:
-                os.killpg(sim.pid, signal.SIGINT)
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
+                if sim.poll() is not None:
+                    break
+                os.killpg(sim.pid, sig)
+                try:
+                    sim.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    print(f"{run.name}: the viewer didn't close on {sig.name}", flush=True)
         sim.wait()
     if not (run / "report.json").is_file():
         print(f"{run.name}: no report; see {run / 'sim.log'}")

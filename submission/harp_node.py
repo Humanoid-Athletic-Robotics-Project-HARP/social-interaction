@@ -32,6 +32,34 @@ CMD_TIMEOUT = 0.5                       # s of /cmd_vel silence before the walke
 MODEL = "/harp/model/g1_robot.xml"      # him-sim2real-management's G1, for leg kinematics
 
 
+class Timing:
+    """Worst case each second of how HIM's 0.2 s state deadline is spent, as a "timing" line:
+    age (s from HIM receiving the state to it reaching us), reply (our joint command),
+    extra (republishing the state), gap (between states)."""
+
+    def __init__(self):
+        self.start, self.last, self.n = None, None, 0
+        self.worst = dict(age=0.0, reply=0.0, extra=0.0, gap=0.0)
+
+    def add(self, state, arrived, replied, done):
+        if state is None:
+            return
+        self.start = arrived if self.start is None else self.start
+        sample = dict(age=arrived - state.get("received_at_secs", arrived), reply=replied - arrived,
+                      extra=done - replied, gap=0.0 if self.last is None else arrived - self.last)
+        self.worst = {k: max(v, sample[k]) for k, v in self.worst.items()}
+        self.last, self.n = arrived, self.n + 1
+        if done - self.start >= 1.0:
+            self.flush(state)
+
+    def flush(self, state):
+        if self.n:
+            print(json.dumps({"event": "timing", "wall": round(time.time(), 2),
+                              "sim_time": (state or {}).get("sim_time"), "n": self.n,
+                              **{k: round(v, 3) for k, v in self.worst.items()}}), flush=True)
+        self.__init__()
+
+
 class HarpPolicyNode(client.PolicyNode):
     def __init__(self, policy, mode="sim"):
         super().__init__(policy, mode)
@@ -45,6 +73,7 @@ class HarpPolicyNode(client.PolicyNode):
         latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.events_pub = self.create_publisher(String, "/harp/events", latched)
         self.control_ready = False
+        self.timing = Timing()
 
     def event(self, source, name, **fields):
         text = json.dumps({"source": source, "event": name, **fields})
@@ -67,12 +96,19 @@ class HarpPolicyNode(client.PolicyNode):
         super().publish_command()
 
     def on_state(self, message):
+        arrived = time.monotonic()
         super().on_state(message)    # the joint command goes out first
+        replied = time.monotonic()
         if not self.done:
             if self.state.get("control_ready") and not self.control_ready:
                 self.control_ready = True     # HIM's startup balance handed over to us
                 self.event("policy", "control_ready")
             self.state_out.publish(self.state)
+        self.timing.add(self.state, arrived, replied, time.monotonic())
+
+    def on_abort(self, message):
+        self.timing.flush(self.state)
+        super().on_abort(message)
 
 
 if __name__ == "__main__":
