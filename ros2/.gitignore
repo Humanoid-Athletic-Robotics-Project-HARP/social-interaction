@@ -1,8 +1,0 @@
-# pixi environment
-.pixi/*
-!.pixi/config.toml
-
-# colcon output (pixi run build)
-build/
-install/
-log/

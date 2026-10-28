@@ -1,0 +1,29 @@
+<!--
+  Nav2's navigate_w_replanning_and_recovery.xml (Foxy) without its costmap
+  clearing and BackUp: replan at 1 Hz, follow the path, and when stuck, turn in
+  place or wait, then try again.
+  Clearing the costmaps would forget obstacles in the lidar's blind ring near
+  the feet, which it can't see again until it steps back from them; backing
+  up is risky for a walking robot.
+  server_timeout (ms to wait for a server to accept a request): at Nav2's 10 a
+  busy Mac timed out, and every recovery failed at once.
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <RateController hz="1.0">
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="200"/>
+        </RateController>
+        <FollowPath path="{path}" controller_id="FollowPath" server_timeout="200"/>
+      </PipelineSequence>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Wait wait_duration="3" server_timeout="200"/>
+          <Spin spin_dist="0.8" server_timeout="200"/>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

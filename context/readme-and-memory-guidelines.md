@@ -3,7 +3,7 @@ name: readme-and-memory-guidelines
 description: Read before editing README.md or any file in context/ — how to write them, what to leave out, and the freshness check
 metadata:
   type: feedback
-  updated: 2026-10-26T22:40:10Z
+  updated: 2026-10-28T08:59:18Z
   covers: [context/check_memory.py]
 ---
 
@@ -11,7 +11,7 @@ metadata:
 
 `README.md` is the front page for newcomers and the maintainer.
 - Say what the robot does and has. Leave out what it doesn't do, what we don't use, and comparisons with what we replaced. Safety steps stay, phrased as what to do ("keep the robot supported").
-- Give only the correct way, not what fails: the right command (`pixi shell --as-is`), with the reason and symptom in `context/`.
+- Give only the correct way, not what fails: the right command (`submission/sim.sh --no-view`), with the reason and symptom in `context/`.
 - No process notes ("ask the team"), no "draft" labels. HARP is a robotics team: never "course" or "course staff".
 - Short: commands with one line on what they do, bullets over paragraphs, the stand-up sequence explained once and referred to elsewhere.
 - Measured results, limits, edge cases, design reasons and gotchas go in `context/`.
@@ -33,7 +33,7 @@ A memory tells a future agent what is true now and how to act on it. Write the f
 **Keep**
 - Current facts and instructions: how to run, what each setting is and why.
 - Findings that would save someone from repeating work: a measured limit, a bug's cause when the fix constrains future changes (e.g. "clearing uses only floor points, because full clearing erased thin tabletops"), an option tried and rejected with the one-line reason.
-- The current baseline numbers, naming the pinned run folder they come from ([[run-logging]]).
+- The current baseline numbers, naming the run folder they come from (`runs/`, [[submission-image]]).
 - Open questions and next steps, briefly.
 
 **Leave out**

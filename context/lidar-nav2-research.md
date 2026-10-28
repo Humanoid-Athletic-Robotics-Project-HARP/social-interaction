@@ -3,23 +3,23 @@ name: lidar-nav2-research
 description: Read when bringing up the real G1 lidar, changing lidar_relay, adding mapping/localization, or looking for other G1 Nav2 setups to borrow from
 metadata:
   type: reference
-  updated: 2026-10-28T00:46:21Z
-  covers: [ros2/pixi.toml, ros2/src/harp_ros/harp_ros/lidar_relay.py]
+  updated: 2026-10-28T09:31:54Z
+  covers: [submission/harp/lidar_relay.py]
 ---
 
-Research, not yet tried on hardware. What we built from it: [[nav2-sim]], [[mujoco-sim]].
+Research, not yet tried on hardware. What we built from it: [[nav2-sim]], [[submission-image]].
 
 **MID-360:** 360° × −7° to +52°, 0.1 m blind zone, about 20k points per frame at 10 Hz, ≤ 2 cm noise, non-repetitive scan, built-in IMU. G1s made after April 2026 ship a "Mid360s" needing newer SDK and driver: check ours.
 
 **On the G1** (Unitree `lidar_Instructions`, `lidar_services_interface`):
-- Lidar at 192.168.123.120. Either Unitree's built-in service (PointCloud2 on `rt/utlidar/cloud_livox_mid360`, 10 Hz, `livox_frame`; IMU on `rt/utlidar/imu_livox_mid360`) or our own `livox_ros_driver2` (re-points the lidar's host IP, so pick one). Whether the built-in service runs in debug mode is unknown: `ros2 topic list` on the robot.
-- **Into our ROS 2: `harp_ros/lidar_relay.py`** (untested on the robot). Our ROS 2 is on domain 2 over `lo0` ([[ros2-mac]]), so it can't see the service's domain 0. The relay reads `rt/utlidar/cloud_livox_mid360` through unitree_sdk2py (which has the PointCloud2 type and sets its own interface, like walker_node) and republishes `/utlidar/cloud_livox_mid360`, restamped with arrival time: the robot's clock isn't the laptop's. Its own process, not walker_node's, to keep the copying away from the 200 Hz loop. Its DDS reader closes before ROS teardown on normal exit, failed subscriber initialization, and executor errors. Course runs use it ([[mujoco-sim]] `--lidar-dds`); first one: `one_box` passed with the same scan rate and point count as direct publishing (`2026-10-27_22-30-25Z_sim_one_box_lidar-relay`, pinned). Chosen over `livox_ros_driver2` because it changes nothing on the lidar. `domain_bridge` isn't on RoboStack; `topic_tools` can't cross domains.
-- **Fallback if the service doesn't run in debug mode:** `livox_ros_driver2` on the laptop, Unitree's documented route (`MID360_config.json`: lidar 192.168.123.120, host = the laptop). Its stamps are the lidar's own clock (`lddc.cpp`, no host-time option) and macOS has no easy PTP, so they need restamping too. G1s made after April 2026 have a Mid360s, which may need a newer driver than RoboStack's 1.2.4.
-- **First check on the robot:** in a shell with CycloneDDS on `en0` and `ROS_DOMAIN_ID=0`, `ros2 topic hz /utlidar/cloud_livox_mid360`; then `lidar_relay real:=true interface:=en0` and look in rviz2.
-- **Mounted upside down.** `g1_29dof_rev_1_0.urdf`: `mid360_joint` at (0.0003, 0, 0.428434) on `torso_link`, rpy (π, 0.0511, 0). The older `g1_29dof.urdf` (which our sim matches) has (0.0003, 0, 0.40618), pitch 0.0401, no flip. Unitree's `lidar_services_interface` page gives the lidar at (0, 0, −0.47618) from "the robot coordinate system" (frame not named), inverted, pitch −2.3° (our 0.0401 rad matches), and the lidar's IMU at (0.011, 0.02329, −0.04412) from the lidar, unrotated. Check our robot's revision and real mount. deepglint's driver fork also rotates the IMU (stock rotates only points).
+- Lidar at 192.168.123.120. Either Unitree's built-in service (PointCloud2 on `rt/utlidar/cloud_livox_mid360`, 10 Hz, `livox_frame`; IMU on `rt/utlidar/imu_livox_mid360`) or our own `livox_ros_driver2` (re-points the lidar's host IP, so pick one). Whether the built-in service still runs once HIM's harness has released Unitree's controller is unknown.
+- **Into our ROS 2: `harp/lidar_relay.py`** in our image (tested against a robot-style cloud, not on the robot): reads `rt/utlidar/cloud_livox_mid360` through unitree_sdk2py on the robot's domain and republishes it, restamped with arrival time, for Nav2 ([[submission-image]]).
+- **Fallback if the service doesn't run:** `livox_ros_driver2` (Unitree's documented route; `MID360_config.json`: lidar 192.168.123.120, host = the computer running it), which would have to be built into our image. Its stamps are the lidar's own clock (`lddc.cpp`, no host-time option), so they need restamping too. G1s made after April 2026 have a Mid360s, which may need a newer driver.
+- **First check on the robot:** HIM's dry run with our image (README "On the robot"); its output shows the relay's "Lidar: N points in livox_frame ..." line, or "No lidar on rt/utlidar/... for 5 s".
+- **Mounted upside down.** `g1_29dof_rev_1_0.urdf`: `mid360_joint` at (0.0003, 0, 0.428434) on `torso_link`, rpy (π, 0.0511, 0). Our mount (`harp/lidar_mount.py`) and HIM's G1 model are rev 1.0. The older `g1_29dof.urdf` has (0.0003, 0, 0.40618), pitch 0.0401, no flip. Unitree's `lidar_services_interface` page gives the lidar at (0, 0, −0.47618) from "the robot coordinate system" (frame not named), inverted, pitch −2.3° (the older URDF's 0.0401 rad), and the lidar's IMU at (0.011, 0.02329, −0.04412) from the lidar, unrotated. Check our robot's revision and real mount. deepglint's driver fork also rotates the IMU (stock rotates only points).
 - **Blind ring:** the floor and low obstacles within about 0.9–1.1 m are never seen, so the costmap must remember them.
 
-**Nav2 and mapping on RoboStack Jazzy (osx-arm64):** most Nav2 packages are there, plus collision-monitor, velocity-smoother, MPPI (Omni model if we want sideways steps), pointcloud-to-laserscan, robot-localization, livox-ros-driver2, slam-toolbox, AMCL, map-server, octomap-server, rtabmap-ros. Missing: spatio-temporal-voxel-layer, nav2-docking, fast-lio, kiss-icp. Lidar-inertial odometry would also need per-point timestamps and a lidar IMU, which the sim lidar lacks.
+**Nav2 and mapping in our image (Foxy, Nav2 0.4.7):** no Graceful Controller (ours is a port, [[nav2-sim]]), and no collision monitor, velocity smoother or MPPI (all Humble and later); slam_toolbox and AMCL exist.
 
 **Other G1 stacks** (none validated on hardware):
 - Adyansh04/grove-g1 (BSD-3, Jazzy, MuJoCo, own policy; closest to ours): RotationShim + RPP with regulation off, VoxelLayer, `obstacle_min_range` 0.6, `obstacle_max_range` 3.0, separate server nodes. Uses a map (slam_toolbox/AMCL), so borrow its local side.

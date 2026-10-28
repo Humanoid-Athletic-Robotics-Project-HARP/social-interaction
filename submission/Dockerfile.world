@@ -1,0 +1,5 @@
+# One world on top of the submission image, for its simulated lidar (submission/sim.sh --world).
+# Built from the stage_world.py image/NAME folder.
+ARG BASE=harp-submission:local
+FROM ${BASE}
+COPY world.xml lidar_scene.xml /harp/model/

@@ -3,7 +3,7 @@ name: beginner-guide
 description: Read only when someone is new to the repo (just cloned it, "how do I get started") — the order to walk them through the README
 metadata:
   type: reference
-  updated: 2026-10-28T04:43:14Z
+  updated: 2026-10-28T09:31:53Z
   covers: [README.md]
 ---
 
@@ -12,12 +12,10 @@ Walk the newcomer through one stage at a time, and ask which they need: the sim 
 **0. Orientation:** the robot and team ([[project-overview]]), the house rule ([[feedback-minimal-setup]]), and that `context/` is shared agent memory indexed in `context/MEMORY.md`.
 
 **1. Sim (start here).** Ask their OS first ([[team-context]]).
-1. README "Setup", steps 1–4.
-2. README "Run it in the sim": `run_sim` and `walk`. The start-up order is the usual stumbling block: feet on the floor, Shift+P, then release the band. Band keys go to the MuJoCo window, the rest to the controller's terminal.
-3. README "Planned moves: `move_distance`" (detail in [[move-distance]]).
-4. README "Drive it through ROS 2: `walker_node`".
-5. README "Test runs and logs": `course one_box`, then `runs compare` ([[run-logging]]).
+1. README "Setup": HIM's checkout next to this repo, its Python environment, the Holosoma checkpoint, Docker Desktop.
+2. README "Run it in the sim": `submission/build.sh`, then a move with `G1_TASK_COMMAND` in `submission/sim.sh`, watched in the browser (press Start). HIM's GR00T balance holds the robot for 5 s first ([[planned-moves]]).
+3. A course: `python3 submission/course.py one_box`, then `--compare` ([[submission-image]], [[nav2-sim]]).
 
-**2. Robot (not tested on hardware yet).** README "On the real robot", plus [[g1-official-docs]] for the network and login. Plan the first session with someone on the gantry rope, and don't reflash the Jetson without asking the team ([[unitree-resources]]).
+**2. Robot (not tested on hardware yet).** README "On the robot" and [[safety]], plus [[g1-official-docs]] for the network and login. Plan the first session with someone on the gantry rope, and don't reflash the Jetson without asking the team ([[unitree-resources]]).
 
-**3. Next:** [[off-robot-testing]], [[mujoco-sim]], [[g1-builtin-apis]].
+**3. Next:** [[him-sim2real]], [[off-robot-testing]], [[g1-builtin-apis]].

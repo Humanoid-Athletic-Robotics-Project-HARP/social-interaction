@@ -1,8 +1,0 @@
-<!-- Level 1: no obstacles. Checks that Nav2 and walker_node work together.
-     The robot starts at the origin facing +x; goal 4 m ahead.
-     ros2 run harp_sim run_sim --lidar --world open_floor -->
-<mujoco>
-  <worldbody>
-    <site name="goal" pos="4 0 0.01" size="0.15 0.01" type="cylinder" rgba="0.2 0.8 0.3 0.6"/>
-  </worldbody>
-</mujoco>

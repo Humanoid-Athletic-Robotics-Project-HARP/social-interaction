@@ -1,0 +1,21 @@
+<!-- Moving obstacles, level 2: a person walks toward the robot, 0.5 m to
+     its left, at a stroll (12 m in 15 s, 0.8 m/s), and doesn't step aside.
+     They start as soon as the robot starts walking and meet it about 2 m
+     from its start; the robot has to move right to let them pass. Goal 5 m
+     ahead. How movers work: submission/harp/movers.py.
+     submission/sim.sh --world oncoming -->
+<mujoco>
+  <custom>
+    <numeric name="person_duration" data="15"/>
+    <numeric name="person_delay" data="0"/>
+    <numeric name="person_trips" data="1"/>
+  </custom>
+  <worldbody>
+    <!-- About shoulder-wide and 1.7 m tall, standing just off the floor -->
+    <body name="person" mocap="true" pos="8 0.5 0">
+      <geom name="person" type="cylinder" size="0.25 0.85" pos="0 0 0.86" rgba="0.3 0.4 0.8 1"/>
+    </body>
+    <site name="person_end" pos="-4 0.5 0"/>
+    <site name="goal" pos="5 0 0.01" size="0.15 0.01" type="cylinder" rgba="0.2 0.8 0.3 0.6"/>
+  </worldbody>
+</mujoco>
