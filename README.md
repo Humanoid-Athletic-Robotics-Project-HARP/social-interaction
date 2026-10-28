@@ -20,7 +20,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/` | The image: `build.sh` builds it, `sim.sh` runs it in HARP's sim, `course.py` runs and scores course tests. |
 | `submission/harp_node.py`, `harp/` | Our node (drives HARP's GR00T walker from `/cmd_vel`, publishes leg odometry and the robot's state), planned moves, the simulated lidar and moving people, and the robot's lidar relay. |
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
-| `submission/worlds/` | The obstacle courses and their pass criteria. |
+| `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
 ## Goals and progress
@@ -89,9 +89,8 @@ This has to happen before any of the "Robot" boxes above.
 
 - ✅ Our commands go through HARP's safety harness (`him-sim2real-management`),
   which owns stand-up, stops and the motors ("On the robot" below).
-- ✅ Move everything onto the harness (`submission/`) and remove our old
-  ROS 2 Jazzy stack. Each line is in the sim, against the old stack's
-  numbers; none has run on the robot yet.
+- ✅ Everything runs on the harness (`submission/`). Each line is tested in
+  the sim; none has run on the robot yet.
   - ✅ Walking, stand-up, stops and safety checks: HARP's harness and its GR00T
     walker, driven by `/cmd_vel` (`harp_node.py`).
   - ✅ Leg odometry on `/odom` and `/tf`, the lidar's live transform,
@@ -107,7 +106,6 @@ This has to happen before any of the "Robot" boxes above.
     git commit (`course.py`).
   - ✅ The robot's lidar into ROS 2 (`harp/lidar_relay.py`, started on the robot):
     tested in the image against a cloud published the way the robot does.
-  - ✅ Our old stack removed.
 - 🟡 Stopping from the remote: HARP's harness (double Start damps, double F3
   switches to its recovery policy, D-pad Left + B hands control to us).
   Robot: not yet tried.
@@ -125,7 +123,7 @@ harness repo is private, so you need HARP's GitHub access.
 
 ```
 harp/
-├── stanford-harp-social-interaction/   this repo
+├── social-interaction/                this repo
 ├── him-sim2real-management/            HARP's harness and simulator
 └── models/fastsac_g1_29dof.onnx        its recovery policy (Holosoma)
 ```

@@ -1,13 +1,13 @@
 ---
 name: him-sim2real
-description: Read before any work on the simulation-migration branch, or anything that touches HARP's safety harness/simulator (him-sim2real-management)
+description: Read before anything that touches HARP's safety harness/simulator (him-sim2real-management), or to see what moving our code onto it dropped and what is left to do
 metadata:
   type: project
-  updated: 2026-10-28T09:26:33Z
+  updated: 2026-10-28T09:48:21Z
   covers: []
 ---
 
-**Decision (the maintainer's call, 2026-10-27; ask before changing it):** our code is being migrated (branch `simulation-migration`) to run inside HIMRobotics' `him-sim2real-management` (github.com/HIMRobotics/him-sim2real-management, private), which is both HARP's safety harness and its MuJoCo simulator. It is an **external dependency**: never edit it, never copy its files into this repo; keep only our code on top of it. Where it and our code overlap, its version wins (walker, stand-up, stops, sim). Where it provides nothing, our code fills the gap.
+**Decision (the maintainer's call, 2026-10-27; ask before changing it):** our code runs inside HIMRobotics' `him-sim2real-management` (github.com/HIMRobotics/him-sim2real-management, private), which is both HARP's safety harness and its MuJoCo simulator. It is an **external dependency**: never edit it, never copy its files into this repo; keep only our code on top of it. Where it and our code overlap, its version wins (walker, stand-up, stops, sim). Where it provides nothing, our code fills the gap.
 
 **Odometry (the maintainer's call):** `/odom` is always our leg odometry, in the sim too, so the sim drifts like the robot (which usually has no HIM base position). HIM's sim `position` is the exact MuJoCo pose: ground truth only, for drift checks and course scoring, never for Nav2 or the planned moves.
 
@@ -19,7 +19,7 @@ metadata:
 
 **Setup on a laptop:** clone it beside this repo (`HIM_REPO` to override), create its `.venv-policy-safety` as its README says, download the Holosoma checkpoint (`HIM_HOLOSOMA_ONNX`), have Docker Desktop running. Our scripts write only to its ignored `.cache/harp/` (Compose mounts only that checkout, so scenes and the joint profile must be inside it). Its docs say physical stop behavior is not yet accepted.
 
-**State of the branch (2026-10-28):** the migration is done in the sim: everything lives in `submission/` ([[submission-image]]), our old ROS 2 Jazzy stack (`ros2/`) is removed (it's in git history, last at commit `5090e25`), and the README describes only the new setup. Nothing has run on the real robot.
+**State (2026-10-28):** merged into `main` (PR #3, `186a653`): everything lives in `submission/` ([[submission-image]]). The old ROS 2 Jazzy stack (`ros2/`) is only in git history (last at `9ee9255`, with Lam's PR #2). Nothing has run on the real robot.
 
 **Dropped in the migration, and why** (the checklist of what moved is the README's "Run safely on the real robot"; the old code is in git history):
 - Our keyboard and remote controls (B stop, L1 hand driving, R1 combos, height keys), `/walker/start`, `/walker/stop` and `auto_start`: HIM owns the remote (D-pad Left + B hands over, double Start damps, double F3 recovers) and the start-up, and a submission can't take over by hand.
@@ -33,7 +33,7 @@ metadata:
 - Lam's offline tests (PR #2, about 127 under `ros2/src/*/test/`, last at `9ee9255` on main): not ported. Most test code we deleted (walker, run_recorder, replay, runs CLI) or that HIM now owns (stops, damping, manual takeover). `submission/` has no tests. Re-add a test only if it is load-bearing: it covers code that runs on the robot (`harp_node.py`, `harp/state.py`, `harp/leg_odometry.py`, `harp/moves.py`, `harp/lidar_relay.py`, the Nav2 settings) or tooling our results depend on (`course.py` scoring, `harp/route.py`), and it catches a failure a sim run wouldn't. Use the standard library's `unittest`, in `submission/tests/`.
 - Lam's Spin removal (PR #2, recoveries Wait only): deferred, not dropped; why and what it needs are in the to-do list below.
 
-**To do, without the robot** (the maintainer's call: after the cleanup, which is done):
+**To do, without the robot** (the maintainer's call):
 - [ ] Fix the live-viewer stops (`observation_timeout`, `checked_command_expired` during start-up balance; findings and the staggered-start attempt in [[submission-image]]), and `course.py --view` sometimes not closing HIM's viewer.
 - [ ] Pass criteria for `crossing` and `oncoming` (`submission/worlds/NAME.yaml`).
 - [ ] Three runs of every course for spread, compared with `course.py --compare` (all six succeed once with Graceful, [[nav2-sim]]).
