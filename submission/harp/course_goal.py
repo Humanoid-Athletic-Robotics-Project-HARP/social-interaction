@@ -72,15 +72,15 @@ def is_control_ready(text):
     return isinstance(record, dict) and record.get("event") == "control_ready"
 
 
-def wait_for_active(node, name, limit):
-    """True once the lifecycle node is active, False after limit seconds."""
+def wait_for_active(node, name, limit, labels=("active",)):
+    """True once the lifecycle node is active (or in another of labels), False after limit s."""
     client = node.create_client(GetState, name + "/get_state")
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
         if client.wait_for_service(timeout_sec=1.0):
             future = client.call_async(GetState.Request())
             rclpy.spin_until_future_complete(node, future, timeout_sec=1.0)
-            if future.result() is not None and future.result().current_state.label == "active":
+            if future.result() is not None and future.result().current_state.label in labels:
                 return True
         time.sleep(0.5)
     return False

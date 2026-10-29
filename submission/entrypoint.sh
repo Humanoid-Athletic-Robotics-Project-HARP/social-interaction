@@ -7,7 +7,7 @@
 #    G1_TASK_COMMAND, {"route": ...}: course.py --route).
 # Everything prints to the container's output (HIM's policy.log in the sim).
 set -e
-HELPERS_DELAY=5   # s after our node starts before Nav2, the lidar and the course goal
+NAV2_WAIT=15   # s our node waits at most for Nav2 to be configured (HIM waits 30 s)
 source /opt/ros/foxy/setup.bash
 source /example/install/setup.bash
 source /harp_ws/install/setup.bash
@@ -31,15 +31,14 @@ fi
 if [[ "${G1_TASK_COMMAND:-}" == *'"to"'* || "${G1_TASK_COMMAND:-}" == *'"moves"'* ]]; then
   PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/moves.py &
 elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
-  # After our node has armed, and at lower priority: starting about ten processes beside
-  # it, or competing with them for the CPU, made our joint commands answer states over
-  # 0.2 s old, and HIM stopped the run (observation_timeout, checked_command_expired).
-  (
-    sleep "$HELPERS_DELAY"
-    PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
-    nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
-    PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/course_goal.py &
-    wait
-  ) &
+  # Before our node arms, and at lower priority: starting about ten processes beside it
+  # (DDS discovery, and about a GB more memory on a full host) made our joint commands
+  # answer states over 0.2 s old, and HIM stopped the run (observation_timeout,
+  # checked_command_expired). HIM times nothing before our first command, and waits 30 s
+  # for it, so our node waits up to NAV2_WAIT s for Nav2 to be configured.
+  PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
+  nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
+  PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/course_goal.py &
+  PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/nav2_ready.py "$NAV2_WAIT" || true
 fi
 exec python3 /harp/harp_node.py
