@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before anything that touches HARP's safety harness/simulator (him-sim2real-management), or to see what moving our code onto it dropped and what is left to do
 metadata:
   type: project
-  updated: 2026-10-28T22:46:37Z
+  updated: 2026-10-29T23:00:34Z
   covers: []
 ---
 
@@ -33,7 +33,7 @@ metadata:
 - Lam's offline tests (PR #2, about 127 under `ros2/src/*/test/`, last at `9ee9255` on main): not ported. Most test code we deleted (walker, run_recorder, replay, runs CLI) or that HIM now owns (stops, damping, manual takeover). `submission/` has no tests. Re-add a test only if it is load-bearing: it covers code that runs on the robot (`harp_node.py`, `harp/state.py`, `harp/leg_odometry.py`, `harp/moves.py`, `harp/lidar_relay.py`, the Nav2 settings) or tooling our results depend on (`course.py` scoring, `harp/route.py`), and it catches a failure a sim run wouldn't. Use the standard library's `unittest`, in `submission/tests/`.
 
 **To do, without the robot** (the maintainer's call):
-- [ ] Find the 40–240 ms state-delivery spikes in course runs ([[sim-deadline-stops]]; suspect: macOS memory pressure). Course runs avoid the live viewer, which made them stop.
+- [ ] Bring the live viewer back to course runs: the state-delivery spikes come from the Mac running out of memory, and HIM's viewer is a big user ([[sim-deadline-stops]]).
 
 **To do, with the robot:** the first session (below), then real lidar through `lidar_relay`, then Nav2 on the robot.
 
