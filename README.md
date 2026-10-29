@@ -190,9 +190,10 @@ image runs its default, `{"to": [0.5, 0.5]}` (`HARP_DEFAULT_TASK` in
 The run is passed when `report.json` in the output folder (`--output DIR`)
 says `within_limits`.
 
-If the browser view makes your computer stall, HARP's harness can stop the
-run (`host_stall`, `observation_timeout`). Add `--no-view --output RUN_FOLDER`
-and watch the run afterwards:
+If your computer runs short of memory, HARP's harness can stop the run
+(`host_stall`, `observation_timeout`). Close other apps and any viewer still
+up from an earlier run (each holds about 700 MB until you press Ctrl-C). Or
+add `--no-view --output RUN_FOLDER` and watch the run afterwards:
 
 ```bash
 python3 submission/course.py --replay RUN_FOLDER
@@ -206,8 +207,10 @@ world's criteria, in a folder in `runs/` (which git ignores):
 python3 submission/course.py one_box
 ```
 
-Add `--view` to watch each run: once it's scored, its replay plays at the
-address printed, before the next run starts.
+Add `--view` to watch each run live at the address printed. It starts the
+run itself and closes the viewer 10 s after the run, before the next one.
+Before each run it warns about viewers still up and memory pressure, and the
+run's `run.json` keeps the computer's memory during the run (`host_memory`).
 
 Run folders are pruned after each run: the viewer's files go, and all but the
 two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of

@@ -32,9 +32,11 @@ ROUTE_POINT_TIME per point, plus STARTUP.
 It exits 1 if any run didn't succeed or failed its criteria.
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
-Runs never use HIM's live viewer (its load stopped about 1 in 4 watched runs on a
-deadline). --view instead replays each run once it is scored, at the URL it prints,
-for the run's length, before starting the next.
+--view watches each run in HIM's live viewer, at the URL it prints: it presses Start
+itself and closes the viewer VIEW_LINGER s after HIM's report, before the next run. HIM's
+deadlines stop runs when the host is short of memory, and a viewer holds about 700 MB, so
+before each run it warns about HIM viewers still up and macOS memory pressure, and run.json
+keeps the host's memory during the run (host_memory: free, compressed and decompressed MB).
 Pruning, after every run (sim.sh's with --output too) or with --prune [RUN]: HIM's viewer
 output (view/, tens of MB) is deleted, and every trace.npz but the newest KEEP_FULL of each
 world loses STRIPPED (about 52 of its 53 MB), once the scene rebuilt from run.json and
@@ -57,7 +59,9 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -68,7 +72,7 @@ RUNS = Path(os.environ.get("HARP_RUNS_DIR", REPO / "runs"))
 STARTUP = 12.0          # s added to the world's max_time_s: Nav2 sends the goal about 6 s in, plus slack
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
-REPLAY_SLACK = 10.0     # s the --view replay stays up beyond the run's length
+VIEW_LINGER = 10.0      # s the --view live viewer stays up after HIM's report
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
 KEEP_FULL = 2           # newest runs of each world whose trace.npz keeps everything (tags are
                         # mostly one-off experiments: per world and tag kept 60 of 69 whole)
@@ -449,7 +453,112 @@ def compare(world=None):
               f"{closest:>7} {mean('end_error_m'):>6} {mean('recoveries'):>5} {drift:>5}")
 
 
-def run_once(name, tag, route=None):
+def host_memory():
+    """The host's memory now in MB, or None: free, compressed and decompressed so far on
+    macOS (vm_stat), available and swapped in so far on Linux (/proc)."""
+    try:
+        if sys.platform == "darwin":
+            text = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+            mb = int(re.search(r"page size of (\d+)", text).group(1)) / 2**20
+            pages = {k.strip('"'): int(v.strip(" .")) for k, v in
+                     (line.split(":") for line in text.splitlines()[1:] if ":" in line)}
+            return {"free_mb": round((pages["Pages free"] + pages["Pages speculative"]) * mb),
+                    "compressed_mb": round(pages["Pages occupied by compressor"] * mb),
+                    "decompressed_mb": round(pages["Decompressions"] * mb)}
+        if sys.platform.startswith("linux"):
+            info = dict(line.split(":") for line in Path("/proc/meminfo").read_text().splitlines())
+            vmstat = dict(line.split() for line in Path("/proc/vmstat").read_text().splitlines())
+            return {"free_mb": round(int(info["MemAvailable"].split()[0]) / 1024),
+                    "swapped_in_mb": round(int(vmstat["pswpin"]) * os.sysconf("SC_PAGE_SIZE") / 2**20)}
+    except (OSError, ValueError, KeyError, AttributeError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+class MemoryWatch(threading.Thread):
+    """host_memory() each second during a run; finish() sums it up for run.json."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.samples = [host_memory()]
+        self.done = threading.Event()
+
+    def run(self):
+        while not self.done.wait(1.0):
+            self.samples.append(host_memory())
+
+    def finish(self):
+        self.done.set()
+        self.join()
+        samples = [s for s in self.samples if s]
+        if not samples:
+            return None
+        result = {"before": samples[0], "min_free_mb": min(s["free_mb"] for s in samples)}
+        if "compressed_mb" in samples[0]:
+            result["max_compressed_mb"] = max(s["compressed_mb"] for s in samples)
+        for key in ("decompressed_mb", "swapped_in_mb"):
+            if key in samples[0]:
+                result[key] = samples[-1][key] - samples[0][key]
+                result[f"most_{key}_in_1s"] = max(
+                    (b[key] - a[key] for a, b in zip(samples, samples[1:])), default=0)
+        return result
+
+
+def memory_warnings():
+    """What to warn about before a run: HIM viewers still up, macOS short of memory."""
+    notes = []
+    try:
+        viewers = subprocess.run(["pgrep", "-f", "containers/sim/live.py"],
+                                 capture_output=True, text=True).stdout.split()
+    except OSError:
+        viewers = []
+    if viewers:
+        notes.append(f"{len(viewers)} HIM viewer(s) still up (pid {', '.join(viewers)}), about "
+                     "700 MB each: Ctrl-C them where they run")
+    if sys.platform == "darwin":
+        level = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
+                               capture_output=True, text=True).stdout.strip()
+        if level in ("2", "4"):
+            notes.append(f"macOS reports {'warning' if level == '2' else 'critical'} memory "
+                         "pressure: close apps first")
+    return notes
+
+
+def watch_live(process, run):
+    """Press Start in HIM's live viewer once it is up, print its URL, and close it (with
+    sim.sh's Ctrl-C) VIEW_LINGER s after HIM's report."""
+    log_path = run / "sim.log"
+
+    def line(prefix):
+        while process.poll() is None:
+            found = next((x for x in log_path.read_text(errors="replace").splitlines()
+                          if x.startswith(prefix)), None)
+            if found:
+                return found
+            time.sleep(0.5)
+        return None
+
+    url = line("Open http")
+    if not url:
+        return
+    url = url.split()[-1]
+    deadline = time.monotonic() + 30   # HIM prints the URL before its viewer listens
+    while True:
+        try:
+            urllib.request.urlopen(urllib.request.Request(url + "/start", method="POST"), timeout=5)
+            print(f"{run.name}: live at {url}", flush=True)
+            break
+        except OSError as e:
+            if time.monotonic() > deadline or process.poll() is not None:
+                print(f"{run.name}: live at {url}; press Start there ({e})", flush=True)
+                break
+            time.sleep(0.5)
+    if line("Viewer is still at"):
+        time.sleep(VIEW_LINGER)
+        stop(process, run.name, wait=120)   # sim.sh prunes the run once the viewer closes
+
+
+def run_once(name, tag, route=None, view=False):
     max_time = route_time(route) if route else (world_criteria(name) or {}).get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
@@ -463,12 +572,29 @@ def run_once(name, tag, route=None):
         (run / "git.diff").write_text(diff)
     (run / "run.json").write_text(json.dumps({"world": name, "tag": tag, "started": stamp,
                                               "commit": commit, "dirty": bool(diff)}) + "\n")
-    # Never HIM's live viewer: its load delayed HIM's states past the 0.2 s deadlines and
-    # stopped about 1 in 4 watched runs. --view replays the run afterwards (replay()).
+    for note in memory_warnings():
+        print(f"{run.name}: warning: {note}", flush=True)
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
-               "--output", str(run), "--no-view"]
+               "--output", str(run)] + ([] if view else ["--no-view"])
+    memory = MemoryWatch()
+    memory.start()
     with open(run / "sim.log", "w") as log:
-        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, env=env)
+        # Its own session with the viewer, so stop() can Ctrl-C HIM's viewer without us.
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env,
+                                   start_new_session=view)
+        try:
+            if view:
+                watch_live(process, run)
+            process.wait()
+        finally:
+            if view:
+                stop(process, run.name, wait=120)
+    host = memory.finish()
+    if host:
+        info = json.loads((run / "run.json").read_text())
+        (run / "run.json").write_text(json.dumps(dict(info, host_memory=host)) + "\n")
+        print(f"{run.name}: host memory: " + ", ".join(f"{k} {v}" for k, v in host.items()
+                                                      if k != "before"), flush=True)
     if not (run / "report.json").is_file():
         print(f"{run.name}: no report; see {run / 'sim.log'}")
         return None
@@ -510,16 +636,16 @@ def replay(run, seconds=None):
             stop(server, run.name)
 
 
-def stop(process, name):
-    """Ctrl-C a process group, then SIGTERM, then SIGKILL, until it exits."""
+def stop(process, name, wait=15):
+    """Ctrl-C a process group, then SIGTERM, then SIGKILL, until it exits (wait s each)."""
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
         if process.poll() is not None:
             return
         os.killpg(process.pid, sig)
         try:
-            process.wait(timeout=15)
+            process.wait(timeout=wait)
         except subprocess.TimeoutExpired:
-            print(f"{name}: the replay didn't close on {sig.name}", flush=True)
+            print(f"{name}: the viewer didn't close on {sig.name}", flush=True)
 
 
 def positive(text):
@@ -539,7 +665,7 @@ def main():
                        help="X Y [HEADING] in odom; one per point, in order")
     parser.add_argument("--laps", type=positive, help="laps of the route (default: its file's, or 1)")
     parser.add_argument("--view", action="store_true",
-                        help="after each run, replay it in HIM's browser viewer before the next")
+                        help="watch each run in HIM's live viewer (closed before the next)")
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
     parser.add_argument("--compare", nargs="?", const="", metavar="WORLD",
                         help="only list the scored runs in runs/ by world and tag")
@@ -580,7 +706,7 @@ def main():
     runs = [Path(args.score)] if args.score else range(args.repeat)
     failed = False
     for run in runs:
-        run = run if args.score else run_once(args.world, args.tag, route)
+        run = run if args.score else run_once(args.world, args.tag, route, args.view)
         if run is None:
             failed = True
             continue
@@ -593,9 +719,6 @@ def main():
               + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
                  if "route" in s else ""))
         failed |= s["outcome"] != "succeeded" or s["passed"] is False
-        if args.view and not args.score:
-            # Before the next run, so its load can't delay that run's states.
-            replay(run, float(np.load(run / "trace.npz")["time"][-1]) + REPLAY_SLACK)
         prune(run)
         slim(run_folders())
     return 1 if failed else 0
