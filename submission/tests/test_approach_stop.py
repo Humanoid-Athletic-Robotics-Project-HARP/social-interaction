@@ -9,13 +9,20 @@ import unittest
 import numpy as np
 from sensor_msgs.msg import PointCloud2, PointField
 
-from harp.approach_stop import WINDOW, coming, nearest_ahead, xyz
+from harp.approach_stop import WINDOW, coming, moving, nearest_ahead, xyz
 
 SCAN = 0.1   # s between scans
 
 
 def scans(ranges):
-    return [(i * SCAN, r) for i, r in enumerate(ranges[-(WINDOW + 1):])]
+    """History of a point straight ahead at each range (None: nothing in the strip)."""
+    return [(i * SCAN, None if r is None else (r, (r, 0.0)))
+            for i, r in enumerate(ranges[-(WINDOW + 1):])]
+
+
+def at(points):
+    """History of the nearest point at each (x, y)."""
+    return [(i * SCAN, (float(np.hypot(*p)), p)) for i, p in enumerate(points)]
 
 
 class Coming(unittest.TestCase):
@@ -40,6 +47,19 @@ class Coming(unittest.TestCase):
         self.assertFalse(coming(scans([2.0 + 0.02 * i for i in range(6)]), -0.2)[0])
 
 
+class Moving(unittest.TestCase):
+    def test_person_walking_across(self):
+        # 0.9 m/s sideways, 1.1 m ahead: the range barely changes, the point does.
+        self.assertTrue(moving(at([(1.1, 0.5 - 0.09 * i) for i in range(6)])))
+
+    def test_still_point_with_lidar_noise(self):
+        jitter = [(2.0, 0.1), (2.02, 0.12), (1.99, 0.09), (2.01, 0.11), (2.0, 0.1), (2.02, 0.12)]
+        self.assertFalse(moving(at(jitter)))
+
+    def test_nothing_ahead(self):
+        self.assertFalse(moving(scans([None] * 6)))
+
+
 class NearestAhead(unittest.TestCase):
     def test_only_the_strip_counts(self):
         points = np.array([
@@ -51,7 +71,9 @@ class NearestAhead(unittest.TestCase):
             [2.5, 0.4, 2.5],     # above MAX_Z
             [3.0, -0.6, 1.0],    # in the strip
         ])
-        self.assertAlmostEqual(nearest_ahead(points), np.hypot(3.0, -0.6))
+        rng, (x, y) = nearest_ahead(points)
+        self.assertAlmostEqual(rng, np.hypot(3.0, -0.6))
+        self.assertEqual((x, y), (3.0, -0.6))
         self.assertIsNone(nearest_ahead(points[:6]))
 
     def test_turning_keeps_the_range(self):
@@ -59,7 +81,7 @@ class NearestAhead(unittest.TestCase):
         for yaw in (0.05, 0.1, -0.1):
             c, s = np.cos(yaw), np.sin(yaw)
             turned = point @ np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
-            self.assertAlmostEqual(nearest_ahead(turned), nearest_ahead(point))
+            self.assertAlmostEqual(nearest_ahead(turned)[0], nearest_ahead(point)[0])
 
 
 class Xyz(unittest.TestCase):

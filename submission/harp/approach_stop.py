@@ -15,7 +15,9 @@ straight ahead, doesn't change as the robot turns, and for a still point it shri
 faster than the robot walks. So something comes at the robot when, in WINDOW scans,
 NEEDED of the steps saw the range shrink faster than the robot's own speed by over
 APPROACH: a still obstacle entering the strip as the robot turns is one step, not
-several. The robot stands until nothing has come at it for CLEAR s. It also stands while
+several. Once standing, it also stays while the nearest point moved faster than MOVING
+over the WINDOW (someone walking across the strip, whose range has stopped shrinking),
+and stands until neither has held for CLEAR s. It also stands while
 no scan has come for LIDAR_TIMEOUT s, once one has (Nav2 on Foxy walks on with a dead
 lidar).
 
@@ -46,7 +48,8 @@ MIN_Z, MAX_Z = 0.3, 1.8   # m above the floor
 BODY = 0.45          # m from base_link inside which points are the robot's own arms
 APPROACH = 0.3       # m/s faster than the robot's walking that counts as coming at it
 WINDOW, NEEDED = 5, 4     # scans looked back over, and steps of them that must agree
-CLEAR = 1.0          # s with nothing coming before Nav2 drives again
+MOVING = 0.3         # m/s the nearest point moves over WINDOW to keep a standing robot standing
+CLEAR = 1.0          # s with nothing coming or moving before Nav2 drives again
 LIDAR_TIMEOUT = 0.5  # s without a scan before the robot stands
 PERIOD = 0.1         # s between zero commands while standing
 
@@ -70,22 +73,34 @@ def xyz(cloud):
 
 
 def nearest_ahead(points):
-    """Range (m) of the nearest point in the strip ahead (base_link), or None."""
+    """(range m, (x, y)) of the nearest point in the strip ahead (base_link), or None."""
     x, y, z = points.T
     rng = np.hypot(x, y)
     keep = ((x > 0) & (np.abs(y) <= HALF_WIDTH) & (x <= LOOK) & (z >= MIN_Z) & (z <= MAX_Z)
             & (rng > BODY))
-    return float(rng[keep].min()) if keep.any() else None
+    if not keep.any():
+        return None
+    i = np.flatnonzero(keep)[rng[keep].argmin()]
+    return float(rng[i]), (float(x[i]), float(y[i]))
 
 
 def coming(history, speed):
     """(True, closing m/s) if what's nearest ahead came at the robot in most recent steps.
-    history: (time s, range m or None) per scan, newest last; speed: the robot's, m/s."""
-    steps = [(r0 - r1) / (t1 - t0) - max(speed, 0.0)
-             for (t0, r0), (t1, r1) in zip(history, list(history)[1:])
-             if r0 is not None and r1 is not None and t1 > t0]
+    history: (time s, nearest_ahead or None) per scan, newest last; speed: the robot's, m/s."""
+    steps = [(n0[0] - n1[0]) / (t1 - t0) - max(speed, 0.0)
+             for (t0, n0), (t1, n1) in zip(history, list(history)[1:])
+             if n0 is not None and n1 is not None and t1 > t0]
     fast = [s for s in steps if s > APPROACH]
     return len(fast) >= NEEDED, (max(fast) if fast else 0.0)
+
+
+def moving(history):
+    """True if the nearest point ahead moved faster than MOVING from the first scan in
+    history to the last (for a standing robot: someone walking across the strip)."""
+    (t0, n0), (t1, n1) = history[0], history[-1]
+    if n0 is None or n1 is None or t1 <= t0:
+        return False
+    return np.hypot(n1[1][0] - n0[1][0], n1[1][1] - n0[1][1]) / (t1 - t0) > MOVING
 
 
 class ApproachStop:
@@ -137,14 +152,15 @@ class ApproachStop:
         if self.lidar is None:
             return
         turn, shift = self.lidar
-        rng = nearest_ahead(xyz(cloud) @ turn.T + shift)
-        self.history.append((now, rng))
+        nearest = nearest_ahead(xyz(cloud) @ turn.T + shift)
+        self.history.append((now, nearest))
         hit, closing = coming(self.history, self.speed)
-        if hit:
+        if hit or (self.stopped_at is not None and moving(self.history)):
             self.last_coming = now
             if self.stopped_at is None:
                 self.stopped_at = now
-                self.event("approach_stop", range=rng and round(rng, 2), closing=round(closing, 2))
+                self.event("approach_stop", range=nearest and round(nearest[0], 2),
+                           closing=round(closing, 2))
         elif self.stopped_at is not None and now - self.last_coming >= CLEAR:
             self.event("approach_go", stopped_s=round(now - self.stopped_at, 1))
             self.stopped_at = None
