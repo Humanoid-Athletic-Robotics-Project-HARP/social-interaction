@@ -1,0 +1,44 @@
+<!-- People for the behavior loop (harp/behavior.py; course.py people runs it, the task
+     is in people.yaml): wander, walk up to someone, talk, wander again. Two people
+     stand still, out of the camera's view at the start: person_a 3.1 m away to the
+     left, person_b behind. person_c walks across ahead, 3.8 m out, once the robot
+     sets off (4.5 m in 6 s), then stands at the far end. A box sits inside the area
+     the robot wanders (2.5 m around its start). Standing people are movers too, so
+     the stand-in detector (harp/sim_people.py) sees them: trips 0 keeps one where
+     it starts. How movers work: submission/harp/movers.py.
+     python3 submission/course.py people -->
+<mujoco>
+  <custom>
+    <numeric name="person_a_duration" data="1"/>
+    <numeric name="person_a_trips" data="0"/>
+    <numeric name="person_b_duration" data="1"/>
+    <numeric name="person_b_trips" data="0"/>
+    <numeric name="person_c_duration" data="6"/>
+    <numeric name="person_c_delay" data="4"/>
+    <numeric name="person_c_trips" data="1"/>
+  </custom>
+  <default>
+    <default class="obstacle">
+      <geom type="box" rgba="0.8 0.5 0.2 1"/>
+    </default>
+    <!-- About shoulder-wide and 1.7 m tall, standing just off the floor -->
+    <default class="person">
+      <geom type="cylinder" size="0.25 0.85" pos="0 0 0.86" rgba="0.3 0.4 0.8 1"/>
+    </default>
+  </default>
+  <worldbody>
+    <geom class="obstacle" name="box" size="0.3 0.3 0.4" pos="1.6 -1.5 0.4"/>
+    <body name="person_a" mocap="true" pos="0.8 3 0">
+      <geom class="person" name="person_a"/>
+    </body>
+    <site name="person_a_end" pos="0.8 3 0"/>
+    <body name="person_b" mocap="true" pos="-2.6 -1 0">
+      <geom class="person" name="person_b"/>
+    </body>
+    <site name="person_b_end" pos="-2.6 -1 0"/>
+    <body name="person_c" mocap="true" pos="3.8 -2.5 0">
+      <geom class="person" name="person_c"/>
+    </body>
+    <site name="person_c_end" pos="3.8 2 0"/>
+  </worldbody>
+</mujoco>

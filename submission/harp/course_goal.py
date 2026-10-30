@@ -100,9 +100,10 @@ def cancel(node, handle, result):
     return result.done()
 
 
-def go_to(node, nav, point, deadline):
+def go_to(node, nav, point, deadline, interrupt=None):
     """One Nav2 goal at (x, y, heading deg) by the monotonic deadline: its status, and
-    its last feedback (or None)."""
+    its last feedback (or None). interrupt: checked while Nav2 drives; once it returns
+    True the goal is cancelled (INTERRUPTED)."""
     if not nav.wait_for_server(timeout_sec=max(0.0, deadline - time.monotonic())):
         return "TIMEOUT", None
     x, y, heading = point
@@ -120,13 +121,16 @@ def go_to(node, nav, point, deadline):
     if not handle.accepted:
         return "REJECTED", None
     result = handle.get_result_async()
+    stop = interrupt or (lambda: False)
     try:
-        if spin_until(node, result.done, deadline - time.monotonic()):
+        spin_until(node, lambda: result.done() or stop(), deadline - time.monotonic())
+        if result.done():
             return STATUS.get(result.result().status, "UNKNOWN"), feedback.get("f")
     except BaseException:
         cancel(node, handle, result)    # don't leave Nav2 driving to a point nobody watches
         raise
-    return ("TIMEOUT" if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
+    ended = "INTERRUPTED" if stop() else "TIMEOUT"
+    return (ended if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
 
 
 def follow(node, nav, route, event, waypoint_events):

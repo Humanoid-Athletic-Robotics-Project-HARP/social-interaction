@@ -26,6 +26,12 @@ output: events and the once-a-second "odom" lines), and our summary.json:
   speed_near_people_mps  the robot's fastest true speed while a mover within PEOPLE_NEAR
                         was coming closer (harp/approach_stop.py should have it standing)
   drift_m    leg odometry against the truth at the last "odom" line
+A world whose criteria give a task (people.yaml: the behavior loop, harp/behavior.py) runs
+that as G1_TASK_COMMAND instead of its goal. Then outcome is succeeded if the loop started
+and didn't stop on an error, seconds are from its start to its first talk, there's no end
+error, and summary.json adds loop: each talk's true distance to that person and how far
+the robot faced from them (medians over the talk), how many wander goals and people
+noticed, and the farthest the robot got from its start.
 A route (--route NAME_OR_FILE from submission/routes, or --waypoint X Y [HEADING] for
 each point; --laps N, harp/route.py) replaces the world's goal: the run folder keeps
 it as route.yaml, the end error is from its last point, passed uses its criteria (none:
@@ -80,6 +86,7 @@ RUNS = checkout.RUNS
 STARTUP = 12.0          # s added to the world's max_time_s: Nav2 sends the goal about 6 s in, plus slack
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
+TALK_SKIP = 1.0         # s after a talk is logged before it is scored ("odom" lines are 1 s apart)
 PEOPLE_NEAR = 1.5       # m, robot to a mover's centre, inside which the robot should stand
 SPEED_WINDOW = 5        # clearance checks the robot's speed is taken over (0.5 s: GR00T sways)
 VIEW_LINGER = 10.0      # s the --view live viewer stays up after HIM's report
@@ -105,6 +112,7 @@ except ImportError:
 
 sys.path.insert(0, str(HERE))
 import stage_world  # noqa: E402
+from harp.leg_odometry import wrap_angle, yaw_of  # noqa: E402
 from harp.movers import Movers, obstacle_geoms  # noqa: E402
 from harp.route import route_from_data  # noqa: E402
 
@@ -113,8 +121,9 @@ MODEL = HERE / ".build/him/environment"
 
 
 def read_log(run):
-    """Our events (JSON lines in policy.log, after compose's "submission-1  | " prefix)."""
-    events, odom = [], []
+    """Our events (JSON lines in policy.log, after compose's "submission-1  | " prefix), each
+    without a sim_time of its own given log_sim_time: the last one logged before it."""
+    events, odom, last = [], [], None
     for line in (run / "policy.log").read_text(errors="replace").splitlines():
         text = line.split("| ", 1)[-1].strip()
         if not text.startswith("{"):
@@ -123,6 +132,10 @@ def read_log(run):
             record = json.loads(text)
         except ValueError:
             continue
+        if record.get("sim_time") is not None:
+            last = record["sim_time"]
+        else:
+            record["log_sim_time"] = last
         (odom if record.get("event") == "odom" else events).append(record)
     return events, odom
 
@@ -163,6 +176,30 @@ def clearance(world, trace, movers_started):
     return round(float(closest), 3), contacts, near_speed and round(near_speed, 3)
 
 
+def talk_scores(world, trace, movers_started, talks):
+    """For each talk event: medians over the talk (from TALK_SKIP s after it was logged) of
+    the true distance from the robot to that person's centre, and of how far (deg) the
+    robot's heading is from facing them."""
+    model = mujoco.MjModel.from_xml_path(str(world))
+    data = mujoco.MjData(model)
+    movers = Movers(model, started=movers_started)
+    scores = []
+    for talk in talks:
+        mocap = movers.mocap[movers.names.index(talk["person"])]
+        start = (talk["log_sim_time"] or 0.0) + TALK_SKIP
+        during = (trace["time"] >= start) & (trace["time"] <= start - TALK_SKIP + talk["seconds"])
+        distance, facing = [], []
+        for t, qpos in zip(trace["time"][during], trace["qpos"][during]):
+            movers.apply(data, t)
+            dx, dy = data.mocap_pos[mocap][:2] - qpos[:2]
+            distance.append(math.hypot(dx, dy))
+            facing.append(abs(math.degrees(wrap_angle(math.atan2(dy, dx) - yaw_of(qpos[3:7])))))
+        scores.append({"person": talk["person"],
+                       "distance_m": round(float(np.median(distance)), 2) if distance else None,
+                       "facing_deg": round(float(np.median(facing)), 1) if facing else None})
+    return scores
+
+
 def score(run):
     run = Path(run)
     meta = json.loads((run / "run.json").read_text())
@@ -173,10 +210,12 @@ def score(run):
     result = next((e for e in events if e.get("event") == "goal_result"), None)
     started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
     route = load_route(run / "route.yaml") if (run / "route.yaml").is_file() else None
+    behavior = '"behavior"' in ((meta.get("sim") or {}).get("task_command") or "")
+    loop = [e for e in events if e.get("source") == "behavior"]
 
     stage_world.main(name, MODEL, SCENES)
     world = SCENES / (name + "_all.xml")
-    goal = (np.array(route.waypoints[-1][:2]) if route
+    goal = (np.array(route.waypoints[-1][:2]) if route else None if behavior
             else mujoco.MjModel.from_xml_path(str(world)).site("goal").pos[:2])
     xy = trace["qpos"][:, :2]
     path = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
@@ -188,19 +227,34 @@ def score(run):
         outcome = "inconclusive"    # HIM's sim was paused by the host: rerun
     elif report["status"] not in ("within_limits", "completed"):
         outcome = "violation"
+    elif behavior:
+        ok = any(e["event"] == "loop_start" for e in loop) and not any(e["event"] == "error" for e in loop)
+        outcome = "succeeded" if ok else "error"
     elif result is None:
         outcome = "error"
     else:
         outcome = {"SUCCEEDED": "succeeded", "TIMEOUT": "timed_out",
                    "NAV2_NOT_ACTIVE": "error"}.get(result["status"], "failed")
+    if behavior:
+        talks = [e for e in loop if e["event"] == "talk"]
+        begun = next((e["log_sim_time"] for e in loop if e["event"] == "loop_start"), None)
+        result = {"seconds": round(talks[0]["log_sim_time"] - begun, 1) if talks and begun is not None else None,
+                  "recoveries": None}
     summary = {
         "world": name, "tag": meta.get("tag"), "outcome": outcome,
         "him_status": report["status"], "him_reason": report.get("reason"),
         "seconds": result and result["seconds"], "recoveries": result and result["recoveries"],
-        "path_m": round(path, 2), "end_error_m": round(float(np.linalg.norm(xy[-1] - goal)), 3),
+        "path_m": round(path, 2),
+        "end_error_m": None if goal is None else round(float(np.linalg.norm(xy[-1] - goal)), 3),
         "closest_m": closest, "contacts": contacts, "speed_near_people_mps": near_speed,
         "drift_m": drift,
     }
+    if behavior:
+        summary["loop"] = {
+            "talks": talk_scores(world, trace, started, talks),
+            "wander_goals": sum(1 for e in loop if e["event"] == "wander_goal"),
+            "noticed": sum(1 for e in loop if e["event"] == "noticed"),
+            "farthest_m": round(float(np.linalg.norm(xy - xy[0], axis=1).max()), 2)}
     if route:
         summary["route"] = {"waypoints": len(route.waypoints) * route.laps, "laps": route.laps,
                             "completed_waypoints": result and result.get("completed_waypoints"),
@@ -256,6 +310,15 @@ def check(summary, c):
         value = summary[field]
         if key in c and (value is None or worse(float(value), float(c[key]))):
             failed.append(key)
+    talks = (summary.get("loop") or {}).get("talks", [])
+    if "min_talks" in c and len(talks) < c["min_talks"]:
+        failed.append("min_talks")
+    low, high = c.get("talk_distance_m", (-math.inf, math.inf))
+    if any(t["distance_m"] is None or not low <= t["distance_m"] <= high for t in talks):
+        failed.append("talk_distance_m")
+    if "max_talk_facing_deg" in c and any(
+            t["facing_deg"] is None or t["facing_deg"] > c["max_talk_facing_deg"] for t in talks):
+        failed.append("max_talk_facing_deg")
     return not failed, failed
 
 
@@ -596,7 +659,8 @@ def watch_live(process, run):
 
 
 def run_once(name, tag, route=None, view=False):
-    max_time = route_time(route) if route else (world_criteria(name) or {}).get("max_time_s", 60)
+    criteria = world_criteria(name) or {}
+    max_time = route_time(route) if route else criteria.get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
     run.mkdir(parents=True)
@@ -604,6 +668,8 @@ def run_once(name, tag, route=None, view=False):
     if route:
         (run / "route.yaml").write_text(yaml.safe_dump(route.data(), sort_keys=False))
         env["G1_TASK_COMMAND"] = json.dumps({"route": route.data()})   # for harp/course_goal.py
+    elif "task" in criteria:
+        env["G1_TASK_COMMAND"] = json.dumps(criteria["task"])   # e.g. harp/behavior.py's loop
     (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
                                                   tag=tag)) + "\n")
     for note in memory_warnings():
@@ -761,7 +827,12 @@ def run_and_score(run, args, route):
           + (f", speed near people {s['speed_near_people_mps']} m/s"
              if s["speed_near_people_mps"] is not None else "")
           + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
-             if "route" in s else ""))
+             if "route" in s else "")
+          + (f", talks {len(s['loop']['talks'])} ("
+             + ", ".join(f"{t['person']} {t['distance_m']} m {t['facing_deg']} deg"
+                         for t in s["loop"]["talks"])
+             + f"), wander goals {s['loop']['wander_goals']}, farthest {s['loop']['farthest_m']} m"
+             if "loop" in s else ""))
     prune(run)
     slim(run_folders())
     return s["outcome"] == "succeeded" and s["passed"] is not False

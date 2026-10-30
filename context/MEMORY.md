@@ -8,6 +8,7 @@
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
 - [Nav2](nav2-sim.md) — before tuning Nav2 or the Graceful port, changing a course, or comparing course results
 - [GR00T WBC](gr00t-wbc.md) — when the walking policy comes up: HIM's GR00T walker, its contract and behavior
+- [Behavior loop](behavior-loop.md) — before changing the autonomous loop, its stand-in detector or the people world
 - [Planned moves](planned-moves.md) — when changing walks, turns, curves or leg odometry, or needing their accuracy
 - [HARP safety harness and sim](him-sim2real.md) — before anything touching him-sim2real-management, or to see what the move onto it dropped
 - [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run

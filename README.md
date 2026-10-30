@@ -32,7 +32,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 |---|---|---|---|
 | Move like a person | ✅ | ⬜ | Run it on the robot |
 | Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
-| Find people and walk up to them | ⬜ | ⬜ | Pick a person detector for the camera |
+| Find people and walk up to them | 🟡 | ⬜ | Pick a person detector for the camera |
 | Talk with people | ⬜ | ⬜ | Make the speaker talk |
 | Run safely on the real robot | 🟡 | ⬜ | **Next:** first robot run of the move to a point through HARP's harness |
 
@@ -79,7 +79,10 @@ unchanged, cloned next to this repo, and keep only our code here.
   about 0.3 m, out to 4 m.
 - ⬜ Sim: a camera, or recorded camera data, to test with.
 - ✅ Building block: the curved move to a point and heading.
-- ⬜ Sim, then robot: walk up to a person.
+- 🟡 Sim: on its own, wander, walk up to people standing still and talk
+  with them (`harp/behavior.py`, `course.py people`), with a stand-in for
+  the detector (`harp/sim_people.py`) and for speech.
+- ⬜ Robot: walk up to a person.
 
 ### Talk with people
 
@@ -244,6 +247,20 @@ Run folders are pruned after each run: the viewer's files go, and all but the
 two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 53). `--replay RUN_FOLDER` still shows any run with its obstacles, and
 `--prune` prunes every folder in `runs/` now.
+
+The robot on its own, the loop the robot is for: it wanders within 2.5 m of
+where it started, walks up to anyone standing still in front of it, stops
+facing them, "talks" (the line it would say goes to `policy.log`), then
+wanders on. Until there is a camera detector, the people come from a stand-in
+that sees them where the sim has them (`harp/sim_people.py`):
+
+```bash
+python3 submission/course.py people
+```
+
+The task is `G1_TASK_COMMAND='{"behavior": {"radius": 2.5}}'`
+(`harp/behavior.py`); `people.yaml` gives it, and checks each talk's
+distance and facing.
 
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the

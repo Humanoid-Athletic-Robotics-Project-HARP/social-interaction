@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-30T21:11:31Z
+  updated: 2026-10-30T23:01:59Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/harp/approach_stop.py, submission/tests/test_approach_stop.py]
 ---
 
@@ -21,7 +21,7 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - **Live lidar TF** from leg kinematics (`harp/state.py`): a fixed transform made the floor 2.5–3 m out look ±0.12 m high (torso tilt).
 - **STVL** (Foxy binary): marks in view that aren't seen again fade in about 2 s, out of view after 15 s. Nav2's VoxelLayer was rejected: its clearing rays slope down from the 1.2 m lidar, so a passing person left a permanent wall. STVL has no minimum range, but the arms are inside the footprint, which it clears. `track_unknown_space: false` on both costmaps: STVL never marks free, so with it the map stayed unknown and NavFn hugged obstacles.
 
-**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.8 m to its left, so they miss a standing robot's arm by about 0.2 m; they never step aside). `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
+**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.8 m to its left, so they miss a standing robot's arm by about 0.2 m; they never step aside); `people`, for the behavior loop, not a goal ([[behavior-loop]]). `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
 
 **Results** (2026-10-28, Graceful, Wait only, two runs each, `runs/*_wait-only`, 0 contacts, 0 recoveries, drift under 6 cm): open_floor 17.4–17.6 s; one_box 23.8–25.1 s, closest 0.60 m; slalom 53 s, 0.37 m; obstacle_course 48 s, 0.28–0.30 m; crossing 34–38 s, 0.59 m; oncoming 27 s, 0.19 m. One slalom and one obstacle_course run were stopped by HIM 40 s after the goal ([[sim-deadline-stops]]). RPP's, earlier (`runs/*_rpp-ttc05`): 16.8, 20.5, 40.4, 43.2, 29.2, 25.1 s.
 
