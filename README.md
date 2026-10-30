@@ -65,6 +65,9 @@ unchanged, cloned next to this repo, and keep only our code here.
   stands if the lidar goes quiet (`harp/approach_stop.py`), tested with a
   person crossing the robot's path (`crossing`) and one walking toward it
   (`oncoming`).
+- ⬜ Sim: stand before someone crossing reaches the robot's path, not once
+  they're in it: a moving-object detector (scans compared in `odom`, the
+  points that moved grouped and their speed tracked).
 - 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
   `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
 
