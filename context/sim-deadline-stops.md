@@ -3,7 +3,7 @@ name: sim-deadline-stops
 description: Read when HIM stops a sim run on a deadline (observation_timeout, checked_command_expired, stale policy state), or before changing how runs are watched or timed
 metadata:
   type: project
-  updated: 2026-10-30T23:02:08Z
+  updated: 2026-10-30T23:48:44Z
   covers: [submission/harp_node.py, submission/course.py, submission/sim.sh]
 ---
 
@@ -17,5 +17,7 @@ HIM stops a run when the command it accepted answers a state now 0.2 s old (`obs
 - **The VM at 4 GB** (Docker Desktop, Resources): the containers use about 1.4 GB during a course run, with no swap; the Mac's compressed memory stayed at or under 3.2 GB over the 12 runs, and the late states mid-run (up to about 100 ms) didn't follow how much it decompressed.
 - **The VM's memory, compressed between runs** (at 8 GB): each run allocates GBs in the VM, which the VM frees afterwards but macOS keeps as the VM's; with the Mac full, macOS compresses it, and the next run reusing those pages waits for them. After a few runs the VM held 3.4 GB on the Mac, 2.9 GB of it compressed, while the VM itself used 0.7 GB. Then a run decompressed 2.6 GB and was stopped mid-walk (open_floor 21.8 s in, `observation_timeout`). Only free memory on the Mac helps: close apps (Edge held about 2.5 GB).
 - **Ruled out:** Python's garbage collector in HIM's sim (its runner, stepped 150 s with the trace on, added about one tracked object per step and never ran a full collection); a VM-wide pause or CPU (the probes).
+
+**At the end of a run** HIM writes `trace.npz` (compressed, the 47 MB compiled scene included) inside its `report` call, which has the plant's 10 s deadline (`containers/sim/bridge.py`, `runner.py` `_write_trace`). With the Mac short of memory that overran twice on 192 s `people` runs (2026-10-30, 22–59 MB free): `plant_error` "mujoco plant response timed out", and a cut-off trace that can't be scored (renamed `trace.truncated.npz`; `course.py`'s pruning skips cut-off traces). 150–160 s runs wrote theirs in time; keep runs short on this Mac.
 
 **Other ruled out:** HIM's `--lockstep` stamps states with sim time, so once the sim is 0.2 s behind, HIM's client (and so `harp_node.py`) calls every state stale and exits; the container isn't told it is in lockstep.

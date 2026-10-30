@@ -74,6 +74,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import checkout  # beside this file
@@ -430,8 +431,14 @@ def same_model(a, b):
 
 
 def saved_model(run):
-    """The compiled scene HIM saved in the run's trace, or None once stripped."""
-    with np.load(run / "trace.npz") as trace:
+    """The compiled scene HIM saved in the run's trace, or None once stripped, or if HIM's
+    trace was cut off (it writes it last, and a stopped plant can leave it half written)."""
+    try:
+        trace = np.load(run / "trace.npz")
+    except zipfile.BadZipFile:
+        print(f"{run.name}: trace.npz is cut off; leaving it as it is", flush=True)
+        return None
+    with trace:
         if "model" not in trace.files:
             return None
         return mujoco.MjModel.from_binary_path("scene.mjb", {"scene.mjb": trace["model"].tobytes()})
