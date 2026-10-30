@@ -2,9 +2,10 @@
 
 It needs /odom, the odom -> base_link transform (harp_node) and a lidar on
 /utlidar/cloud_livox_mid360. Only the Nav2 servers we use, each as its own
-node: the planner (a path on the costmap), the controller (/cmd_vel to
-harp_node), the recoveries (turn, wait) and the navigator (navigate.xml),
-brought up by one lifecycle manager.
+node: the planner (a path on the costmap), the controller (/cmd_vel_nav, which
+harp/approach_stop.py passes on to harp_node's /cmd_vel unless something comes at
+the robot), the recoveries (wait) and the navigator (navigate.xml), brought up by
+one lifecycle manager.
 """
 
 import os
@@ -15,6 +16,7 @@ from launch_ros.actions import Node
 HERE = os.path.dirname(os.path.realpath(__file__))
 PARAMS = os.path.join(HERE, "nav2_params.yaml")
 TREE = os.path.join(HERE, "navigate.xml")
+DRIVES = {"controller_server", "recoveries_server"}   # publish cmd_vel
 SERVERS = [
     ("nav2_controller", "controller_server"),
     ("nav2_planner", "planner_server"),
@@ -27,7 +29,8 @@ def generate_launch_description():
     nodes = [
         Node(package=package, executable=name, name=name, output="both",
              parameters=[PARAMS, {"default_bt_xml_filename": TREE}]
-             if name == "bt_navigator" else [PARAMS])
+             if name == "bt_navigator" else [PARAMS],
+             remappings=[("cmd_vel", "cmd_vel_nav")] if name in DRIVES else [])
         for package, name in SERVERS
     ]
     nodes.append(Node(package="nav2_lifecycle_manager", executable="lifecycle_manager",

@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before anything that touches HARP's safety harness/simulator (him-sim2real-management), or to see what moving our code onto it dropped and what is left to do
 metadata:
   type: project
-  updated: 2026-10-30T00:26:35Z
+  updated: 2026-10-30T19:06:32Z
   covers: []
 ---
 
@@ -30,7 +30,7 @@ metadata:
 - `runs list/show/pin/set` and retention: run folders describe themselves (`run.json`, `summary.json`); `course.py --compare` and `--prune` cover the rest.
 - Parallel course runs (DDS domain pairs): HIM's Compose project runs one sim at a time.
 - The pixi environment, our STVL source copy and the MuJoCo window: the Docker image (Foxy's STVL binary) and HIM's viewer.
-- Lam's offline tests (PR #2, about 127 under `ros2/src/*/test/`, last at `9ee9255` on main): not ported. Most test code we deleted (walker, run_recorder, replay, runs CLI) or that HIM now owns (stops, damping, manual takeover). `submission/` has no tests. Re-add a test only if it is load-bearing: it covers code that runs on the robot (`harp_node.py`, `harp/state.py`, `harp/leg_odometry.py`, `harp/moves.py`, `harp/lidar_relay.py`, the Nav2 settings) or tooling our results depend on (`course.py` scoring, `harp/route.py`), and it catches a failure a sim run wouldn't. Use the standard library's `unittest`, in `submission/tests/`.
+- Lam's offline tests (PR #2, about 127 under `ros2/src/*/test/`, last at `9ee9255` on main): not ported. Most test code we deleted (walker, run_recorder, replay, runs CLI) or that HIM now owns (stops, damping, manual takeover). `submission/tests/` holds only `harp/approach_stop.py`'s rule (run in the image: README). Re-add a test only if it is load-bearing: it covers code that runs on the robot (`harp_node.py`, `harp/state.py`, `harp/leg_odometry.py`, `harp/moves.py`, `harp/lidar_relay.py`, the Nav2 settings) or tooling our results depend on (`course.py` scoring, `harp/route.py`), and it catches a failure a sim run wouldn't. Use the standard library's `unittest`, in `submission/tests/`.
 
 **To do, without the robot** (the maintainer's call):
 - [ ] Find what makes states late 3–8 s into course runs, around HIM's balance handing over to our node (one stop in 12 runs, [[sim-deadline-stops]]).

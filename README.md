@@ -18,9 +18,10 @@ unchanged, cloned next to this repo, and keep only our code here.
 | Path | Description |
 |---|---|
 | `submission/` | The image: `build.sh` builds it, `sim.sh` runs it in HARP's sim, `course.py` runs and scores course tests. |
-| `submission/harp_node.py`, `harp/` | Our node (drives HARP's GR00T walker from `/cmd_vel`, publishes leg odometry and the robot's state), planned moves, the simulated lidar and moving people, and the robot's lidar relay. |
+| `submission/harp_node.py`, `harp/` | Our node (drives HARP's GR00T walker from `/cmd_vel`, publishes leg odometry and the robot's state), planned moves, the simulated lidar and moving people, standing while someone walks at the robot, and the robot's lidar relay. |
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
+| `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
 ## Goals and progress
@@ -59,9 +60,11 @@ unchanged, cloned next to this repo, and keep only our code here.
   (`course.py --route`, `--waypoint`, `--laps`).
 - 🟡 Sim: more on obstacles and path following: closer margins, a
   collision-monitor stop, moving obstacles and people. Started: the
-  costmaps forget where a person was once they've moved on (STVL), tested
-  with a person crossing the robot's path (`crossing`) and one walking
-  toward it (`oncoming`).
+  costmaps forget where a person was once they've moved on (STVL), and the
+  robot stands while someone walks at it, going on once they've passed, and
+  stands if the lidar goes quiet (`harp/approach_stop.py`), tested with a
+  person crossing the robot's path (`crossing`) and one walking toward it
+  (`oncoming`).
 - 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
   `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
 
@@ -102,6 +105,10 @@ This has to happen before any of the "Robot" boxes above.
     `harp/movers.py`).
   - ✅ Nav2 with STVL and the Graceful Controller (`nav2/`, our Foxy port in
     `nav2_graceful_controller/`): all six courses succeed, no contacts.
+  - ✅ Standing while someone walks at the robot, and while the lidar is quiet
+    (`harp/approach_stop.py`, between Nav2 and our node): in `oncoming` it
+    stands about 6 s and the person passes 0.36 m away; it never stops on the
+    courses without people.
   - ✅ Course tests, their scores and criteria, comparing runs, and each run's
     git commit (`course.py`).
   - ✅ The robot's lidar into ROS 2 (`harp/lidar_relay.py`, started on the robot):
@@ -221,7 +228,9 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the
-robot's path) and `oncoming` (someone walks toward it). They're MuJoCo files,
+robot's path) and `oncoming` (someone walks toward it; the robot should stand
+until they've passed). HARP's viewer doesn't show the people: they live only
+in our simulated lidar's world. They're MuJoCo files,
 so copy and edit them freely (how to make something move:
 `submission/harp/movers.py`). This compares every scored run of a course, by
 tag (`--tag` names what a run is testing):
@@ -249,7 +258,15 @@ ends if a point fails or times out. The run folder keeps the route as
 `route.yaml`, and the route's own `criteria` decide pass or fail.
 
 Any other ROS 2 program in the image can drive the robot through `/cmd_vel`
-and read `/odom`, `/tf`, `/joint_states` and `/imu` (`harp_node.py`).
+and read `/odom`, `/tf`, `/joint_states` and `/imu` (`harp_node.py`). In a
+course, Nav2 publishes `/cmd_vel_nav`, which `harp/approach_stop.py` passes on.
+
+The tests in `submission/tests/` need ROS 2, so they run in the image (build
+it first):
+
+```bash
+docker run --rm -v "$PWD/submission:/src:ro" -w /src --entrypoint bash harp-submission:local -c 'source /opt/ros/foxy/setup.bash && PYTHONPATH=/src:$PYTHONPATH python3 -m unittest discover tests'
+```
 
 ## On the robot
 

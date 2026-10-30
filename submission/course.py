@@ -22,6 +22,8 @@ output: events and the once-a-second "odom" lines), and our summary.json:
   closest_m, contacts   true distance from the robot's body to every obstacle,
                         movers included (replayed from their mover_start events;
                         HIM's physics never sees movers, so these are the only contacts)
+  speed_near_people_mps  the robot's fastest true speed while a mover within PEOPLE_NEAR
+                        was coming closer (harp/approach_stop.py should have it standing)
   drift_m    leg odometry against the truth at the last "odom" line
 A route (--route NAME_OR_FILE from submission/routes, or --waypoint X Y [HEADING] for
 each point; --laps N, harp/route.py) replaces the world's goal: the run folder keeps
@@ -73,6 +75,8 @@ RUNS = Path(os.environ.get("HARP_RUNS_DIR", REPO / "runs"))
 STARTUP = 12.0          # s added to the world's max_time_s: Nav2 sends the goal about 6 s in, plus slack
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
+PEOPLE_NEAR = 1.5       # m, robot to a mover's centre, inside which the robot should stand
+SPEED_WINDOW = 5        # clearance checks the robot's speed is taken over (0.5 s: GR00T sways)
 VIEW_LINGER = 10.0      # s the --view live viewer stays up after HIM's report
 START_WAIT = 120.0      # s --view waits for Start to be pressed before starting the run unseen
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
@@ -119,7 +123,9 @@ def read_log(run):
 
 
 def clearance(world, trace, movers_started):
-    """Closest robot-to-obstacle distance and how many separate contacts, from the truth."""
+    """From the truth: the closest robot-to-obstacle distance, how many separate contacts,
+    and the robot's fastest speed (over SPEED_WINDOW samples) while a mover nearer than
+    PEOPLE_NEAR was coming closer (None without movers)."""
     model = mujoco.MjModel.from_xml_path(str(world))
     data = mujoco.MjData(model)
     movers = Movers(model, started=movers_started)
@@ -128,10 +134,19 @@ def clearance(world, trace, movers_started):
             if model.geom_bodyid[g] > 0 and model.body_mocapid[model.geom_bodyid[g]] < 0
             and model.geom_contype[g]]
     closest, contacts, touching = CLEARANCE_MAX, 0, set()
+    near_speed = 0.0 if movers.mocap else None
+    seen, apart = [], None   # (t, robot xy) per sample; distance to each mover
     for t, qpos in zip(trace["time"][::CLEARANCE_EVERY], trace["qpos"][::CLEARANCE_EVERY]):
         data.qpos[:] = qpos
         movers.apply(data, t)
         mujoco.mj_kinematics(model, data)
+        seen = (seen + [(t, qpos[:2].copy())])[-(SPEED_WINDOW + 1):]
+        now_apart = [float(np.linalg.norm(data.mocap_pos[m][:2] - qpos[:2])) for m in movers.mocap]
+        if apart and len(seen) > SPEED_WINDOW and any(
+                d < PEOPLE_NEAR and d < before for d, before in zip(now_apart, apart)):
+            (t0, xy0), (t1, xy1) = seen[0], seen[-1]
+            near_speed = max(near_speed, float(np.linalg.norm(xy1 - xy0)) / (t1 - t0))
+        apart = now_apart
         now = set()
         for o in obstacles:
             d = min(mujoco.mj_geomDistance(model, data, g, o, CLEARANCE_MAX, None) for g in body)
@@ -140,7 +155,7 @@ def clearance(world, trace, movers_started):
                 now.add(o)
         contacts += len(now - touching)
         touching = now
-    return round(float(closest), 3), contacts
+    return round(float(closest), 3), contacts, near_speed and round(near_speed, 3)
 
 
 def score(run):
@@ -160,7 +175,7 @@ def score(run):
             else mujoco.MjModel.from_xml_path(str(world)).site("goal").pos[:2])
     xy = trace["qpos"][:, :2]
     path = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
-    closest, contacts = clearance(world, trace, started)
+    closest, contacts, near_speed = clearance(world, trace, started)
     drift = (round(float(np.hypot(*(np.array(odom[-1]["legs"][:2]) - odom[-1]["truth"][:2]))), 3)
              if odom else None)
 
@@ -178,7 +193,8 @@ def score(run):
         "him_status": report["status"], "him_reason": report.get("reason"),
         "seconds": result and result["seconds"], "recoveries": result and result["recoveries"],
         "path_m": round(path, 2), "end_error_m": round(float(np.linalg.norm(xy[-1] - goal)), 3),
-        "closest_m": closest, "contacts": contacts, "drift_m": drift,
+        "closest_m": closest, "contacts": contacts, "speed_near_people_mps": near_speed,
+        "drift_m": drift,
     }
     if route:
         summary["route"] = {"waypoints": len(route.waypoints) * route.laps, "laps": route.laps,
@@ -229,6 +245,7 @@ def check(summary, c):
     for key, field, worse in (("max_time_s", "seconds", float.__gt__),
                               ("min_clearance_m", "closest_m", float.__lt__),
                               ("max_contacts", "contacts", float.__gt__),
+                              ("max_speed_near_people_mps", "speed_near_people_mps", float.__gt__),
                               ("max_recoveries", "recoveries", float.__gt__),
                               ("max_end_error_m", "end_error_m", float.__gt__)):
         value = summary[field]
@@ -730,6 +747,8 @@ def main():
               f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "
               f"closest {s['closest_m']} m, contacts {s['contacts']}, "
               f"recoveries {s['recoveries']}, drift {s['drift_m']} m"
+              + (f", speed near people {s['speed_near_people_mps']} m/s"
+                 if s["speed_near_people_mps"] is not None else "")
               + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
                  if "route" in s else ""))
         failed |= s["outcome"] != "succeeded" or s["passed"] is False

@@ -3,8 +3,9 @@
 # relay on the robot):
 #  - moves in G1_TASK_COMMAND ({"moves": [...]} or {"to": ...}): harp/moves.py;
 #  - otherwise, in a world's image in the sim (submission/sim.sh --world): the
-#    simulated lidar, Nav2 and the course goal (the world's goal, or the route in
-#    G1_TASK_COMMAND, {"route": ...}: course.py --route).
+#    simulated lidar, Nav2, the course goal (the world's goal, or the route in
+#    G1_TASK_COMMAND, {"route": ...}: course.py --route), and harp/approach_stop.py
+#    between Nav2's commands and our node (standing while something comes at the robot).
 # Everything prints to the container's output (HIM's policy.log in the sim).
 set -e
 NAV2_WAIT=15   # s our node waits at most for Nav2 to be configured (HIM waits 30 s)
@@ -41,6 +42,7 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   mkdir -p "${ROS_LOG_DIR:-${ROS_HOME:-$HOME/.ros}/log}"
   PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
   nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
+  PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/approach_stop.py &
   PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/course_goal.py &
   PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/nav2_ready.py "$NAV2_WAIT" || true
 fi

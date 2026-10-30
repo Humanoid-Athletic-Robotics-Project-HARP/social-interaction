@@ -3,8 +3,8 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-28T22:46:37Z
-  covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py]
+  updated: 2026-10-30T19:06:32Z
+  covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/harp/approach_stop.py, submission/tests/test_approach_stop.py]
 ---
 
 Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission/nav2/nav2_params.yaml`, this note gives the reasons. Research behind it: [[lidar-nav2-research]].
@@ -21,10 +21,12 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - **Live lidar TF** from leg kinematics (`harp/state.py`): a fixed transform made the floor 2.5–3 m out look ±0.12 m high (torso tilt).
 - **STVL** (Foxy binary): marks in view that aren't seen again fade in about 2 s, out of view after 15 s. Nav2's VoxelLayer was rejected: its clearing rays slope down from the 1.2 m lidar, so a passing person left a permanent wall. STVL has no minimum range, but the arms are inside the footprint, which it clears. `track_unknown_space: false` on both costmaps: STVL never marks free, so with it the map stayed unknown and NavFn hugged obstacles.
 
-**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.5 m to its left). `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
+**Courses** (`submission/worlds/`): `open_floor`, `one_box`, `slalom`, `obstacle_course` (table, pillars, thin pole, arch); people: `crossing` (crosses once, 3 s after the goal), `oncoming` (walks toward the robot, 0.8 m to its left, so they miss a standing robot's arm by about 0.2 m; they never step aside). `slalom` and `obstacle_course` are open at the start end. Movers exist only in our lidar's world, so contacts with them come from `course.py`'s replay.
 
 **Results** (2026-10-28, Graceful, Wait only, two runs each, `runs/*_wait-only`, 0 contacts, 0 recoveries, drift under 6 cm): open_floor 17.4–17.6 s; one_box 23.8–25.1 s, closest 0.60 m; slalom 53 s, 0.37 m; obstacle_course 48 s, 0.28–0.30 m; crossing 34–38 s, 0.59 m; oncoming 27 s, 0.19 m. One slalom and one obstacle_course run were stopped by HIM 40 s after the goal ([[sim-deadline-stops]]). RPP's, earlier (`runs/*_rpp-ttc05`): 16.8, 20.5, 40.4, 43.2, 29.2, 25.1 s.
 
-**Open problem — oncoming people:** the person passes within 0.16–0.17 m (wrist): Nav2 treats them as standing still, and they're marked only within 3 m, about 2 s before they arrive.
+**Approach stop** (`harp/approach_stop.py`, the maintainer's call 2026-10-30): the robot stands while something comes at it, and Nav2 drives again once it has passed; it never dodges (people step around a robot that stands still; a swerve is hard to read and a quick sidestep is where a biped stumbles). Still obstacles, standing people included, stay Nav2's. Nav2's controller and recoveries publish `/cmd_vel_nav` (`nav2.launch.py`); the node passes it to `/cmd_vel` or sends zero. It reads the raw cloud, not the costmap, so it sees 6 m ahead (Nav2 marks only 3 m): the nearest point in a strip 0.7 m to each side, 0.3–1.8 m up, outside the arms; by straight-line range, which turning doesn't change; "coming" when 4 of the last 5 scans saw it close 0.3 m/s faster than the robot walks (a pole swinging into the strip is one step). It stands 1 s after the last approach, and while no scan has come for 0.5 s once one has. Its rule is tested in `submission/tests/` (README). Scoring: `speed_near_people_mps`, the robot's fastest true speed (over 0.5 s) while a mover within 1.5 m comes closer; `oncoming` allows 0.1 m/s.
+- **Results** (2026-10-30, `runs/*_stop`): oncoming 2 of 2 pass, stands at 4.3–4.4 m for 6.4 s, 0.001 m/s near the person, closest 0.36–0.38 m, 30 s. crossing 2 of 2, a 1.2 s stand with the person 1.1 m off, then straight on: 24.5–26.1 s, 5.7–5.9 m of path (detoured 7.4–7.6 m before), closest 0.63–0.65 m, but walking 0.24 m/s while they were still within 1.5 m and closing. open_floor, one_box, slalom, obstacle_course: no stops, times as before.
+- **Not covered:** something still that is too close (a collision-monitor stop for that is still open), and the robot: `entrypoint.sh` starts the node only in a world's image in the sim.
 
-**Next in the sim:** yielding to oncoming people, a collision monitor, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).
+**Next in the sim:** a collision-monitor stop for still obstacles too close, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).
