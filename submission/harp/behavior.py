@@ -21,6 +21,8 @@ then loops until the container stops:
     say, then standing (Nav2 has no goal, so our node gets no /cmd_vel) until the person
     leaves (out of sight for GONE s, or over LEFT m away) or TALK s have passed, which
     stands in for them saying goodbye.
+  - Turn away: right after the talk, a turn in place to face the other way (a Nav2 goal
+    where it stands, which the Graceful Controller only turns to), then the loop again.
 
 {"behavior": {"radius": 2.5, "seed": 1}}: both optional (RADIUS; a seed makes the
 wander points the same every run).
@@ -29,7 +31,7 @@ Events on /harp/events (source "behavior"): loop_start (radius, seed, home),
 wander_goal (x, y, yaw), wander_result (status, seconds), noticed (person, x, y,
 distance), approach_goal (person, x, y, yaw), approach_result (person, status,
 seconds), talk (person, line, distance), talk_done (person, ended: left or time,
-seconds); error
+seconds), turn_away (yaw), turn_result (status, seconds); error
 (message) if it stops.
 """
 
@@ -60,9 +62,11 @@ STILL = 0.3       # m/s: slower than this over TRACK counts as standing
 TRACK = 1.0       # s of a person's track looked back over
 SEEN = 0.5        # s since a person was last seen, after which they don't count as there
 REGREET = 120.0   # s before it walks up to someone it talked with again
-STAND_OFF = 1.0   # m from the person's centre to the robot's, to talk
+STAND_OFF = 0.85  # m from the person's centre to the robot's goal: the goal checker's 0.25 m
+                  # stops it short, at about 1.1 m
 REAIM = 0.5       # m a person may move from where it aims before it aims again
 REAIMS = 3        # times it aims again before giving up on someone
+TURN_TIME = 30.0  # s for the turn away after a talk
 TALK = 30.0       # s at most it talks with someone (placeholder for them saying goodbye)
 GONE = 2.0        # s out of sight after which the person has left
 LEFT = 2.0        # m away after which the person has left
@@ -150,6 +154,7 @@ class Behavior:
                 self.wander(home)
             elif self.approach(person):
                 self.talk(person)
+                self.turn_away()
 
     def wander(self, home):
         """One wander goal, cut short as soon as someone is worth walking up to."""
@@ -211,6 +216,16 @@ class Behavior:
         self.talked[person] = time.monotonic()
         self.event("talk_done", person=person, ended="left" if self.left(person) else "time",
                    seconds=round(time.monotonic() - began, 1))
+
+
+    def turn_away(self):
+        """Turn in place to face away from where it faces now."""
+        x, y, yaw = self.pose
+        heading = math.degrees(math.atan2(-math.sin(yaw), -math.cos(yaw)))
+        self.event("turn_away", yaw=round(heading, 1))
+        began = time.monotonic()
+        status, _ = go_to(self.node, self.nav, (x, y, heading), began + TURN_TIME)
+        self.event("turn_result", status=status, seconds=round(time.monotonic() - began, 1))
 
 
 def settings():

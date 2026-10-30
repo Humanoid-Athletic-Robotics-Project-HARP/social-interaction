@@ -79,7 +79,7 @@ unchanged, cloned next to this repo, and keep only our code here.
   about 0.3 m, out to 4 m.
 - ⬜ Sim: a camera, or recorded camera data, to test with.
 - ✅ Building block: the curved move to a point and heading.
-- 🟡 Sim: on its own, wander, walk up to people standing still and talk
+- ✅ Sim: on its own, wander, walk up to people standing still and talk
   with them (`harp/behavior.py`, `course.py people`), with a stand-in for
   the detector (`harp/sim_people.py`) and for speech.
 - ⬜ Robot: walk up to a person.
@@ -251,8 +251,9 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 The robot on its own, the loop the robot is for: it wanders within 2.5 m of
 where it started, walks up to anyone standing still in front of it, stops
 facing them, "talks" (the line it would say goes to `policy.log`) until they
-walk away or 30 s pass, then wanders on. Until there is a camera detector, the people come from a stand-in
-that sees them where the sim has them (`harp/sim_people.py`):
+walk away or 30 s pass, turns around, then carries on. Until there is a
+camera detector, the people come from a stand-in that sees them where the
+sim has them (`harp/sim_people.py`):
 
 ```bash
 python3 submission/course.py people
