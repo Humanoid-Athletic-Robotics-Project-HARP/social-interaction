@@ -207,8 +207,10 @@ world's criteria, in a folder in `runs/` (which git ignores):
 python3 submission/course.py one_box
 ```
 
-Add `--view` to watch each run live at the address printed. It starts the
-run itself and closes the viewer 10 s after the run, before the next one.
+Add `--view` to watch each run live at the address printed: press Start
+there (after 2 minutes it starts the run anyway, but the page only shows a
+run started from it). It closes the viewer 10 s after the run, before the
+next one.
 Before each run it warns about viewers still up and memory pressure, and the
 run's `run.json` keeps the computer's memory during the run (`host_memory`).
 

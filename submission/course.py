@@ -32,8 +32,9 @@ ROUTE_POINT_TIME per point, plus STARTUP.
 It exits 1 if any run didn't succeed or failed its criteria.
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
---view watches each run in HIM's live viewer, at the URL it prints: it presses Start
-itself and closes the viewer VIEW_LINGER s after HIM's report, before the next run. HIM's
+--view watches each run in HIM's live viewer, at the URL it prints: press Start there
+(after START_WAIT s it starts the run itself, unseen: the page shows only runs started
+from it), and it closes the viewer VIEW_LINGER s after HIM's report, before the next run. HIM's
 deadlines stop runs when the host is short of memory, and a viewer holds about 700 MB, so
 before each run it warns about HIM viewers still up and macOS memory pressure, and run.json
 keeps the host's memory during the run (host_memory: free, compressed and decompressed MB).
@@ -73,6 +74,7 @@ STARTUP = 12.0          # s added to the world's max_time_s: Nav2 sends the goal
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
 VIEW_LINGER = 10.0      # s the --view live viewer stays up after HIM's report
+START_WAIT = 120.0      # s --view waits for Start to be pressed before starting the run unseen
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
 KEEP_FULL = 2           # newest runs of each world whose trace.npz keeps everything (tags are
                         # mostly one-off experiments: per world and tag kept 60 of 69 whole)
@@ -525,8 +527,8 @@ def memory_warnings():
 
 
 def watch_live(process, run):
-    """Press Start in HIM's live viewer once it is up, print its URL, and close it (with
-    sim.sh's Ctrl-C) VIEW_LINGER s after HIM's report."""
+    """Print HIM's live viewer's URL once it is up, wait for its Start (pressing it after
+    START_WAIT s), and close it (with sim.sh's Ctrl-C) VIEW_LINGER s after HIM's report."""
     log_path = run / "sim.log"
 
     def line(prefix):
@@ -542,20 +544,32 @@ def watch_live(process, run):
     if not url:
         return
     url = url.split()[-1]
-    deadline = time.monotonic() + 30   # HIM prints the URL before its viewer listens
-    while True:
-        try:
-            urllib.request.urlopen(urllib.request.Request(url + "/start", method="POST"), timeout=5)
-            print(f"{run.name}: live at {url}", flush=True)
+    # The page shows the run only once its own Start is pressed (it then fetches frames),
+    # so wait for that, and start the run unseen after START_WAIT s.
+    print(f"{run.name}: live at {url}: press Start there (unseen after {START_WAIT:.0f} s)",
+          flush=True)
+    started = run / "view" / "start"   # sim.sh's flag, written by the viewer's /start
+    deadline = time.monotonic() + START_WAIT
+    while not started.exists() and process.poll() is None:
+        if time.monotonic() > deadline:
+            try:
+                urllib.request.urlopen(urllib.request.Request(url + "/start", method="POST"),
+                                       timeout=5)
+                print(f"{run.name}: started unseen", flush=True)
+            except OSError as e:
+                print(f"{run.name}: couldn't start it ({e})", flush=True)
+                deadline = time.monotonic() + 5
+                continue
             break
-        except OSError as e:
-            if time.monotonic() > deadline or process.poll() is not None:
-                print(f"{run.name}: live at {url}; press Start there ({e})", flush=True)
-                break
-            time.sleep(0.5)
+        time.sleep(0.5)
     if line("Viewer is still at"):
+        # Start pressed on a finished run's page deletes HIM's report: put it back.
+        report = run / "report.json"
+        kept = report.read_bytes() if report.is_file() else None
         time.sleep(VIEW_LINGER)
         stop(process, run.name, wait=120)   # sim.sh prunes the run once the viewer closes
+        if kept and not report.exists():
+            report.write_bytes(kept)
 
 
 def run_once(name, tag, route=None, view=False):

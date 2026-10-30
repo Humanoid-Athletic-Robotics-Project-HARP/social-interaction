@@ -36,6 +36,9 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   # answer states over 0.2 s old, and HIM stopped the run (observation_timeout,
   # checked_command_expired). HIM times nothing before our first command, and waits 30 s
   # for it, so our node waits up to NAV2_WAIT s for Nav2 to be configured.
+  # ROS's log folder, made before its processes start together: two making it at once
+  # can fail one ("Failed to create log directory").
+  mkdir -p "${ROS_LOG_DIR:-${ROS_HOME:-$HOME/.ros}/log}"
   PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
   nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
   PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/course_goal.py &

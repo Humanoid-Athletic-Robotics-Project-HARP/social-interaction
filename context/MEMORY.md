@@ -3,6 +3,7 @@
 - [README and memory guidelines](readme-and-memory-guidelines.md) — read before editing README.md or anything in context/
 - [Team context](team-context.md) — before OS-specific commands or assuming who you're talking to
 - [Project overview](project-overview.md) — the big picture: robot, team, the decisions that shape the code
+- [Watching runs](feedback-watching-runs.md) — before a sim run someone wants to watch: give the viewer link
 - [Minimal setup](feedback-minimal-setup.md) — before adding nodes, packages, messages or tooling
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
 - [Nav2](nav2-sim.md) — before tuning Nav2 or the Graceful port, changing a course, or comparing course results
