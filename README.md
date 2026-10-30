@@ -250,8 +250,8 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 
 The robot on its own, the loop the robot is for: it wanders within 2.5 m of
 where it started, walks up to anyone standing still in front of it, stops
-facing them, "talks" (the line it would say goes to `policy.log`), then
-wanders on. Until there is a camera detector, the people come from a stand-in
+facing them, "talks" (the line it would say goes to `policy.log`) until they
+walk away or 30 s pass, then wanders on. Until there is a camera detector, the people come from a stand-in
 that sees them where the sim has them (`harp/sim_people.py`):
 
 ```bash

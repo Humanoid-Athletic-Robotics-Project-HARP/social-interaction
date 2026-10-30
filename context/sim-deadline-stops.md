@@ -3,7 +3,7 @@ name: sim-deadline-stops
 description: Read when HIM stops a sim run on a deadline (observation_timeout, checked_command_expired, stale policy state), or before changing how runs are watched or timed
 metadata:
   type: project
-  updated: 2026-10-30T23:48:44Z
+  updated: 2026-10-30T23:49:12Z
   covers: [submission/harp_node.py, submission/course.py, submission/sim.sh]
 ---
 

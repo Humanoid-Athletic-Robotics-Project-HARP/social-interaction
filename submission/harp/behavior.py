@@ -18,7 +18,9 @@ then loops until the container stops:
     which the Graceful Controller reaches in one curve. If they move over REAIM m from
     where it aims, it aims again (at most REAIMS times), then gives up on them.
   - Talk: a placeholder until there is speech: a talk event with the line it would
-    say, then TALK s standing (Nav2 has no goal, so our node gets no /cmd_vel and stands).
+    say, then standing (Nav2 has no goal, so our node gets no /cmd_vel) until the person
+    leaves (out of sight for GONE s, or over LEFT m away) or TALK s have passed, which
+    stands in for them saying goodbye.
 
 {"behavior": {"radius": 2.5, "seed": 1}}: both optional (RADIUS; a seed makes the
 wander points the same every run).
@@ -26,7 +28,8 @@ wander points the same every run).
 Events on /harp/events (source "behavior"): loop_start (radius, seed, home),
 wander_goal (x, y, yaw), wander_result (status, seconds), noticed (person, x, y,
 distance), approach_goal (person, x, y, yaw), approach_result (person, status,
-seconds), talk (person, line, seconds, distance), talk_done (person); error
+seconds), talk (person, line, distance), talk_done (person, ended: left or time,
+seconds); error
 (message) if it stops.
 """
 
@@ -60,7 +63,9 @@ REGREET = 120.0   # s before it walks up to someone it talked with again
 STAND_OFF = 1.0   # m from the person's centre to the robot's, to talk
 REAIM = 0.5       # m a person may move from where it aims before it aims again
 REAIMS = 3        # times it aims again before giving up on someone
-TALK = 4.0        # s it stands talking
+TALK = 30.0       # s at most it talks with someone (placeholder for them saying goodbye)
+GONE = 2.0        # s out of sight after which the person has left
+LEFT = 2.0        # m away after which the person has left
 LINE = "Hi, I'm HARP, Stanford's humanoid. Nice to meet you!"
 
 
@@ -189,14 +194,23 @@ class Behavior:
             self.talked[person] = time.monotonic()   # leave them be for a while
         return status == "SUCCEEDED"
 
+    def left(self, person):
+        """True once the person is out of sight for GONE s or over LEFT m away."""
+        track = self.tracks.get(person)
+        return (not track or time.monotonic() - track[-1][0] > GONE
+                or self.distance(track[-1][1:]) > LEFT)
+
     def talk(self, person):
-        """Placeholder until there is speech: say what it would say, and stand for TALK s."""
+        """Placeholder until there is speech: say what it would say, and stand until the
+        person leaves or TALK s have passed."""
         where = self.where(person)
-        self.event("talk", person=person, line=LINE, seconds=TALK,
+        self.event("talk", person=person, line=LINE,
                    distance=where and round(self.distance(where), 2))
-        spin_until(self.node, lambda: False, TALK)
+        began = time.monotonic()
+        spin_until(self.node, lambda: self.left(person), TALK)
         self.talked[person] = time.monotonic()
-        self.event("talk_done", person=person)
+        self.event("talk_done", person=person, ended="left" if self.left(person) else "time",
+                   seconds=round(time.monotonic() - began, 1))
 
 
 def settings():

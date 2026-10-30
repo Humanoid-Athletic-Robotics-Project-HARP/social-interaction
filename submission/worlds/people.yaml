@@ -1,7 +1,7 @@
 # The behavior loop on this world (course.py people): task is what course.py passes as
 # G1_TASK_COMMAND (harp/behavior.py), the seed fixing its wander points.
 # A behavior run lasts max_time_s (plus STARTUP), and its seconds are from the loop's
-# start to its first talk. Each talk is scored over the talk itself: the true distance
+# start to its first talk. Each talk is scored over its first seconds: the true distance
 # from the robot to that person's centre, and how far the robot faces from them.
 # speed_near_people_mps isn't checked: walking up to someone standing counts as
 # coming closer to them. First guesses until there are runs.

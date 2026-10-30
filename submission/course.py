@@ -30,7 +30,7 @@ A world whose criteria give a task (people.yaml: the behavior loop, harp/behavio
 that as G1_TASK_COMMAND instead of its goal. Then outcome is succeeded if the loop started
 and didn't stop on an error, seconds are from its start to its first talk, there's no end
 error, and summary.json adds loop: each talk's true distance to that person and how far
-the robot faced from them (medians over the talk), how many wander goals and people
+the robot faced from them (medians over its start) and how it ended, how many wander goals and people
 noticed, and the farthest the robot got from its start.
 A route (--route NAME_OR_FILE from submission/routes, or --waypoint X Y [HEADING] for
 each point; --laps N, harp/route.py) replaces the world's goal: the run folder keeps
@@ -88,6 +88,7 @@ STARTUP = 12.0          # s added to the world's max_time_s: Nav2 sends the goal
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
 TALK_SKIP = 1.0         # s after a talk is logged before it is scored ("odom" lines are 1 s apart)
+TALK_SCORED = 3.0       # s of each talk scored from then: where the robot stopped, before anyone leaves
 PEOPLE_NEAR = 1.5       # m, robot to a mover's centre, inside which the robot should stand
 SPEED_WINDOW = 5        # clearance checks the robot's speed is taken over (0.5 s: GR00T sways)
 VIEW_LINGER = 10.0      # s the --view live viewer stays up after HIM's report
@@ -177,18 +178,19 @@ def clearance(world, trace, movers_started):
     return round(float(closest), 3), contacts, near_speed and round(near_speed, 3)
 
 
-def talk_scores(world, trace, movers_started, talks):
-    """For each talk event: medians over the talk (from TALK_SKIP s after it was logged) of
-    the true distance from the robot to that person's centre, and of how far (deg) the
-    robot's heading is from facing them."""
+def talk_scores(world, trace, movers_started, talks, ends):
+    """For each talk event: medians over TALK_SCORED s of the talk (from TALK_SKIP s after it
+    was logged) of the true distance from the robot to that person's centre, and of how far
+    (deg) the robot's heading is from facing them; and from its talk_done (ends: the same
+    person's next one, or None), how it ended and how long it took."""
     model = mujoco.MjModel.from_xml_path(str(world))
     data = mujoco.MjData(model)
     movers = Movers(model, started=movers_started)
     scores = []
-    for talk in talks:
+    for talk, end in zip(talks, ends):
         mocap = movers.mocap[movers.names.index(talk["person"])]
         start = (talk["log_sim_time"] or 0.0) + TALK_SKIP
-        during = (trace["time"] >= start) & (trace["time"] <= start - TALK_SKIP + talk["seconds"])
+        during = (trace["time"] >= start) & (trace["time"] <= start + TALK_SCORED)
         distance, facing = [], []
         for t, qpos in zip(trace["time"][during], trace["qpos"][during]):
             movers.apply(data, t)
@@ -197,7 +199,8 @@ def talk_scores(world, trace, movers_started, talks):
             facing.append(abs(math.degrees(wrap_angle(math.atan2(dy, dx) - yaw_of(qpos[3:7])))))
         scores.append({"person": talk["person"],
                        "distance_m": round(float(np.median(distance)), 2) if distance else None,
-                       "facing_deg": round(float(np.median(facing)), 1) if facing else None})
+                       "facing_deg": round(float(np.median(facing)), 1) if facing else None,
+                       "ended": end and end["ended"], "seconds": end and end["seconds"]})
     return scores
 
 
@@ -252,7 +255,9 @@ def score(run):
     }
     if behavior:
         summary["loop"] = {
-            "talks": talk_scores(world, trace, started, talks),
+            "talks": talk_scores(world, trace, started, talks, [
+                next((e for e in loop[loop.index(t):] if e["event"] == "talk_done"
+                      and e["person"] == t["person"]), None) for t in talks]),
             "wander_goals": sum(1 for e in loop if e["event"] == "wander_goal"),
             "noticed": sum(1 for e in loop if e["event"] == "noticed"),
             "farthest_m": round(float(np.linalg.norm(xy - xy[0], axis=1).max()), 2)}
@@ -836,7 +841,7 @@ def run_and_score(run, args, route):
           + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
              if "route" in s else "")
           + (f", talks {len(s['loop']['talks'])} ("
-             + ", ".join(f"{t['person']} {t['distance_m']} m {t['facing_deg']} deg"
+             + ", ".join(f"{t['person']} {t['distance_m']} m {t['facing_deg']} deg {t['ended']}"
                          for t in s["loop"]["talks"])
              + f"), wander goals {s['loop']['wander_goals']}, farthest {s['loop']['farthest_m']} m"
              if "loop" in s else ""))
