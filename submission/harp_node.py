@@ -27,15 +27,21 @@ from harp.state import StatePublisher  # noqa: E402
 CMD_LIMITS = np.array([0.6, 0.4, 1.0])  # vx, vy (m/s), yaw rate (rad/s)
 CMD_TIMEOUT = 0.5                       # s of /cmd_vel silence before the walker stands
 MODEL = "/harp/model/g1_robot.xml"      # him-sim2real-management's G1, for leg kinematics
+LATE = 0.04                             # s: a state this old gets its own late_state line
 
 
 class Timing:
     """Worst case each second of how HIM's 0.2 s state deadline is spent, as a "timing" line:
     age (s from HIM receiving the state to it reaching us), reply (our joint command),
-    extra (republishing the state), gap (between states)."""
+    extra (republishing the state), gap (between states); and a "late_state" line for each
+    state LATE s or more old (age, gap, and missed: states before it that never came)."""
 
     def __init__(self):
-        self.start, self.last, self.n = None, None, 0
+        self.last, self.last_id = None, None
+        self.reset()
+
+    def reset(self):
+        self.start, self.n = None, 0
         self.worst = dict(age=0.0, reply=0.0, extra=0.0, gap=0.0)
 
     def add(self, state, arrived, replied, done):
@@ -45,7 +51,12 @@ class Timing:
         sample = dict(age=arrived - state.get("received_at_secs", arrived), reply=replied - arrived,
                       extra=done - replied, gap=0.0 if self.last is None else arrived - self.last)
         self.worst = {k: max(v, sample[k]) for k, v in self.worst.items()}
-        self.last, self.n = arrived, self.n + 1
+        oid = state.get("observation_id")
+        missed = oid - self.last_id - 1 if isinstance(oid, int) and self.last_id is not None else None
+        if sample["age"] >= LATE:
+            events.emit("policy", "late_state", state.get("sim_time"), age=round(sample["age"], 3),
+                        gap=round(sample["gap"], 3), missed=missed)
+        self.last, self.last_id, self.n = arrived, oid, self.n + 1
         if done - self.start >= 1.0:
             self.flush(state)
 
@@ -53,7 +64,7 @@ class Timing:
         if self.n:
             events.emit("policy", "timing", (state or {}).get("sim_time"), n=self.n,
                         **{k: round(v, 3) for k, v in self.worst.items()})
-        self.__init__()
+        self.reset()
 
 
 class HarpPolicyNode(client.PolicyNode):

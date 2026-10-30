@@ -38,8 +38,10 @@ waypoints and laps). The sim runs for the route's max_time_s, or ROUTE_SPEED and
 ROUTE_POINT_TIME per point, plus STARTUP.
 It exits 1 if any run didn't succeed or failed its criteria.
 --events RUN prints the run's events in order, with their sim time (estimated from the
-wall clock, "~", for programs that don't read HIM's state), and the seconds whose
-latest state was LATE s or more old (harp_node.py's "timing" lines).
+wall clock, "~", for programs that don't read HIM's state), the seconds whose
+latest state was LATE s or more old (harp_node.py's "timing" lines; each such state is a
+"late_state" event), and the seconds the host paged in PAGED_IN MB or more (macOS:
+decompressed; run.json's host_memory "seconds").
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
 --view watches each run in HIM's live viewer, at the URL it prints: press Start there
@@ -107,6 +109,7 @@ ROUTE_POINT_TIME = 10.0 # s more per point: turning to it and settling
 EVENTS = "events.jsonl" # our records from policy.log, in the run folder
 VIEW = "view.jsonl"     # harp/view_feed.py's frames (source "view"), moved out of policy.log
 MOVERS_WORLD = "image_world.xml"   # in scene/: the world with its movers (our lidar's)
+PAGED_IN = 50           # MB in one second: --events shows that second of host memory
 LATE = 0.04             # s: --events shows the seconds whose worst state was this old
 
 try:
@@ -178,6 +181,11 @@ def read_log(run):
 def show_events(run):
     """Print the run's events with their sim time; see --events."""
     events, _ = read_log(run)
+    host = (json.loads((run / "run.json").read_text()).get("host_memory") or {}).get("seconds", [])
+    events += [{"source": "host", "event": "memory", "wall": wall, "free_mb": free,
+                "paged_in_mb": paged} for wall, free, paged in host if paged >= PAGED_IN]
+    timed = sorted((e for e in events if "wall" in e), key=lambda e: e["wall"])
+    events = [e for e in events if "wall" not in e] + timed
     clock = None     # (wall, sim time) of the latest record that has both
     for e in events:
         if "wall" in e and "sim_time" in e:
@@ -574,16 +582,22 @@ def host_memory():
 
 
 class MemoryWatch(threading.Thread):
-    """host_memory() each second during a run; finish() sums it up for run.json."""
+    """host_memory() each second during a run; finish() sums it up for run.json, with each
+    second's sample ("seconds": wall time, free MB and, on macOS, MB decompressed since the
+    sample before), so --events can line late states up with the host's memory."""
 
     def __init__(self):
         super().__init__(daemon=True)
-        self.samples = [host_memory()]
+        self.samples = [self.sample()]
         self.done = threading.Event()
 
     def run(self):
         while not self.done.wait(1.0):
-            self.samples.append(host_memory())
+            self.samples.append(self.sample())
+
+    def sample(self):
+        found = host_memory()
+        return found and dict(found, wall=round(time.time(), 2))
 
     def finish(self):
         self.done.set()
@@ -599,6 +613,9 @@ class MemoryWatch(threading.Thread):
                 result[key] = samples[-1][key] - samples[0][key]
                 result[f"most_{key}_in_1s"] = max(
                     (b[key] - a[key] for a, b in zip(samples, samples[1:])), default=0)
+        change = "decompressed_mb" if "decompressed_mb" in samples[0] else "swapped_in_mb"
+        result["seconds"] = [[b["wall"], b["free_mb"], b[change] - a[change]]
+                             for a, b in zip(samples, samples[1:])]
         return result
 
 
@@ -701,7 +718,7 @@ def run_once(name, tag, route=None, view=False):
         info = json.loads((run / "run.json").read_text())
         (run / "run.json").write_text(json.dumps(dict(info, host_memory=host)) + "\n")
         print(f"{run.name}: host memory: " + ", ".join(f"{k} {v}" for k, v in host.items()
-                                                      if k != "before"), flush=True)
+                                                      if k not in ("before", "seconds")), flush=True)
     if not (run / "report.json").is_file():
         print(f"{run.name}: no report; see {run / 'sim.log'}")
         return None

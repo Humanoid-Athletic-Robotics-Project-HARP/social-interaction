@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-10-30T22:33:40Z
+  updated: 2026-10-30T23:18:51Z
   covers: [submission/**]
 ---
 
