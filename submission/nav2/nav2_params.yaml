@@ -246,10 +246,9 @@ recoveries_server:
     costmap_topic: local_costmap/costmap_raw
     footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
-    # Only turning and waiting: backing up is risky for a walking robot.
-    recovery_plugins: ["spin", "wait"]
-    spin:
-      plugin: "nav2_recoveries/Spin"
+    # Only waiting: backing up is risky for a walking robot, and Spin turns on the
+    # costmap it has without checking the lidar is still live.
+    recovery_plugins: ["wait"]
     wait:
       plugin: "nav2_recoveries/Wait"
     global_frame: odom

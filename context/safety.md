@@ -3,7 +3,7 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-10-28T18:53:29Z
+  updated: 2026-10-30T19:06:32Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
@@ -14,7 +14,7 @@ metadata:
 
 **Our part:** answer every `/safety/policy_state` within 0.2 s (keep heavy work out of the policy process and at lower priority: [[submission-image]]); `/cmd_vel` drives the walker and goes to zero after 0.5 s of silence; moves and Nav2 stop by sending zero, and GR00T balances.
 
-**Gap:** a lost lidar doesn't stop Nav2 on Foxy ([[nav2-sim]]): nothing in it acts on a stale costmap.
+**Gap:** a lost lidar doesn't stop Nav2 on Foxy: nothing in it acts on a stale costmap. In the sim's course runs `harp/approach_stop.py` stands the robot after 0.5 s without a scan ([[nav2-sim]]); on the robot nothing does yet.
 
 **To check on the robot:** what `wireless_remote` reads with the remote off or out of range (if all zeros, the remote can't stop it then; only the laptop and HIM's deadlines can), and whether anything else reacts to HIM's button gestures.
 

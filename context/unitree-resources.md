@@ -3,7 +3,7 @@ name: unitree-resources
 description: Read when looking for G1 code to build on, or deciding the ROS 2 / JetPack version for the robot's Jetson (PC2)
 metadata:
   type: reference
-  updated: 2026-10-28T09:01:40Z
+  updated: 2026-10-28T21:49:38Z
   covers: [submission/Dockerfile]
 ---
 

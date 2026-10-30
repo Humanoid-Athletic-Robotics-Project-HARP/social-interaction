@@ -34,8 +34,10 @@ def scene(name, world_file):
 """
 
 
-def main(name, model_dir, out_dir):
-    world = WORLDS / (name + ".xml")
+def main(name, model_dir, out_dir, world=None):
+    """world: the world's file, by default submission/worlds/NAME.xml (course.py passes an
+    older version of it to rebuild an old run's scene)."""
+    world = Path(world) if world else WORLDS / (name + ".xml")
     if not world.is_file():
         raise SystemExit(f"No world {name}: {world} doesn't exist")
     out = Path(out_dir)

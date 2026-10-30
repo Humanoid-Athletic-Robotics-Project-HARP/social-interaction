@@ -19,12 +19,17 @@ fi
 
 world=""
 view=(--view)
+out=""
+scene=""
+given=("$@")
 args=()
 while (($#)); do
   case "$1" in
     --world) world="${2:?--world needs a name}"; shift 2 ;;
     --no-view) view=(); shift ;;
     --view) shift ;;
+    --output) out="${2:?--output needs a folder}"; args+=("$1" "$2"); shift 2 ;;
+    --scene) scene="${2:?--scene needs a file}"; args+=("$1" "$2"); shift 2 ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -44,7 +49,8 @@ if [[ -n "$world" ]]; then
   docker build -q -f "$here/Dockerfile.world" --build-arg BASE="$image" \
     -t "harp-submission:$world" "$scenes/image/$world" >/dev/null
   image="harp-submission:$world"
-  args+=(--scene "$scenes/$world.xml")
+  scene="$scenes/$world.xml"
+  args+=(--scene "$scene")
 fi
 # HIM's viewer takes the first free port from 8765. Right after a run, macOS holds 8765
 # for up to a minute after the browser's connections, so wait for it to stay on 8765.
@@ -58,4 +64,18 @@ if ((${#view[@]})); then
 fi
 launcher="sim.sh"
 [[ "$(uname)" == Darwin ]] && launcher="desktop_sim.sh"
-exec "$him/$launcher" --image "$image" ${args[@]+"${args[@]}"}
+# With --output, the run folder keeps how the run was made (run.json, and its scene in
+# scene/, so a stripped trace can be replayed with its obstacles: course.py --replay), and
+# is pruned once HIM's sim and viewer have finished (course.py --prune).
+if [[ -n "$out" ]]; then
+  python3 "$here/course.py" --record "$out" --scene "$scene" --image "$image" \
+    --sim-args ${given[@]+"${given[@]}"}
+fi
+# Ctrl-C closes HIM's viewer; a no-op trap (not an ignored signal, which HIM's launcher would
+# inherit) keeps this script alive to prune after it.
+trap ':' INT
+status=0
+"$him/$launcher" --image "$image" ${args[@]+"${args[@]}"} || status=$?
+trap - INT
+[[ -z "$out" ]] || python3 "$here/course.py" --prune "$out" || true
+exit "$status"
