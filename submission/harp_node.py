@@ -6,12 +6,10 @@ arms the safety checker and answers every state with the NVIDIA walker's joint
 command. This replaces its fixed velocity with the latest /cmd_vel. A velocity
 schedule (HIM's --command FILE) still wins over /cmd_vel, as in HIM's client.
 
-Events go out as JSON on /harp/events (std_msgs/String, transient local):
-{"source": ..., "event": ..., ...}: control_ready once HIM hands control to our
-policy.
+Events (harp/events.py): control_ready once HIM hands control to our policy, and a
+"timing" line each second.
 """
 
-import json
 import math
 import sys
 import time
@@ -22,9 +20,8 @@ sys.path.insert(0, "/example")
 sys.path.insert(0, "/harp")
 import client  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
-from rclpy.qos import DurabilityPolicy, QoSProfile  # noqa: E402
-from std_msgs.msg import String  # noqa: E402
 
+from harp import events  # noqa: E402
 from harp.state import StatePublisher  # noqa: E402
 
 CMD_LIMITS = np.array([0.6, 0.4, 1.0])  # vx, vy (m/s), yaw rate (rad/s)
@@ -54,9 +51,8 @@ class Timing:
 
     def flush(self, state):
         if self.n:
-            print(json.dumps({"event": "timing", "wall": round(time.time(), 2),
-                              "sim_time": (state or {}).get("sim_time"), "n": self.n,
-                              **{k: round(v, 3) for k, v in self.worst.items()}}), flush=True)
+            events.emit("policy", "timing", (state or {}).get("sim_time"), n=self.n,
+                        **{k: round(v, 3) for k, v in self.worst.items()})
         self.__init__()
 
 
@@ -70,15 +66,9 @@ class HarpPolicyNode(client.PolicyNode):
         self.cmd_time = None
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd_vel, 10)
         self.state_out = StatePublisher(self, MODEL)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.events_pub = self.create_publisher(String, "/harp/events", latched)
+        self.events = events.Events(self, "policy")
         self.control_ready = False
         self.timing = Timing()
-
-    def event(self, source, name, **fields):
-        text = json.dumps({"source": source, "event": name, **fields})
-        self.events_pub.publish(String(data=text))
-        print(text, flush=True)
 
     def on_cmd_vel(self, msg):
         cmd = [msg.linear.x, msg.linear.y, msg.angular.z]
@@ -102,7 +92,7 @@ class HarpPolicyNode(client.PolicyNode):
         if not self.done:
             if self.state.get("control_ready") and not self.control_ready:
                 self.control_ready = True     # HIM's startup balance handed over to us
-                self.event("policy", "control_ready")
+                self.events("control_ready", self.state.get("sim_time"))
             self.state_out.publish(self.state)
         self.timing.add(self.state, arrived, replied, time.monotonic())
 

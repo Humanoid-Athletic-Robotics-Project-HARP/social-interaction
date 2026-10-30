@@ -25,7 +25,6 @@ Events (policy.log, /harp/events): approach_stop (range m, closing m/s) and
 approach_go (stopped_s), and lidar_lost / lidar_back.
 """
 
-import json
 import sys
 import time
 from collections import deque
@@ -34,12 +33,12 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
 from harp import lidar_mount
+from harp.events import Events
 
 TOPIC = "/utlidar/cloud_livox_mid360"
 HALF_WIDTH = 0.7     # m to each side of the strip: robot_radius 0.4 plus 0.3
@@ -107,8 +106,7 @@ class ApproachStop:
     def __init__(self, node):
         self.node = node
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.events = node.create_publisher(String, "/harp/events", latched)
+        self.event = Events(node, "approach")
         node.create_subscription(Twist, "/cmd_vel_nav", self.on_nav, 10)
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(TFMessage, "/tf", self.on_tf, 50)
@@ -122,11 +120,6 @@ class ApproachStop:
         self.lost = False
         self.stopped_at = None      # monotonic s it began standing for an approach
         self.last_coming = None
-
-    def event(self, name, **fields):
-        text = json.dumps({"source": "approach", "event": name, **fields})
-        self.events.publish(String(data=text))
-        print(text, flush=True)
 
     def standing(self):
         return self.stopped_at is not None or self.lost

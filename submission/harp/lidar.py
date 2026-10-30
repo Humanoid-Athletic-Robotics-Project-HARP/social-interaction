@@ -27,11 +27,12 @@ import sys
 import mujoco
 import numpy as np
 import rclpy
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header, String
 
 from harp import lidar_mount
+from harp.events import Events, latched
 from harp.movers import Movers
 
 ELEVATION = (-7.0, 52.0)   # deg, in the lidar's frame
@@ -66,9 +67,8 @@ class SimLidar:
         self.dist = np.zeros(len(self.rays))
         self.rng = np.random.default_rng()
         self.pub = node.create_publisher(PointCloud2, TOPIC, 10)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.events_pub = node.create_publisher(String, "/harp/events", latched)
-        node.create_subscription(String, "/harp/events", self.on_event, latched)
+        self.events = Events(node, "lidar")
+        node.create_subscription(String, "/harp/events", self.on_event, latched())
         node.create_subscription(String, "/safety/policy_state", self.on_state,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.goal_sent = False
@@ -86,10 +86,7 @@ class SimLidar:
         self.next_scan = t + PERIOD
         for name, starts_at in self.movers.update(np.asarray(state["position"][:2]), t,
                                                   state.get("control_ready", False), self.goal_sent):
-            text = json.dumps({"source": "lidar", "event": "mover_start",
-                               "mover": name, "starts_at": starts_at})
-            self.events_pub.publish(String(data=text))
-            print(text, flush=True)
+            self.events("mover_start", t, mover=name, starts_at=starts_at)
         qpos = np.concatenate([state["position"], state["quat"], state["q"]])
         self.data.qpos[:len(qpos)] = qpos
         self.movers.apply(self.data, t)

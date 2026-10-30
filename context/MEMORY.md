@@ -13,6 +13,7 @@
 - [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run
 - [Worktrees](worktrees.md) — before making, using or removing a git worktree, or when two sessions use the sim on one computer
 - [Untracked files](feedback-untracked-files.md) — before deleting files, cleaning a checkout, or removing a worktree or branch
+- [Run logs and views](sim-run-logs.md) — before changing what our image prints, a run's events.jsonl, the Rerun lidar view or replays' people
 - [Stalled runs](stalled-runs.md) — when HIM stops a run on a deadline or it ends inconclusive: what to check and do
 - [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline, or before changing how runs are watched or timed
 - [Safety](safety.md) — before a real-robot session, or changing what stops the robot (HIM's harness and its buttons)

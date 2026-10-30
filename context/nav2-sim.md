@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-30T21:11:31Z
+  updated: 2026-10-30T22:33:51Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/harp/approach_stop.py, submission/tests/test_approach_stop.py]
 ---
 

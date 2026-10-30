@@ -3,7 +3,7 @@ name: gr00t-wbc
 description: Read when the walking policy comes up: what HIM's GR00T walker is, its contract, how it behaves, its license
 metadata:
   type: reference
-  updated: 2026-10-28T21:49:38Z
+  updated: 2026-10-30T22:33:51Z
   covers: [submission/harp_node.py]
 ---
 

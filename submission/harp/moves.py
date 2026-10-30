@@ -37,9 +37,10 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
+from harp.events import Events, latched
 from harp.smooth_control import command, ego_polar, wrap_angle
 
 MAX_SPEED = 0.4           # m/s, hard cap no matter what is passed in
@@ -114,18 +115,15 @@ class Moves:
         self.next_at = None       # when the next move may start
         self.cmd = [0.0, 0.0]     # last forward speed and turn rate sent
         self.pub = node.create_publisher(Twist, "/cmd_vel", 10)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.events_pub = node.create_publisher(String, "/harp/events", latched)
-        node.create_subscription(String, "/harp/events", self.on_event, latched)
+        self.events = Events(node, "moves")
+        node.create_subscription(String, "/harp/events", self.on_event, latched())
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(String, "/safety/policy_state", self.on_state,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         node.create_timer(1.0 / RATE, self.step)
 
     def event(self, name, **fields):
-        text = json.dumps({"source": "moves", "event": name, "sim_time": self.sim_time, **fields})
-        self.events_pub.publish(String(data=text))
-        print(text, flush=True)
+        self.events(name, self.sim_time, **fields)
 
     def on_event(self, msg):
         if json.loads(msg.data).get("event") == "control_ready" and self.ready_at is None:

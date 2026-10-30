@@ -6,6 +6,8 @@
 __pycache__/
 *.py[cod]
 .venv/
+# Rerun for submission/lidar_view.py
+.venv-view/
 
 # Secrets
 .env

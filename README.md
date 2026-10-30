@@ -248,8 +248,9 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the
 robot's path) and `oncoming` (someone walks toward it; the robot should stand
-until they've passed). HARP's viewer doesn't show the people: they live only
-in our simulated lidar's world. They're MuJoCo files,
+until they've passed). HARP's live viewer doesn't show the people (they live
+only in our simulated lidar's world); `--replay` and the lidar view below do.
+They're MuJoCo files,
 so copy and edit them freely (how to make something move:
 `submission/harp/movers.py`). This compares every scored run of a course, by
 tag (`--tag` names what a run is testing):
@@ -257,6 +258,30 @@ tag (`--tag` names what a run is testing):
 ```bash
 python3 submission/course.py --compare slalom
 ```
+
+Each run folder keeps our events in `events.jsonl`. This lists them in order,
+with their sim time, and any second whose state from HARP's sim came late:
+
+```bash
+python3 submission/course.py --events RUN_FOLDER
+```
+
+To see what the robot sees (its lidar, where it thinks it is and where it
+really is, the people, Nav2's costmap and plan, and the events), in
+[Rerun](https://rerun.io), set it up once from the repo's top folder:
+
+```bash
+python3 -m venv .venv-view && .venv-view/bin/pip install rerun-sdk==0.39.0
+```
+
+Then start this before a run and open the address it prints; it shows each
+sim run in a world as it happens, until Ctrl-C (`--native` for a window):
+
+```bash
+python3 submission/lidar_view.py
+```
+
+`--run RUN_FOLDER` shows a finished run instead.
 
 To walk a route of several points instead of the world's goal:
 

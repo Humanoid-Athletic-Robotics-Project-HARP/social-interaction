@@ -7,14 +7,18 @@
   python3 submission/course.py --prune
   python3 submission/course.py --replay runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --compare slalom
+  python3 submission/course.py --events runs/2026-10-28_05-00-00Z_sim_one_box
 
 Each run gets a folder in the main checkout's runs/, shared by every git worktree
 (HARP_RUNS_DIR to change it; checkout.py), holding our run.json (world, tag, start, git
 commit and branch, whether the tree was dirty; git.diff then holds the uncommitted
 changes; and from sim.sh, "sim": its arguments, image, G1_TASK_COMMAND and
-HIM's commit), the scene HIM loaded without HIM's G1 (scene/), HIM's
+HIM's commit), the scene HIM loaded without HIM's G1 (scene/, with the world as our lidar saw it,
+movers included: MOVERS_WORLD), HIM's
 report.json, trace.npz (the true pose every 20 ms) and policy.log (our image's
-output: events and the once-a-second "odom" lines), and our summary.json:
+output), our events.jsonl (our records from policy.log, one JSON object per line:
+harp/events.py; scoring reads only this) and view.jsonl (harp/view_feed.py's frames,
+moved out of policy.log: submission/lidar_view.py --run shows them), and our summary.json:
   outcome    succeeded / failed / timed_out / error / violation (HIM stopped the policy) /
              inconclusive (HIM stopped it while the host had paused its sim: host_stall)
   passed     against the world's criteria, submission/worlds/NAME.yaml
@@ -33,6 +37,9 @@ no verdict) instead of the world's, and summary.json adds route (planned and com
 waypoints and laps). The sim runs for the route's max_time_s, or ROUTE_SPEED and
 ROUTE_POINT_TIME per point, plus STARTUP.
 It exits 1 if any run didn't succeed or failed its criteria.
+--events RUN prints the run's events in order, with their sim time (estimated from the
+wall clock, "~", for programs that don't read HIM's state), and the seconds whose
+latest state was LATE s or more old (harp_node.py's "timing" lines).
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
 --view watches each run in HIM's live viewer, at the URL it prints: press Start there
@@ -41,12 +48,15 @@ from it), and it closes the viewer VIEW_LINGER s after HIM's report, before the 
 deadlines stop runs when the host is short of memory, and a viewer holds about 700 MB, so
 before each run it warns about HIM viewers still up and macOS memory pressure, and run.json
 keeps the host's memory during the run (host_memory: free, compressed and decompressed MB).
-Pruning, after every run (sim.sh's with --output too) or with --prune [RUN]: HIM's viewer
-output (view/, tens of MB) is deleted, and every trace.npz but the newest KEEP_FULL of each
+Pruning, after every run (sim.sh's with --output too) or with --prune [RUN]: our lines are
+split out of policy.log (above), HIM's viewer output (view/, tens of MB) is deleted, and every trace.npz but the newest KEEP_FULL of each
 world loses STRIPPED (about 52 of its 53 MB), once the scene rebuilt from run.json and
 scene/ (HIM's G1 read at HIM's commit) matches the one in the trace. Runs from before
 run.json kept a scene get theirs filled in the same way. --replay RUN serves HIM's replay
 with the scene put back, from a copy of the trace; a stripped run's thrash panel is empty.
+Its movers walk there too, replayed from their mover_start events like the scoring's:
+HIM's replay poses only the joints, so each mover becomes a body with a free joint whose
+pose is added to every frame (the world from scene/MOVERS_WORLD, or the run's commit).
 Each run, with its scoring and pruning, and --prune and --score hold checkout.py's
 machine-wide lock: one build or sim at a time, waiting for whoever holds it.
 
@@ -68,6 +78,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import checkout  # beside this file
@@ -93,6 +104,10 @@ G1 = "packages/policy_safety/src/policy_safety/robots/g1"   # HIM's G1 model, in
 ROUTES = HERE / "routes"
 ROUTE_SPEED = 0.15      # m/s along a route's straight legs, for its run length (Nav2's mean is about this)
 ROUTE_POINT_TIME = 10.0 # s more per point: turning to it and settling
+EVENTS = "events.jsonl" # our records from policy.log, in the run folder
+VIEW = "view.jsonl"     # harp/view_feed.py's frames (source "view"), moved out of policy.log
+MOVERS_WORLD = "image_world.xml"   # in scene/: the world with its movers (our lidar's)
+LATE = 0.04             # s: --events shows the seconds whose worst state was this old
 
 try:
     import mujoco
@@ -112,19 +127,72 @@ SCENES = checkout.STAGE / "scenes"
 MODEL = HERE / ".build/him/environment"
 
 
+def our_record(line):
+    """Our JSON record in a line of the container's output (after compose's
+    "submission-1  | " prefix), or None."""
+    text = line.split("| ", 1)[-1].strip()
+    if not text.startswith("{"):
+        return None
+    try:
+        record = json.loads(text)
+    except ValueError:
+        return None
+    return record if isinstance(record, dict) and "event" in record else None
+
+
+def split_log(run):
+    """Copy our records from policy.log into EVENTS, and move the viewer's frames out of
+    it into VIEW (a few MB a run, otherwise unreadable there). Done once per run."""
+    log = run / "policy.log"
+    if (run / EVENTS).is_file() or not log.is_file():
+        return
+    events, view, rest = [], [], []
+    for line in log.read_text(errors="replace").splitlines():
+        record = our_record(line)
+        if record is not None and record.get("source") == "view":
+            view.append(json.dumps(record))
+            continue
+        rest.append(line)
+        if record is not None:
+            events.append(json.dumps(record))
+    if view:
+        (run / VIEW).write_text("\n".join(view) + "\n")
+        part = run / "policy.part.log"
+        part.write_text("\n".join(rest) + "\n")
+        os.replace(part, log)
+    part = run / (EVENTS + ".part")
+    part.write_text("".join(e + "\n" for e in events))
+    os.replace(part, run / EVENTS)
+
+
 def read_log(run):
-    """Our events (JSON lines in policy.log, after compose's "submission-1  | " prefix)."""
+    """Our records from the run's EVENTS: the events, and the "odom" lines."""
+    split_log(run)
     events, odom = [], []
-    for line in (run / "policy.log").read_text(errors="replace").splitlines():
-        text = line.split("| ", 1)[-1].strip()
-        if not text.startswith("{"):
-            continue
-        try:
-            record = json.loads(text)
-        except ValueError:
-            continue
+    for line in (run / EVENTS).read_text().splitlines():
+        record = json.loads(line)
         (odom if record.get("event") == "odom" else events).append(record)
     return events, odom
+
+
+def show_events(run):
+    """Print the run's events with their sim time; see --events."""
+    events, _ = read_log(run)
+    clock = None     # (wall, sim time) of the latest record that has both
+    for e in events:
+        if "wall" in e and "sim_time" in e:
+            clock = (e["wall"], e["sim_time"])
+        if e["event"] == "timing" and e.get("age", 0.0) < LATE:
+            continue
+        if "sim_time" in e:
+            when = f"{e['sim_time']:8.2f}"
+        elif "wall" in e and clock:
+            when = f"~{clock[1] + e['wall'] - clock[0]:7.2f}"
+        else:
+            when = " " * 8
+        fields = " ".join(f"{k}={json.dumps(v)}" for k, v in e.items()
+                          if k not in ("source", "event", "wall", "sim_time"))
+        print(f"{when}  {e.get('source', '-'):10} {e['event']:16} {fields}")
 
 
 def clearance(world, trace, movers_started):
@@ -260,7 +328,9 @@ def check(summary, c):
 
 
 def prune(run):
-    """Delete HIM's viewer output from a run folder; trace.npz and the logs stay."""
+    """Split our lines out of policy.log and delete HIM's viewer output from a run folder;
+    trace.npz and the logs stay."""
+    split_log(run)
     for name in VIEWER_OUTPUT:
         path = run / name
         if path.is_dir():
@@ -316,6 +386,9 @@ def save_scene(run, scene):
     files = scene_files(scene) if scene else [MODEL / "scene.xml"]
     for path in files:
         shutil.copy(path, folder / path.relative_to(files[0].parent))
+    world = Path(scene).parent / "image" / Path(scene).stem / "world.xml" if scene else None
+    if world and world.is_file():     # stage_world.py's world for our image, movers included
+        shutil.copy(world, folder / MOVERS_WORLD)
     return files[0].name
 
 
@@ -635,15 +708,82 @@ def run_once(name, tag, route=None, view=False):
     return run
 
 
+def movers_world(run):
+    """The run's world with its movers (XML text), or None: saved in scene/, else the
+    world at the run's commit."""
+    saved = run / "scene" / MOVERS_WORLD
+    if saved.is_file():
+        return saved.read_text()
+    meta = json.loads((run / "run.json").read_text())
+    if not meta.get("world") or not meta.get("commit"):
+        return None
+    shown = subprocess.run(["git", "-C", str(REPO), "show",
+                            f"{meta['commit']}:submission/worlds/{meta['world']}.xml"],
+                           capture_output=True, text=True)
+    return shown.stdout if shown.returncode == 0 else None
+
+
+def with_movers(run, parts):
+    """The run's scene with each mover as a body with a free joint, and parts["qpos"] with
+    each mover's pose added to every frame (replayed from its mover_start events); None if
+    the run has no movers or its scene can't be rebuilt."""
+    meta = json.loads((run / "run.json").read_text())
+    sim, name = meta.get("sim") or {}, meta.get("world")
+    text = movers_world(run)
+    if not (text and name and sim.get("scene") and sim.get("him_commit")):
+        return None
+    root = ET.fromstring(re.sub(r"<!--.*?-->", "", text, flags=re.S))   # as stage_world.py
+    bodies = [b for b in root.find("worldbody").findall("body") if b.get("mocap") == "true"]
+    if not bodies:
+        return None
+    world = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
+    motion = Movers(world, started={e["mover"]: e["starts_at"] for e in read_log(run)[0]
+                                    if e.get("event") == "mover_start"})
+    for body in bodies:
+        del body.attrib["mocap"]
+        body.insert(0, ET.Element("freejoint"))
+        if body.find("inertial") is None:   # a free body needs mass; only its pose is used
+            body.insert(1, ET.Element("inertial", pos="0 0 0", mass="1", diaginertia="1 1 1"))
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        shutil.copytree(run / "scene", tmp, dirs_exist_ok=True)
+        scene = (tmp / sim["scene"]).read_text()
+        if f'"{name}_fixed.xml"' not in scene:
+            return None
+        ET.ElementTree(root).write(tmp / "replay_world.xml")
+        (tmp / "replay.xml").write_text(scene.replace(f'"{name}_fixed.xml"', '"replay_world.xml"'))
+        try:
+            model = build_model(tmp, "replay.xml", sim["him_commit"])
+        except (ValueError, OSError):
+            return None
+    robot_nq = parts["qpos"].shape[1]
+    if model.nq != robot_nq + 7 * len(motion.names):
+        return None
+    data = mujoco.MjData(world)
+    qpos = np.zeros((len(parts["qpos"]), model.nq))
+    qpos[:, :robot_nq] = parts["qpos"]
+    for frame, t in enumerate(parts["time"]):
+        motion.apply(data, float(t))
+        for i, mover in enumerate(motion.names):
+            adr = model.jnt_qposadr[model.body(mover).jntadr[0]]
+            qpos[frame, adr:adr + 3] = data.mocap_pos[motion.mocap[i]]
+            qpos[frame, adr + 3:adr + 7] = data.mocap_quat[motion.mocap[i]]
+    parts["qpos"] = qpos
+    return model
+
+
 def replay(run, seconds=None):
-    """Serve HIM's replay of a run, with its scene put back if the trace was stripped, from
-    a copy of the trace (HIM writes view/ beside it): for seconds, or until Ctrl-C."""
+    """Serve HIM's replay of a run, with its scene put back if the trace was stripped and its
+    movers walking, from a copy of the trace (HIM writes view/ beside it): for seconds, or
+    until Ctrl-C."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         with np.load(run / "trace.npz") as trace:
             parts = {k: trace[k] for k in trace.files}
-        if "model" not in parts:
+        model = with_movers(run, parts)
+        if model is None and "model" not in parts:
             model = rebuild_model(run)
+        if model is not None:
             parts["model"] = np.empty(mujoco.mj_sizeModel(model), dtype=np.uint8)
             mujoco.mj_saveModel(model, None, parts["model"])
         np.savez(tmp / "trace.npz", **parts)
@@ -707,6 +847,7 @@ def main():
                         help="only prune this run folder, or every one in runs/: delete HIM's viewer "
                              "output, and strip all but the newest traces of each world")
     parser.add_argument("--replay", metavar="RUN", help="only replay this run folder, until Ctrl-C")
+    parser.add_argument("--events", metavar="RUN", help="only print this run folder's events")
     parser.add_argument("--record", metavar="RUN", help=argparse.SUPPRESS)   # for sim.sh
     parser.add_argument("--scene", default="", help=argparse.SUPPRESS)       # with --record
     parser.add_argument("--image", default="", help=argparse.SUPPRESS)       # with --record
@@ -730,6 +871,9 @@ def main():
         return 0
     if args.replay:
         replay(Path(args.replay))
+        return 0
+    if args.events:
+        show_events(Path(args.events))
         return 0
     if args.prune is not None:
         with checkout.Hold("course.py --prune"):   # slim() strips traces in the shared runs/
