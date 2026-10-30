@@ -4,12 +4,15 @@
 # It opens HIM's browser viewer (--view) unless --no-view: press Start there to run, and
 # Ctrl-C closes the page afterwards. --world NAME loads submission/worlds/NAME.xml: its
 # scene into HIM's sim, and the world with its movers into an image layer
-# (harp-submission:NAME) for our lidar.
+# (harp-submission:NAME, or harp-submission-WORKTREE:NAME in a git worktree) for our lidar.
 # Build first with submission/build.sh. Uses desktop_sim.sh on macOS and sim.sh on Linux.
+# One run at a time on this machine: it waits for any build or sim running first
+# (submission/checkout.py's lock), and holds the lock until HIM's viewer is closed.
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "$0")" && pwd -P)"
-him="${HIM_REPO:-$(cd -- "$here/../.." && pwd -P)/him-sim2real-management}"
+eval "$(python3 "$here/checkout.py")"
+him="$HARP_HIM"
 model="$here/.build/him/environment"
 profile="$here/.build/him/container/project/joint_profile.json"
 if [[ ! -f "$profile" ]]; then
@@ -35,20 +38,26 @@ while (($#)); do
 done
 args+=(${view[@]+"${view[@]}"})
 
+# HIM's launcher starts by stopping whatever sim is running, so wait for it to finish.
+mkdir -p "$HARP_STAGE"
+if [[ -z "${HARP_SIM_LOCK_HELD:-}" ]]; then
+  exec 9>>"$HARP_LOCK"
+  python3 "$here/checkout.py" lock 9 sim.sh
+  export HARP_SIM_LOCK_HELD=1
+fi
 # Compose mounts only the HIM checkout, so the profile and scenes go in its ignored .cache.
-mkdir -p "$him/.cache/harp"
-cp "$profile" "$him/.cache/harp/joint_profile.json"
-export G1_JOINT_PROFILE="$him/.cache/harp/joint_profile.json"
-# HIM's sim needs the Holosoma recovery checkpoint; by default it sits in models/ beside this repo.
-holosoma="$(cd -- "$here/../.." && pwd -P)/models/fastsac_g1_29dof.onnx"
+cp "$profile" "$HARP_STAGE/joint_profile.json"
+export G1_JOINT_PROFILE="$HARP_STAGE/joint_profile.json"
+# HIM's sim needs the Holosoma recovery checkpoint; by default it sits in models/ beside HIM.
+holosoma="$HARP_MODELS/fastsac_g1_29dof.onnx"
 [[ -z "${HIM_HOLOSOMA_ONNX:-}" && -f "$holosoma" ]] && export HIM_HOLOSOMA_ONNX="$holosoma"
-image="${HARP_IMAGE:-harp-submission:local}"
+image="${HARP_IMAGE:-$HARP_IMAGE_REPO:local}"
 if [[ -n "$world" ]]; then
-  scenes="$him/.cache/harp/scenes"
+  scenes="$HARP_STAGE/scenes"
   python3 "$here/stage_world.py" "$world" "$model" "$scenes" >/dev/null
   docker build -q -f "$here/Dockerfile.world" --build-arg BASE="$image" \
-    -t "harp-submission:$world" "$scenes/image/$world" >/dev/null
-  image="harp-submission:$world"
+    -t "$HARP_IMAGE_REPO:$world" "$scenes/image/$world" >/dev/null
+  image="$HARP_IMAGE_REPO:$world"
   scene="$scenes/$world.xml"
   args+=(--scene "$scene")
 fi
@@ -72,10 +81,11 @@ if [[ -n "$out" ]]; then
     --sim-args ${given[@]+"${given[@]}"}
 fi
 # Ctrl-C closes HIM's viewer; a no-op trap (not an ignored signal, which HIM's launcher would
-# inherit) keeps this script alive to prune after it.
+# inherit) keeps this script alive to prune after it. The launcher doesn't get the lock's
+# file (9>&-), so nothing it leaves running can hold the lock after this script.
 trap ':' INT
 status=0
-"$him/$launcher" --image "$image" ${args[@]+"${args[@]}"} || status=$?
+"$him/$launcher" --image "$image" ${args[@]+"${args[@]}"} 9>&- || status=$?
 trap - INT
 [[ -z "$out" ]] || python3 "$here/course.py" --prune "$out" || true
 exit "$status"

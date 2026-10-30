@@ -8,9 +8,10 @@
   python3 submission/course.py --replay runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --compare slalom
 
-Each run gets a folder in runs/ (HARP_RUNS_DIR to change it) holding our run.json
-(world, tag, start, git commit, whether the tree was dirty; git.diff then holds the
-uncommitted changes; and from sim.sh, "sim": its arguments, image, G1_TASK_COMMAND and
+Each run gets a folder in the main checkout's runs/, shared by every git worktree
+(HARP_RUNS_DIR to change it; checkout.py), holding our run.json (world, tag, start, git
+commit and branch, whether the tree was dirty; git.diff then holds the uncommitted
+changes; and from sim.sh, "sim": its arguments, image, G1_TASK_COMMAND and
 HIM's commit), the scene HIM loaded without HIM's G1 (scene/), HIM's
 report.json, trace.npz (the true pose every 20 ms) and policy.log (our image's
 output: events and the once-a-second "odom" lines), and our summary.json:
@@ -46,6 +47,8 @@ world loses STRIPPED (about 52 of its 53 MB), once the scene rebuilt from run.js
 scene/ (HIM's G1 read at HIM's commit) matches the one in the trace. Runs from before
 run.json kept a scene get theirs filled in the same way. --replay RUN serves HIM's replay
 with the scene put back, from a copy of the trace; a stripped run's thrash panel is empty.
+Each run, with its scoring and pruning, and --prune and --score hold checkout.py's
+machine-wide lock: one build or sim at a time, waiting for whoever holds it.
 
 Needs MuJoCo, so it runs under HIM's .venv-policy-safety (it re-executes
 itself there). Build the image first: submission/build.sh.
@@ -67,11 +70,13 @@ import time
 import urllib.request
 from pathlib import Path
 
+import checkout  # beside this file
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-HIM = Path(os.environ.get("HIM_REPO", REPO.parent / "him-sim2real-management"))
+HIM = checkout.HIM
 VENV_PYTHON = HIM / ".venv-policy-safety/bin/python"
-RUNS = Path(os.environ.get("HARP_RUNS_DIR", REPO / "runs"))
+RUNS = checkout.RUNS
 STARTUP = 12.0          # s added to the world's max_time_s: Nav2 sends the goal about 6 s in, plus slack
 CLEARANCE_MAX = 2.0     # m: farther than this counts as this
 CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
@@ -103,7 +108,7 @@ import stage_world  # noqa: E402
 from harp.movers import Movers, obstacle_geoms  # noqa: E402
 from harp.route import route_from_data  # noqa: E402
 
-SCENES = HIM / ".cache/harp/scenes"
+SCENES = checkout.STAGE / "scenes"
 MODEL = HERE / ".build/him/environment"
 
 
@@ -265,10 +270,11 @@ def prune(run):
 
 
 def git_state():
-    """This repo's commit, and its uncommitted changes to tracked files ("" if none)."""
+    """This checkout's commit, branch, and uncommitted changes to tracked files ("" if none)."""
     def git(*args):
         return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True).stdout
-    return git("rev-parse", "--short", "HEAD").strip() or None, git("diff", "HEAD")
+    return (git("rev-parse", "--short", "HEAD").strip() or None, checkout.branch(),
+            git("diff", "HEAD"))
 
 
 def him_git(*args, **kwargs):
@@ -282,11 +288,11 @@ def stamp_now():
 
 def new_run_json(run, started=None):
     """run.json's common part, and git.diff when the tree has uncommitted changes."""
-    commit, diff = git_state()
+    commit, branch, diff = git_state()
     if diff:
         (run / "git.diff").write_text(diff)
     return {"world": None, "tag": None, "started": started or stamp_now(), "commit": commit,
-            "dirty": bool(diff)}
+            "branch": branch, "dirty": bool(diff)}
 
 
 def scene_files(scene):
@@ -598,11 +604,8 @@ def run_once(name, tag, route=None, view=False):
     if route:
         (run / "route.yaml").write_text(yaml.safe_dump(route.data(), sort_keys=False))
         env["G1_TASK_COMMAND"] = json.dumps({"route": route.data()})   # for harp/course_goal.py
-    commit, diff = git_state()
-    if diff:
-        (run / "git.diff").write_text(diff)
-    (run / "run.json").write_text(json.dumps({"world": name, "tag": tag, "started": stamp,
-                                              "commit": commit, "dirty": bool(diff)}) + "\n")
+    (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
+                                                  tag=tag)) + "\n")
     for note in memory_warnings():
         print(f"{run.name}: warning: {note}", flush=True)
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
@@ -729,32 +732,39 @@ def main():
         replay(Path(args.replay))
         return 0
     if args.prune is not None:
-        runs = [Path(args.prune)] if args.prune else run_folders()
-        for run in runs:
-            prune(run)
-        slim(run_folders())
+        with checkout.Hold("course.py --prune"):   # slim() strips traces in the shared runs/
+            runs = [Path(args.prune)] if args.prune else run_folders()
+            for run in runs:
+                prune(run)
+            slim(run_folders())
         return 0
     runs = [Path(args.score)] if args.score else range(args.repeat)
     failed = False
     for run in runs:
-        run = run if args.score else run_once(args.world, args.tag, route, args.view)
-        if run is None:
-            failed = True
-            continue
-        s = score(run)
-        verdict = {True: "PASS", False: "FAIL " + ",".join(s["failed_checks"]), None: "-"}[s["passed"]]
-        print(f"{run.name}: {s['outcome']} ({s['him_status']}) {verdict}  "
-              f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "
-              f"closest {s['closest_m']} m, contacts {s['contacts']}, "
-              f"recoveries {s['recoveries']}, drift {s['drift_m']} m"
-              + (f", speed near people {s['speed_near_people_mps']} m/s"
-                 if s["speed_near_people_mps"] is not None else "")
-              + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
-                 if "route" in s else ""))
-        failed |= s["outcome"] != "succeeded" or s["passed"] is False
-        prune(run)
-        slim(run_folders())
+        with checkout.Hold(f"course.py {args.world or args.score}"):
+            failed |= not run_and_score(run, args, route)
     return 1 if failed else 0
+
+
+def run_and_score(run, args, route):
+    """Run (unless --score) and score one run, print its line, and prune; False if it
+    didn't succeed or failed its criteria."""
+    run = run if args.score else run_once(args.world, args.tag, route, args.view)
+    if run is None:
+        return False
+    s = score(run)
+    verdict = {True: "PASS", False: "FAIL " + ",".join(s["failed_checks"]), None: "-"}[s["passed"]]
+    print(f"{run.name}: {s['outcome']} ({s['him_status']}) {verdict}  "
+          f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "
+          f"closest {s['closest_m']} m, contacts {s['contacts']}, "
+          f"recoveries {s['recoveries']}, drift {s['drift_m']} m"
+          + (f", speed near people {s['speed_near_people_mps']} m/s"
+             if s["speed_near_people_mps"] is not None else "")
+          + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"
+             if "route" in s else ""))
+    prune(run)
+    slim(run_folders())
+    return s["outcome"] == "succeeded" and s["passed"] is not False
 
 
 if __name__ == "__main__":

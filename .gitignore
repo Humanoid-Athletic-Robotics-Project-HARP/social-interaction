@@ -10,13 +10,19 @@ __pycache__/
 # Secrets
 .env
 
-# Course runs (submission/course.py), kept per machine
+# Course runs (submission/course.py), kept per machine in the main checkout (worktrees
+# write there too)
 runs/
 
-# Workspace-specific agent memory, kept per machine
+# Workspace-specific agent memory, kept per machine (a worktree links to the main
+# checkout's), and each person's Claude Code settings
 context/workspace-specific-memory.md
+.claude/settings.local.json
 
 # Submission image build (submission/build.sh)
 submission/.build/
 submission/submission.tar
 submission/joint_profile.json
+
+# Git worktrees of this repo (context/worktrees.md)
+.claude/worktrees/

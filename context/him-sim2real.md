@@ -3,7 +3,7 @@ name: him-sim2real
 description: Read before anything that touches HARP's safety harness/simulator (him-sim2real-management), or to see what moving our code onto it dropped and what is left to do
 metadata:
   type: project
-  updated: 2026-10-30T19:06:32Z
+  updated: 2026-10-30T21:48:27Z
   covers: []
 ---
 
@@ -17,7 +17,7 @@ metadata:
 
 **What it doesn't provide** (our image fills these, [[submission-image]]): lidar (none in its sim; on the robot the container has host networking, so `rt/utlidar/...` is readable), moving obstacles, a live velocity input (its examples play fixed schedules), odometry on the robot, which scene is loaded (its sim tells the container nothing). Also missing: remote buttons in the sim's `rt/lowstate`, and any way to reach rviz2 inside its loopback-only sim network.
 
-**Setup on a laptop:** clone it beside this repo (`HIM_REPO` to override), create its `.venv-policy-safety` as its README says, download the Holosoma checkpoint (`HIM_HOLOSOMA_ONNX`), have Docker Desktop running. Our scripts write only to its ignored `.cache/harp/` (Compose mounts only that checkout, so scenes and the joint profile must be inside it). Its docs say physical stop behavior is not yet accepted.
+**Setup on a laptop:** clone it beside the main checkout of this repo (`HIM_REPO` to override; worktrees find it there too, [[worktrees]]), create its `.venv-policy-safety` as its README says, download the Holosoma checkpoint (`HIM_HOLOSOMA_ONNX`), have Docker Desktop running. Our scripts write only to its ignored `.cache/harp/` (Compose mounts only that checkout, so scenes and the joint profile must be inside it). Its docs say physical stop behavior is not yet accepted.
 
 **State (2026-10-28):** merged into `main` (PR #3, `186a653`): everything lives in `submission/` ([[submission-image]]). The old ROS 2 Jazzy stack (`ros2/`) is only in git history (last at `9ee9255`, with Lam's PR #2). Nothing has run on the real robot.
 

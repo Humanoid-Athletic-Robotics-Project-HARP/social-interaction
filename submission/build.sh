@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
 # Build HARP's submission image (linux/arm64) and save it as submission/submission.tar.
-# Usage: submission/build.sh [TAG]        (default tag: harp-submission:local)
-# HIM_REPO is the him-sim2real-management checkout (default: beside this repo). It is
-# only read: its walker example is staged into submission/.build, never into git.
+# Usage: submission/build.sh [TAG]   (default: harp-submission:local, or in a git worktree
+#                                     harp-submission-NAME:local: submission/checkout.py)
+# HIM_REPO is the him-sim2real-management checkout (default: beside the main checkout). It
+# is only read: its walker example is staged into submission/.build, never into git.
+# It waits for any build or sim running on this machine first (checkout.py's lock).
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "$0")" && pwd -P)"
-him="${HIM_REPO:-$(cd -- "$here/../.." && pwd -P)/him-sim2real-management}"
+eval "$(python3 "$here/checkout.py")"
+him="$HARP_HIM"
 python="$him/.venv-policy-safety/bin/python"
-tag="${1:-harp-submission:local}"
+tag="${1:-$HARP_IMAGE_REPO:local}"
 if [[ ! -x "$python" ]]; then
   echo "Missing $python. Set HIM_REPO and create its .venv-policy-safety (its README)." >&2
   exit 2
+fi
+# A build during someone's sim run takes the memory and CPU its deadlines need.
+if [[ -z "${HARP_SIM_LOCK_HELD:-}" ]]; then
+  mkdir -p "$(dirname -- "$HARP_LOCK")"
+  exec 9>>"$HARP_LOCK"
+  python3 "$here/checkout.py" lock 9 build.sh
 fi
 
 stage="$here/.build"

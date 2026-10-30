@@ -138,6 +138,22 @@ harp/
 └── models/fastsac_g1_29dof.onnx        its recovery policy (Holosoma)
 ```
 
+To work on a branch in its own worktree, make it with git (not an app's
+new-session button), inside this repo, on a branch of the same name:
+
+```bash
+git worktree add .claude/worktrees/NAME -b NAME main
+```
+
+In it, run `submission/build.sh` once before its first sim run (it builds
+`harp-submission-NAME:local`). It finds HIM and `models/` beside the main
+checkout, and its run folders go to the main checkout's `runs/`. Builds and sim
+runs on one computer go one at a time: a second one waits for the first. Once
+its branch is merged, check nothing uncommitted is left in it (`git status
+--short --ignored`), then remove it with `git worktree remove
+.claude/worktrees/NAME`, delete the branch, and remove its
+`harp-submission-NAME` images from Docker.
+
 From inside `harp/`:
 
 ```bash

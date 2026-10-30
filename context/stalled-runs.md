@@ -3,7 +3,7 @@ name: stalled-runs
 description: Read when a sim run ends inconclusive or HIM stops it on a deadline (observation_timeout, checked_command_expired, postcheck_timeout, action_timeout) — what to check and do before rerunning
 metadata:
   type: feedback
-  updated: 2026-10-30T21:09:51Z
+  updated: 2026-10-30T21:48:27Z
   covers: []
 ---
 
@@ -15,7 +15,7 @@ A run HIM stops on a deadline is usually the computer short of memory, not our c
 - Our events before the stop: if nothing of ours acted then, it's the host.
 
 **Then, on macOS with Docker Desktop**
-1. Stop the batch first: the steps below end any run in progress.
+1. Stop the batch first: the steps below end any run in progress, another session's too, so check nobody else holds the sim lock ([[worktrees]]).
 2. Close HIM viewers still up from earlier runs: `pgrep -fl containers/sim/live.py` (about 700 MB each; Ctrl-C them where they run). `course.py --view` closes its own.
 3. Ask the user to quit apps they don't need (browsers hold the most; Edge held about 2.5 GB). Never quit their apps yourself.
 4. Restart Docker Desktop, which hands back the memory macOS has compressed for its VM (3–3.6 GB after a few runs): `osascript -e 'quit app "Docker Desktop"'`, wait until the VM process is gone (`pgrep -f com.apple.Virtualization.VirtualMachine`), `open -a Docker`, and wait for `docker info`. Do this between batches whenever compressed memory is high, not only after a stop.
