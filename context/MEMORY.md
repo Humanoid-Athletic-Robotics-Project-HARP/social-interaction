@@ -11,6 +11,7 @@
 - [Planned moves](planned-moves.md) — when changing walks, turns, curves or leg odometry, or needing their accuracy
 - [HARP safety harness and sim](him-sim2real.md) — before anything touching him-sim2real-management, or to see what the move onto it dropped
 - [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run
+- [Stalled runs](stalled-runs.md) — when HIM stops a run on a deadline or it ends inconclusive: what to check and do
 - [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline, or before changing how runs are watched or timed
 - [Safety](safety.md) — before a real-robot session, or changing what stops the robot (HIM's harness and its buttons)
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body

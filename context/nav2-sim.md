@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-10-30T20:38:51Z
+  updated: 2026-10-30T21:11:31Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/harp/approach_stop.py, submission/tests/test_approach_stop.py]
 ---
 
@@ -29,4 +29,6 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - **Results** (2026-10-30, `runs/*_stop`): oncoming 2 of 2 pass, stands at 4.3–4.4 m for 6.4 s, 0.001 m/s near the person, closest 0.36–0.38 m, 30 s. crossing (with the moving rule, `runs/*_stop-moving`, 2 of 2): when the person walks into the strip about 1.1 m ahead, the robot stands 2.2 s, until they're out of its path, then straight on (24.5 s, 5.8 m of path; Nav2 detoured 7.4–7.7 m before); in the other run Nav2 swung wide first and the person never entered the strip (36.8 s). Either way it walks 0.25–0.27 m/s while they come from the side within 1.5 m: the strip sees them only about 0.95 m to the side. oncoming with it: 1 of 1, stands 6.9 s, closest 0.39 m. open_floor, one_box, slalom, obstacle_course: no stops, times as before.
 - **Not covered:** something still that is too close (a collision-monitor stop for that is still open), and the robot: `entrypoint.sh` starts the node only in a world's image in the sim.
 
-**Next in the sim:** a collision-monitor stop for still obstacles too close, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).
+- **Tried and dropped (2026-10-30): watching beside the strip** for someone coming into it from the side. It followed the point nearest the strip on each side, as the strip rule follows the nearest point ahead; in slalom it stood 7 times for still poles, up to 12 s, and ran out of time (`runs/*_stop-sides*`). The nearest point on a wall or a thick pole slides along it as the robot walks and sways, so still things seem to move toward the strip; taking the motion in `odom` (each scan's pose) fixed the pelvis swing but not that. Doing it properly needs a moving-object detector: scans compared in `odom`, the moved points grouped, their speed tracked (README milestone). The "still moving" rule for a standing robot has the same weakness in `base_link`, but only acts once the robot already stands for an approach.
+
+**Next in the sim:** a collision-monitor stop for still obstacles too close, the moving-object detector, closing the courses' start ends. Then the real lidar ([[him-sim2real]]).
