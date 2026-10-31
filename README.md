@@ -195,7 +195,8 @@ This walks the robot in one curve to 1 m ahead and 1 m left, ending facing
 G1_TASK_COMMAND='{"to": [1, 1, 45]}' submission/sim.sh --seconds 35
 ```
 
-A page opens in your browser; press Start. For the first 5 s HARP's GR00T
+The run starts at once, and a viewer comes up at the address printed; press
+Start there to watch it from the beginning. For the first 5 s HARP's GR00T
 balance holds the robot (on the robot, until the operator hands over), then
 our image takes over and the move starts 2 s later. `"to": [X, Y, HEADING]`
 is meters ahead, meters left and degrees left of where the robot stands.
@@ -233,10 +234,9 @@ world's criteria, in a folder in `runs/` (which git ignores):
 python3 submission/course.py one_box
 ```
 
-Add `--view` to watch each run live at the address printed: press Start
-there (after 2 minutes it starts the run anyway, but the page only shows a
-run started from it). It closes the viewer 10 s after the run, before the
-next one.
+Add `--view` to watch each run live at the address printed (press Start
+there to watch it from the beginning; the run doesn't wait for it). It closes
+the viewer 10 s after the run, before the next one.
 Before each run it warns about viewers still up and memory pressure, and the
 run's `run.json` keeps the computer's memory during the run (`host_memory`).
 

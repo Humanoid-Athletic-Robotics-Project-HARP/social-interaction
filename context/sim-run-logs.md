@@ -3,7 +3,7 @@ name: sim-run-logs
 description: Read before changing what our image prints, how course.py reads a run's events, the Rerun lidar view (harp/view_feed.py, lidar_view.py), or how replays show the people
 metadata:
   type: reference
-  updated: 2026-10-30T23:18:44Z
+  updated: 2026-10-31T00:00:30Z
   covers: [submission/harp/events.py, submission/harp/view_feed.py, submission/lidar_view.py, submission/course.py, submission/entrypoint.sh]
 ---
 

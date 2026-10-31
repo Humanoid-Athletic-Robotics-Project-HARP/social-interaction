@@ -44,9 +44,9 @@ latest state was LATE s or more old (harp_node.py's "timing" lines; each such st
 decompressed; run.json's host_memory "seconds").
 --compare [WORLD] lists every scored run by world and tag: how many succeeded and
 passed, time (mean, min-max), closest, end error, recoveries and drift.
---view watches each run in HIM's live viewer, at the URL it prints: press Start there
-(after START_WAIT s it starts the run itself, unseen: the page shows only runs started
-from it), and it closes the viewer VIEW_LINGER s after HIM's report, before the next run. HIM's
+--view watches each run in HIM's live viewer, at the URL it prints: the run starts at once
+(sim.sh), and Start on the page plays it from the first frame; it closes the viewer
+VIEW_LINGER s after HIM's report, before the next run. HIM's
 deadlines stop runs when the host is short of memory, and a viewer holds about 700 MB, so
 before each run it warns about HIM viewers still up and macOS memory pressure, and run.json
 keeps the host's memory during the run (host_memory: free, compressed and decompressed MB).
@@ -79,8 +79,8 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.request
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 import checkout  # beside this file
@@ -96,7 +96,6 @@ CLEARANCE_EVERY = 5     # trace frames between clearance checks (0.1 s)
 PEOPLE_NEAR = 1.5       # m, robot to a mover's centre, inside which the robot should stand
 SPEED_WINDOW = 5        # clearance checks the robot's speed is taken over (0.5 s: GR00T sways)
 VIEW_LINGER = 10.0      # s the --view live viewer stays up after HIM's report
-START_WAIT = 120.0      # s --view waits for Start to be pressed before starting the run unseen
 VIEWER_OUTPUT = ("view", "live.jsonl")   # HIM's viewer files, rebuilt from trace.npz by replay
 KEEP_FULL = 2           # newest runs of each world whose trace.npz keeps everything (tags are
                         # mostly one-off experiments: per world and tag kept 60 of 69 whole)
@@ -448,8 +447,14 @@ def same_model(a, b):
 
 
 def saved_model(run):
-    """The compiled scene HIM saved in the run's trace, or None once stripped."""
-    with np.load(run / "trace.npz") as trace:
+    """The compiled scene HIM saved in the run's trace, or None once stripped, or if HIM's
+    trace was cut off (it writes it last, and a stopped plant can leave it half written)."""
+    try:
+        trace = np.load(run / "trace.npz")
+    except zipfile.BadZipFile:
+        print(f"{run.name}: trace.npz is cut off; leaving it as it is", flush=True)
+        return None
+    with trace:
         if "model" not in trace.files:
             return None
         return mujoco.MjModel.from_binary_path("scene.mjb", {"scene.mjb": trace["model"].tobytes()})
@@ -640,8 +645,8 @@ def memory_warnings():
 
 
 def watch_live(process, run):
-    """Print HIM's live viewer's URL once it is up, wait for its Start (pressing it after
-    START_WAIT s), and close it (with sim.sh's Ctrl-C) VIEW_LINGER s after HIM's report."""
+    """Print HIM's live viewer's URL once it is up (sim.sh starts the run at once), and close
+    it (with sim.sh's Ctrl-C) VIEW_LINGER s after HIM's report."""
     log_path = run / "sim.log"
 
     def line(prefix):
@@ -656,25 +661,9 @@ def watch_live(process, run):
     url = line("Open http")
     if not url:
         return
-    url = url.split()[-1]
-    # The page shows the run only once its own Start is pressed (it then fetches frames),
-    # so wait for that, and start the run unseen after START_WAIT s.
-    print(f"{run.name}: live at {url}: press Start there (unseen after {START_WAIT:.0f} s)",
-          flush=True)
-    started = run / "view" / "start"   # sim.sh's flag, written by the viewer's /start
-    deadline = time.monotonic() + START_WAIT
-    while not started.exists() and process.poll() is None:
-        if time.monotonic() > deadline:
-            try:
-                urllib.request.urlopen(urllib.request.Request(url + "/start", method="POST"),
-                                       timeout=5)
-                print(f"{run.name}: started unseen", flush=True)
-            except OSError as e:
-                print(f"{run.name}: couldn't start it ({e})", flush=True)
-                deadline = time.monotonic() + 5
-                continue
-            break
-        time.sleep(0.5)
+    # The page fetches frames only once its own Start is pressed, from the first frame.
+    print(f"{run.name}: live at {url.split()[-1]} (running; press Start there to watch it "
+          "from the beginning)", flush=True)
     if line("Viewer is still at"):
         # Start pressed on a finished run's page deletes HIM's report: put it back.
         report = run / "report.json"
