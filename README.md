@@ -43,6 +43,8 @@ unchanged, cloned next to this repo, and keep only our code here.
 - ✅ Sim: GR00T stands, walks, turns and stops safely (HARP's harness).
 - ✅ Sim: set distances, turns and curves to a point and heading
   (`G1_TASK_COMMAND`, `harp/moves.py`), with our own leg odometry.
+- 🟡 Straight-distance speed ramping and approach slowdown: command tests pass;
+  next, check the profile in HIM's sim.
 - ✅ Sim: driven over ROS 2, `/cmd_vel` in and `/odom` + `/tf` out (`harp_node.py`).
 - ⬜ Robot: all of the above, and leg odometry checked against a tape measure.
 - ⬜ Body language: facing the person, gestures.
@@ -58,6 +60,8 @@ unchanged, cloned next to this repo, and keep only our code here.
   body is filtered out of the lidar.
 - ✅ Sim: walk a route of several points, lap after lap, with Nav2
   (`course.py --route`, `--waypoint`, `--laps`).
+- 🟡 Record waypoints from `/odom` (`record_waypoints.sh`): local ROS checks pass;
+  next, check the recorder in the submission image.
 - 🟡 Sim: more on obstacles and path following: closer margins, a
   collision-monitor stop, moving obstacles and people. Started: the
   costmaps forget where a person was once they've moved on (STVL), and the
@@ -95,15 +99,16 @@ This has to happen before any of the "Robot" boxes above.
 
 - ✅ Our commands go through HARP's safety harness (`him-sim2real-management`),
   which owns stand-up, stops and the motors ("On the robot" below).
-- ✅ Everything runs on the harness (`submission/`). Each line is tested in
-  the sim; none has run on the robot yet.
+- 🟡 The application uses the harness (`submission/`). Waypoint recording and
+  straight-distance speed ramping need target-image and simulator checks.
+  No application code has run on the robot yet.
   - ✅ Walking, stand-up, stops and safety checks: HARP's harness and its GR00T
     walker, driven by `/cmd_vel` (`harp_node.py`).
   - ✅ Leg odometry on `/odom` and `/tf`, the lidar's live transform,
     `/joint_states`, `/imu` (`harp/state.py`): within 5 cm of the truth on
     every course.
-  - ✅ Walks, turns and curves to a point (`harp/moves.py`): 1 m walk ended
-    1.02 m, 90° turn 90.2°, curve to (1, 1, 45°) within 7 cm and 5°.
+  - ✅ Turns and curves to a point (`harp/moves.py`): 90° turn 90.2°,
+    curve to (1, 1, 45°) within 7 cm and 5°.
   - ✅ The simulated head lidar and moving people (`harp/lidar.py`,
     `harp/movers.py`).
   - ✅ Nav2 with STVL and the Graceful Controller (`nav2/`, our Foxy port in
@@ -215,6 +220,10 @@ image runs its default, `{"to": [0.5, 0.5]}` (`HARP_DEFAULT_TASK` in
 `submission/Dockerfile`); `G1_TASK_COMMAND='[0,0,0]'` stands still.
 The run is passed when `report.json` in the output folder (`--output DIR`)
 says `within_limits`.
+
+Straight walks ramp their speed requests up, then slow near the target.
+They approach at up to 0.1 m/s (bounded by the requested speed), then request
+zero at the distance threshold. Fault stops request zero immediately.
 
 If your computer runs short of memory, HARP's harness can stop the run
 (`host_stall`, `observation_timeout`). Close other apps and any viewer still

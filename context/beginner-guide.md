@@ -3,7 +3,7 @@ name: beginner-guide
 description: Read only when someone is new to the repo (just cloned it, "how do I get started") — the order to walk them through the README
 metadata:
   type: reference
-  updated: 2026-10-30T21:48:27Z
+  updated: 2026-10-31T09:38:15Z
   covers: [README.md]
 ---
 
