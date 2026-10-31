@@ -276,6 +276,28 @@ robot started. The robot moves on after reaching each point, and the run
 ends if a point fails or times out. The run folder keeps the route as
 `route.yaml`, and the route's own `criteria` decide pass or fail.
 
+To record waypoints from the robot's current estimated pose, build the image
+and start a sim run. In another terminal, find its running submission container:
+
+```bash
+docker ps --filter label=com.docker.compose.service=submission --format '{{.Names}}'
+```
+
+Use that name in place of `CONTAINER`:
+
+```bash
+submission/record_waypoints.sh CONTAINER submission/routes/my_route.yaml
+```
+
+Wait for **Odometry ready**, then press **Enter** at each position to record
+its position and heading, **u** to undo, **s** to save and exit, or **q** to
+discard. The recorder reads `/odom`; use the active movement program to reach
+each position. It saves a new file on the host and keeps existing files intact.
+Navigate between the recorded points with
+`python3 submission/course.py open_floor --route submission/routes/my_route.yaml`.
+The coordinates use the recording's `odom` origin and heading: keep the same
+starting reference when using the file, and restart recording if odometry resets.
+
 Any other ROS 2 program in the image can drive the robot through `/cmd_vel`
 and read `/odom`, `/tf`, `/joint_states` and `/imu` (`harp_node.py`). In a
 course, Nav2 publishes `/cmd_vel_nav`, which `harp/approach_stop.py` passes on.
@@ -285,6 +307,14 @@ it first):
 
 ```bash
 docker run --rm -v "$PWD/submission:/src:ro" -w /src --entrypoint bash harp-submission:local -c 'source /opt/ros/foxy/setup.bash && PYTHONPATH=/src:$PYTHONPATH python3 -m unittest discover tests'
+```
+
+The recorder's interactive ROS tests also need `-e ROS_LOCALHOST_ONLY=1`
+and `-e ROS_DOMAIN_ID=179` in that command, using a local test domain separate
+from the robot. Its data/file checks run without ROS:
+
+```bash
+PYTHONPATH=submission python3 -m unittest discover -s submission/tests -p test_record_waypoints.py
 ```
 
 ## On the robot
