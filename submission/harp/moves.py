@@ -8,7 +8,7 @@ image both in HIM's sim and on the robot:
   G1_TASK_COMMAND='{"to": [1, 1, 45]}'                     (one curve, the same as a list of one)
 
   walk: meters straight ahead (negative walks backward), holding the heading it
-        started with.
+        started with, ramping up and slowing near the end before requesting zero.
   turn: degrees in place (positive turns left).
   to:   [X, Y] or [X, Y, HEADING]: X m forward, Y m left of where the move
         starts, ending facing HEADING degrees (positive left; leave it out to
@@ -49,6 +49,9 @@ RATE = 50.0               # Hz of /cmd_vel
 WRONG_WAY_LIMIT = math.radians(10.0)  # stop if a turn goes this far the wrong way
 HEADING_GAIN = 1.5        # rad/s of turn per rad of heading error, during walks
 MAX_HEADING_CORRECTION = 0.3  # rad/s, cap on that correction
+WALK_ACCEL = 0.4         # m/s^2, ramp for straight walking's forward/backward speed
+WALK_DECEL = 0.4         # m/s^2, braking envelope near the distance target
+WALK_MIN_SPEED = 0.1     # m/s, final approach stays above GR00T's 0.05 Balance switch
 CURVE_MIN_SPEED = 0.1     # m/s, keeps the curve walking (GR00T balances below 0.05)
 CURVE_ACCEL = 0.4         # m/s^2, ramp for the curve's forward speed
 CURVE_TURN_ACCEL = 1.0    # rad/s^2, ramp for its turn rate
@@ -176,13 +179,21 @@ class Moves:
                 round(math.degrees(self.heading - self.start_heading), 1)]
 
     def walk_command(self, meters):
-        """Straight ahead or back, steering back to the starting heading; None once there."""
+        """Ramp ahead/back, brake near the distance target, hold heading; None once there."""
         x, y, _ = self.progress()
-        if math.hypot(x, y) >= abs(meters):
+        remaining = abs(meters) - math.hypot(x, y)
+        if remaining <= 0:
             return None
+        # v^2 = 2*a*d bounds the approach speed. Keep a walking floor so the
+        # policy doesn't stand before reaching the target; never exceed the
+        # requested speed, including requests below WALK_MIN_SPEED.
+        target = min(self.speed, max(WALK_MIN_SPEED, math.sqrt(2 * WALK_DECEL * remaining)))
+        current = abs(self.cmd[0])
+        limit = WALK_ACCEL if target >= current else WALK_DECEL
+        speed = toward(current, target, limit / RATE)
         error = self.start_heading - self.heading
         yaw_rate = max(-MAX_HEADING_CORRECTION, min(MAX_HEADING_CORRECTION, HEADING_GAIN * error))
-        return [math.copysign(self.speed, meters), yaw_rate]
+        return [math.copysign(speed, meters), yaw_rate]
 
     def turn_command(self, angle):
         """In place, at turn_speed; None once turned far enough, "wrong_way" if going the other way."""
