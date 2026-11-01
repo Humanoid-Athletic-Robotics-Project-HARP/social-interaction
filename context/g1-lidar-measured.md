@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-01T21:26:08Z
+  updated: 2026-11-01T21:28:33Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -25,8 +25,9 @@ points to port 56301 (2,083 packets/s of 96 points, 1380 bytes: 200,000 points/s
 lost over 20–300 s if the reader starts reading as soon as it opens the ports (a
 reader that opens them and then spends a second on setup loses about 5% to the
 kernel's 416 KB buffer). Only one program can hold the ports. Clock: time_type 0, ns
-since the lidar powered on, unsynced; DRIFT. Points arrive about 1 ms after their
-stamp (99%: 3 ms). About 43% of points are empty (0, 0, 0: no echo).
+since the lidar powered on, unsynced; it runs 6.8 ppm slow against PC2's clock
+(5 min), so restamp with arrival time or fit the offset. Packets arrive about 1 ms
+late (99%: 4–5 ms, rarely up to 50 ms). About 43% of points are empty (0, 0, 0: no echo).
 
 **Mount:** upside down, as `harp/lidar_mount.py` assumes: raw +z points at the floor;
 (x, y, z) → (x, −y, −z) gives z up. Standing: the floor is 1.208 m below it, and its

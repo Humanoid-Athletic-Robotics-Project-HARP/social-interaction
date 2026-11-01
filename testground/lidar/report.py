@@ -170,8 +170,10 @@ class Report:
         da = np.diff(c.packet_arrival)
         ti = c.header["time_interval"] * 1e-7
         offset = (c.packet_arrival - c.packet_t) * 1e3   # ms, PC2 minus lidar clock, from the start
-        drift = np.polyfit(c.packet_t, offset / 1e3, 1)[0] * 1e6
-        late = offset - offset.min()
+        fit = np.polyfit(c.packet_t, offset, 1)
+        drift = fit[0] * 1e3                              # ppm
+        late = offset - np.polyval(fit, c.packet_t)       # the drift taken out
+        late -= late.min()
         self.out(f"- Between packets, by the lidar's stamps: {stats(dt * 1e6, 0)} us; "
                  f"each packet's time_interval {stats(ti * 1e6, 0)} us (the span of its points).",
                  f"- Between arrivals on PC2: {stats(da * 1e6, 0)} us.",
@@ -180,7 +182,7 @@ class Report:
                  f"- PC2's clock against it drifts {drift:+.1f} ppm "
                  f"({'meaningful' if c.packet_t[-1] > 120 else 'too short to trust'} over "
                  f"{c.packet_t[-1]:.0f} s).",
-                 f"- Arrival delay beyond the smallest: median {np.median(late):.2f}, 99% "
+                 f"- Arrival delay beyond the smallest (drift taken out): median {np.median(late):.2f}, 99% "
                  f"{np.percentile(late, 99):.2f}, max {late.max():.2f} ms.")
 
     def view(self):
