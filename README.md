@@ -22,6 +22,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
+| `testground/` | Tests on the real robot: read-only scripts run on its Jetson (PC2), their recordings analysed on a laptop ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned team forks of Ultralytics (YOLO26) and BoT-SORT for person-perception evaluation; [checkout instructions](third_party/README.md). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
@@ -55,6 +56,9 @@ unchanged, cloned next to this repo, and keep only our code here.
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
 - ✅ Sim: a simulated head lidar and obstacle courses (`submission/worlds/`).
+- 🟡 Sim: the sensors as they are on the robot: the lidar nearly blind ahead
+  (its own head), and the head depth camera looking down at the floor ahead,
+  both in Nav2's costmaps (`harp/lidar.py`, `harp/depth_camera.py`).
 - ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) walks every
   course (`course.py`), including the obstacle course with a table, pillars,
   a thin pole and an archway, without touching anything. The robot's own
@@ -73,8 +77,11 @@ unchanged, cloned next to this repo, and keep only our code here.
 - ⬜ Sim: stand before someone crossing reaches the robot's path, not once
   they're in it: a moving-object detector (scans compared in `odom`, the
   points that moved grouped and their speed tracked).
-- 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
-  `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
+- 🟡 Robot: real lidar data in ROS 2, then the same walk. The lidar is
+  recorded and measured on the robot (`testground/lidar/`), and reaches ROS 2
+  through Unitree's `lidar_driver` service and `harp/lidar_relay.py` (tried on
+  PC2 outside our image); next, the head camera's depth in our image, then Nav2
+  on the robot.
 
 ### Find people and walk up to them
 
@@ -82,7 +89,8 @@ unchanged, cloned next to this repo, and keep only our code here.
   away, facing them.
 - ⬜ A person detector on the D435i camera that places people to within
   about 0.3 m, out to 4 m.
-- ⬜ Sim: a camera, or recorded camera data, to test with.
+- 🟡 Sim: a camera to test with: depth only (`harp/depth_camera.py`); colour
+  still needs recorded camera data.
 - ✅ Building block: the curved move to a point and heading.
 - ⬜ Sim, then robot: walk up to a person.
 
@@ -110,18 +118,23 @@ This has to happen before any of the "Robot" boxes above.
     every course.
   - ✅ Turns and curves to a point (`harp/moves.py`): 90° turn 90.2°,
     curve to (1, 1, 45°) within 7 cm and 5°.
-  - ✅ The simulated head lidar and moving people (`harp/lidar.py`,
-    `harp/movers.py`).
+  - ✅ The simulated head lidar and depth camera, as on the robot, and moving
+    people (`harp/lidar.py`, `harp/depth_camera.py`, `harp/movers.py`).
   - ✅ Nav2 with STVL and the Graceful Controller (`nav2/`, our Foxy port in
     `nav2_graceful_controller/`): all six courses succeed, no contacts.
-  - ✅ Standing while someone walks at the robot, and while the lidar is quiet
-    (`harp/approach_stop.py`, between Nav2 and our node): in `oncoming` it
+  - ✅ Standing while someone walks at the robot, seen by the lidar or the head
+    camera, and while the lidar is quiet (`harp/approach_stop.py`, between Nav2
+    and our node): in `oncoming` it
     stands about 6 s and the person passes 0.36 m away; it never stops on the
     courses without people.
   - ✅ Course tests, their scores and criteria, comparing runs, and each run's
     git commit (`course.py`).
-  - ✅ The robot's lidar into ROS 2 (`harp/lidar_relay.py`, started on the robot):
-    tested in the image against a cloud published the way the robot does.
+  - 🟡 The robot's lidar into ROS 2 (`harp/lidar_relay.py`, from Unitree's
+    `lidar_driver` service): both its clouds at 10 Hz on PC2, not yet in a
+    session through HARP's harness.
+  - 🟡 The head camera's depth on HARP's ROS 2 network, beside our image
+    (`testground/camera/depth_node.py` on PC2): 15 fps, the harness
+    unaffected; not yet read by our image in a session.
 - 🟡 Stopping from the remote: HARP's harness (double Start damps, double F3
   switches to its recovery policy, D-pad Left + B hands control to us).
   Robot: not yet tried.
@@ -368,8 +381,7 @@ G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./setup.sh --mode dry-run --profile ~/harp_
 G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./submit.sh --mode real --profile ~/harp_joint_profile.json
 ```
 
-The image also brings the head lidar into ROS 2 on
-`/utlidar/cloud_livox_mid360` (`harp/lidar_relay.py`). GR00T balance takes over from Unitree's controller. Once it prints
+GR00T balance takes over from Unitree's controller. Once it prints
 `startup_phase: ready`, press **D-pad Left + B** to hand control to our
 image. **Double Start damps the robot** at any time, and double F3 switches
 to the recovery policy. Before running again, double-press Start, check it

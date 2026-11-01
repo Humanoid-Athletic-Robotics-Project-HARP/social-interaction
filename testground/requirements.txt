@@ -1,0 +1,4 @@
+# The laptop's analysis tools (python3 -m venv .venv && .venv/bin/pip install -r requirements.txt).
+# PC2 needs none of these: its scripts use what probe.sh finds there.
+numpy==2.5.4
+rerun-sdk==0.41.0

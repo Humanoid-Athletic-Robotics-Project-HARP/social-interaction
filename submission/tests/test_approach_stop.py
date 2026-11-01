@@ -156,6 +156,35 @@ class InputGate(unittest.TestCase):
             self.assertIsNone(gate.last_scan)
             self.assertTrue(gate.lost)
 
+    def camera_cloud(self, point):
+        cloud = self.usable_cloud()
+        cloud.header.frame_id = "d435_depth_optical_frame"
+        cloud.data = np.array([point], dtype="<f4").tobytes()
+        return cloud
+
+    def test_camera_sees_legs_ahead_the_lidar_misses(self):
+        # The lidar's nearest is 2 m ahead; the camera's, a leg 1.2 m ahead and 0.15 m up,
+        # lower than the lidar's MIN_Z: the camera's counts while its frame is fresh.
+        for camera_at, expected in ((9.9, 1.2), (9.5, 2.0)):
+            gate, _ = self.make_filter()
+            gate.lidar = gate.camera = (np.eye(3), np.zeros(3))
+            gate.lidar_time = gate.odom_time = 10.0
+            with patch("harp.approach_stop.time.monotonic", return_value=camera_at):
+                gate.on_camera(self.camera_cloud([1.2, 0.0, 0.15]))
+            with patch("harp.approach_stop.time.monotonic", return_value=10.0):
+                gate.on_cloud(self.usable_cloud())
+            self.assertAlmostEqual(gate.history[-1][1][0], expected, places=5)
+
+    def test_camera_alone_never_releases_gate(self):
+        gate, output = self.make_filter()
+        gate.camera = (np.eye(3), np.zeros(3))
+        gate.odom_time = 10.0
+        with patch("harp.approach_stop.time.monotonic", return_value=10.0):
+            gate.on_camera(self.camera_cloud([1.2, 0.0, 0.15]))
+            gate.on_nav(Twist())
+        self.assertIsNone(gate.last_scan)
+        self.assertEqual(output[-1].linear.x, 0.0)
+
     def test_invalid_speed_does_not_refresh_odometry(self):
         gate, _ = self.make_filter()
         msg = Odometry()
