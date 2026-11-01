@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-01T21:37:13Z
+  updated: 2026-11-01T21:54:57Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -31,7 +31,10 @@ since the lidar powered on, unsynced; it runs 6.8 ppm slow against PC2's clock
 (5 min), so restamp with arrival time or fit the offset. Packets arrive about 1 ms
 late (99%: 4–5 ms, rarely up to 50 ms). About 43% of points are empty (0, 0, 0: no echo).
 
-**Mount:** upside down, as `harp/lidar_mount.py` assumes: raw +z points at the floor;
+**Mount:** officially (`unitree_ros` `g1_29dof_rev_1_0.urdf`, our revision:
+`mode_machine` 5) `mid360_joint` on `torso_link` at (0.0003, 0, 0.4284), roll 180°,
+pitch 2.9°, as `harp/lidar_mount.py` uses (its docstring wrongly says the URDF lacks
+the roll; the older `g1_29dof.urdf` does). Measured: upside down, raw +z points at the floor;
 (x, y, z) → (x, −y, −z) gives z up. Standing: the floor is 1.208 m below it, and its
 up direction is 8.9° from the lidar's axis (pitched forward), against the mount's
 2.9° with an upright torso; the pelvis leaned 5.4° forward, which accounts for most of
@@ -42,11 +45,11 @@ about 2°/s on z at rest (the pelvis IMU 0.2°/s): subtract a bias before using 
 52° below), out to about 11 m in the lab. The floor first shows up 0.8–0.9 m out.
 **Nearly blind in a cone around +x**: within ±30° of +x only 0.3% of returns, 30–60°
 about 1.5% each side, every other 30° sector 8–15%; 56° of azimuth gets nothing. Very
-likely the head shell, so if +x is the front (URDF; not yet confirmed: someone stands
-2 m ahead, `person-front-2m`), the robot can't see what's in front of it with the
-lidar; the head camera has to. About 290 returns a cloud within 0.7 m (shoulders and
+likely the head shell. +x is the front (URDF, and the forward-facing camera fills
+exactly that gap: [[g1-sensor-fusion]]), so the robot can't see what's in front of it
+with the lidar; the head camera has to. About 290 returns a cloud within 0.7 m (shoulders and
 arms at the sides, as near as 0.09 m). After 1 s the pattern has filled about 62% of
 its 1° cells, then barely more (the blocked part never fills).
 
-**Not yet measured:** which way is the front, range accuracy on a tape-measured wall,
+**Not yet measured:** range accuracy on a tape-measured wall,
 dark, shiny, glass and thin targets, people, arm poses.

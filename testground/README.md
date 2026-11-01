@@ -9,6 +9,7 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
 | `pc2/probe.sh`, `pc2/topics.py`, `pc2/v4l2_survey.py` | PC2 | Read-only survey: system, installed SDK, network, disk, load, every DDS topic, the cameras' video modes. |
 | `lidar/` | both | The head lidar (a Livox MID-360): recordings, analysis and a live viewer ([lidar/README.md](lidar/README.md)). |
 | `camera/` | PC2 | The head camera (a RealSense D435i) live in a browser ([camera/README.md](camera/README.md)). |
+| `hybrid/` | PC2 | The lidar and the camera's depth together live, the camera filling the lidar's blind cone ahead ([hybrid/README.md](hybrid/README.md)). |
 | `sync.sh` | laptop | Copy the scripts to PC2, pull a test's captures back, or open a shell there. |
 
 ## Rules
