@@ -1,0 +1,80 @@
+{
+  "native_baseline": {
+    "status": "SUCCEEDED",
+    "contacts": 0,
+    "movers_started": 0,
+    "avoidance_mode_transitions": {
+      "idle": 2,
+      "follow": 1
+    },
+    "true_final_xy": [
+      3.7318000825063833,
+      -0.0936555616126627
+    ],
+    "true_displacement_m": 3.740863992232545,
+    "minimum_pelvis_height_m": 0.7343458514153492,
+    "maximum_tilt_deg": 8.255610584499836,
+    "humanoid_physics": true,
+    "locomotion": "native GR00T ONNX walker",
+    "command_source": "point-goal test driver, through current predictive ROS filter",
+    "him_validation": false
+  },
+  "seven_movers_failure": {
+    "status": "TIMEOUT",
+    "passed": false,
+    "contacts": 3,
+    "obstacle_count": 7,
+    "movers_started": 7,
+    "avoidance_mode_transitions": {
+      "idle": 1,
+      "follow": 4,
+      "yield": 8,
+      "evade": 5,
+      "blocked": 1,
+      "lost_obstacle": 1,
+      "route_failed": 1
+    },
+    "true_final_xy": [
+      -0.20908636197235156,
+      -0.43452549459946876
+    ],
+    "true_displacement_m": 0.4750626116579676,
+    "minimum_pelvis_height_m": 0.7256988540450172,
+    "maximum_tilt_deg": 9.920740330804431,
+    "humanoid_physics": true,
+    "locomotion": "native GR00T ONNX walker",
+    "command_source": "point-goal test driver, through current predictive ROS filter",
+    "him_validation": false
+  },
+  "baseline_run": "2026-11-01_05-05-46Z_native-g1-seven",
+  "failed_run": "2026-11-01_05-09-24Z_native-g1-seven",
+  "note": "Measured native G1/GR00T physics. Dense crowd avoidance is not accepted. Native experiments included a bounded terminal extrapolation trial which was not retained; see lab log.",
+  "visible_seven_movers_stall": {
+    "status": "TIMEOUT",
+    "passed": false,
+    "contacts": 0,
+    "obstacle_count": 7,
+    "movers_started": 7,
+    "avoidance_mode_transitions": {
+      "idle": 1,
+      "follow": 6,
+      "yield": 10,
+      "evade": 7,
+      "blocked": 4,
+      "lost_obstacle": 1,
+      "route_failed": 1
+    },
+    "true_final_xy": [
+      1.0467201864692255,
+      -0.48117628012627695
+    ],
+    "true_displacement_m": 1.1528637357643436,
+    "minimum_pelvis_height_m": 0.7285103506602548,
+    "maximum_tilt_deg": 9.251803046378573,
+    "humanoid_physics": true,
+    "locomotion": "native GR00T ONNX walker",
+    "command_source": "point-goal test driver, through current predictive ROS filter",
+    "him_validation": false
+  },
+  "visible_run": "2026-11-01_05-11-16Z_native-g1-seven"
+}

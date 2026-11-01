@@ -131,7 +131,7 @@ class Adapter(unittest.TestCase):
         self.stamp += .1
         self.guard.on_cloud(self.cloud([[1.5, 0, 1]]))
         # Fresh floor/background returns do not prove an occluded object left.
-        for age in (.6, 3.0):
+        for age in (2.4, 3.0):
             self.stamp += age
             self.wall += age
             self.guard.on_cloud(self.cloud([[2, 0, 0]]))
@@ -142,6 +142,17 @@ class Adapter(unittest.TestCase):
             self.guard.on_timer()
             self.assertEqual(self.last_command(), (0, 0, 0))
             self.assertEqual(self.guard.mode, 'lost_obstacle')
+
+    def test_brief_occlusion_keeps_occupancy_without_permanent_latch(self):
+        self.fresh_active()
+        self.stamp += .1
+        self.guard.on_cloud(self.cloud([[1.5, 0, 1]]))
+        self.stamp += .7
+        self.guard.on_cloud(self.cloud([[2, 0, 0]]))
+        self.assertFalse(self.guard.perception_failed)
+        tracks = self.guard.tracker.tracks_at(self.guard.scan_stamp)
+        self.assertEqual(len(tracks), 1)
+        self.assertGreater(tracks[0].uncertainty, .2)
 
     def test_failed_route_latches_and_success_goes_idle(self):
         self.fresh_active()

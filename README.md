@@ -187,6 +187,24 @@ SSL_CERT_FILE="$(.venv-policy-safety/bin/python -m certifi)" .venv-policy-safety
 
 ## Run it in the sim
 
+### Native walking G1 crowd test (macOS)
+
+Use the retained native Jazzy environment to run the G1 model with GR00T,
+the current LiDAR tracker/avoidance filter, and seven moving obstacles:
+
+```bash
+PYTHONPATH=submission OPENBLAS_NUM_THREADS=1 /Users/hoanglam/harp/stanford-harp-social-interaction/ros2/.pixi/envs/default/bin/python submission/native_g1_sim.py --obstacles 7 --rviz
+```
+
+The robot stands up automatically, then a point-goal test driver requests travel
+toward (4, 0). MuJoCo shows the G1 and obstacles; RViz shows LiDAR.
+Use `--obstacles 6` for six movers, `--obstacles 0` for baseline walking, or
+`--headless` for a recorded run without the window. Close MuJoCo or press Ctrl-C
+to stop. Each run records trajectories, events and a verdict under `runs/`.
+The seven-obstacle scenario currently exposes collisions and remains a failing
+regression test. See [native G1 evidence](context/native-g1-result.json).
+
+
 From this repo, build the image (`submission/submission.tar`, for the robot,
 and `submission/joint_profile.json`, its joint limits and gains):
 

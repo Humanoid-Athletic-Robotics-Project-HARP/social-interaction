@@ -72,6 +72,7 @@ class PredictiveAvoidance:
         self.active = self.failed = False
         self.perception_failed = False
         self.last_tracks, self.tracks_stamp = [], None
+        self.missing_detail = {}
         self.mode = None
         self.last_alert = -math.inf
         self.alert_active = False
@@ -188,7 +189,11 @@ class PredictiveAvoidance:
             return
         dt = max(0.0, stamp - self.tracks_stamp)
         for track in self.last_tracks:
-            if track.id in observed or stamp - track.last_seen <= TIMEOUT:
+            # A brief occlusion is still represented by the track's expanding
+            # occupancy in the planner. Latch before expiry, rather than at the
+            # sensor receipt timeout (which also stopped on normal crowd occlusion).
+            if (track.id in observed or
+                    stamp - track.last_seen < self.tracker.max_age - PERIOD):
                 continue
             x, y = track.x + track.vx*dt, track.y + track.vy*dt
             uncertainty = track.uncertainty + 0.3*dt + 0.4*dt*dt
@@ -196,6 +201,9 @@ class PredictiveAvoidance:
             c = self.config
             reach = c.robot_radius + c.margin + c.speed*c.horizon + track.radius + uncertainty
             if math.hypot(x-self.pose[0], y-self.pose[1]) <= reach:
+                self.missing_detail = dict(track_id=track.id, position=[x, y],
+                                           radius=track.radius, age=stamp-track.last_seen,
+                                           robot=list(self.pose))
                 self.perception_failed = True
                 return  # Restart/reobserve in a new session; receipt freshness cannot clear this.
 
@@ -212,7 +220,8 @@ class PredictiveAvoidance:
             return
         self.check_missing(stamp)
         if self.perception_failed:
-            self.stop("lost_obstacle", True)
+            self.out.publish(Twist())
+            self.status("lost_obstacle", True, **self.missing_detail)
             return
         if not self.ready(now, stamp):
             self.stop("stale_input", True)
