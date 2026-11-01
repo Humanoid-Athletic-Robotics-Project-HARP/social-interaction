@@ -22,11 +22,13 @@ Levelling each sensor on the floor it sees takes out the torso's lean and any mo
 error in tilt and height; heading and the sideways offset come from the URDF
 (--camera-yaw corrects the heading if the two disagree where they overlap).
 
---source ros reads both from ROS 2 topics instead, published by whatever node owns
-the devices (ours or someone else's), so it touches no hardware and any number can
-run: a PointCloud2 in the lidar's own frame (--lidar-topic) and a depth Image, 16UC1
-in mm or 32FC1 in m (--depth-topic). Source ROS 2 first and set ROS_DOMAIN_ID to the
-publishers' domain (not 0, Unitree's: discovery there runs out of memory).
+--source ros reads both from topics instead, published by whatever owns the devices,
+so it touches no hardware and any number can run: the lidar's cloud in its own frame
+(--lidar-topic; by default Unitree's lidar_driver service, rt/utlidar/cloud_livox_mid360
+on Unitree's DDS, which a name starting rt/ means; any other name is a ROS 2 topic) and
+a depth Image, 16UC1 in mm or 32FC1 in m (--depth-topic; ../camera/depth_node.py
+publishes it). Source ROS 2 first and set ROS_DOMAIN_ID to the depth publisher's domain
+(not 0, Unitree's: ROS 2 discovery there runs out of memory).
 
 Uses ../lidar/lidar_viewer.py and ../camera/camera_viewer.py. Only one program can
 read the lidar's port or stream the depth camera: if another has one, or --no-lidar /
@@ -43,6 +45,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+# One BLAS thread: numpy's pool otherwise keeps 7 threads spinning on the Jetson's cores
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 
@@ -102,21 +107,32 @@ class RosSources:
     """The lidar and depth from ROS 2 topics: a node of ours or someone else's owns the
     devices, and this only listens."""
 
-    def __init__(self, buf, lidar_topic, depth_topic, size):
+    def __init__(self, buf, lidar_topic, depth_topic, size, interface):
         import rclpy
-        from rclpy.qos import qos_profile_sensor_data
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
         from sensor_msgs.msg import Image, PointCloud2
         rclpy.init()
         self.node = rclpy.create_node("g1_hybrid_viewer")
         self.buf, self.lidar_topic = buf, lidar_topic
         buf.why = f"nothing published on {lidar_topic}"
         self.depth = TopicDepth(depth_topic, *size)
-        self.node.create_subscription(PointCloud2, lidar_topic, self.on_cloud, qos_profile_sensor_data)
-        self.node.create_subscription(Image, depth_topic, self.depth.on_image, qos_profile_sensor_data)
+        if lidar_topic.startswith("rt/"):     # Unitree's DDS (domain 0), through its SDK
+            from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
+            from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
+            ChannelFactoryInitialize(0, interface)
+            self.unitree_sub = ChannelSubscriber(lidar_topic, PointCloud2_)
+            self.unitree_sub.Init(self.on_cloud, 0)
+        else:
+            self.node.create_subscription(PointCloud2, lidar_topic, self.on_cloud, qos_profile_sensor_data)
+        # Reliable, not sensor-data QoS: a depth image is about 800 KB, many UDP fragments, and
+        # best effort drops the whole image when one is lost (1-3 of 15 fps got through).
+        self.node.create_subscription(Image, depth_topic, self.depth.on_image,
+                                      QoSProfile(depth=2, reliability=ReliabilityPolicy.RELIABLE))
         threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True).start()
 
     def on_cloud(self, msg):
-        """A cloud in the lidar's own frame (m), into the buffer as the lidar's packets go."""
+        """A cloud in the lidar's own frame (m), into the buffer as the lidar's packets go.
+        Unitree's DDS message and ROS 2's have the same fields, so either comes here."""
         fields = {f.name: f for f in msg.fields}
         if not all(n in fields and fields[n].datatype == 7 for n in "xyz"):   # FLOAT32
             self.buf.why = f"{self.lidar_topic} has no float32 x, y, z"
@@ -549,8 +565,9 @@ def main():
     ap.add_argument("--source", choices=("devices", "ros"), default="devices",
                     help="devices: read the lidar and depth camera directly; ros: only listen to "
                          "ROS 2 topics, touching no hardware")
-    ap.add_argument("--lidar-topic", default="/utlidar/cloud_livox_mid360",
-                    help="with --source ros: a PointCloud2 in the lidar's own frame")
+    ap.add_argument("--lidar-topic", default="rt/utlidar/cloud_livox_mid360",
+                    help="with --source ros: the lidar's PointCloud2 in its own frame; rt/... is "
+                         "on Unitree's DDS (its lidar_driver service), anything else on ROS 2")
     ap.add_argument("--depth-topic", default="/camera/depth/image_rect_raw",
                     help="with --source ros: a depth Image (16UC1 mm or 32FC1 m)")
     ap.add_argument("--no-lidar", action="store_true",
@@ -572,7 +589,7 @@ def main():
         if os.environ.get("ROS_DOMAIN_ID", "0") == "0":
             sys.exit("Set ROS_DOMAIN_ID to the publishers' domain: 0 is Unitree's DDS domain, "
                      "where ROS 2 discovery runs out of memory.")
-        stream = RosSources(buf, args.lidar_topic, args.depth_topic, (w, h)).depth
+        stream = RosSources(buf, args.lidar_topic, args.depth_topic, (w, h), args.interface).depth
         print(f"Listening on ROS 2 (domain {os.environ['ROS_DOMAIN_ID']}): {args.lidar_topic}, "
               f"{args.depth_topic}; no hardware is opened.", flush=True)
     else:

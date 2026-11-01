@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T23:04:17Z
+  updated: 2026-11-01T23:18:25Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
@@ -39,6 +39,29 @@ Two people reading the same sensor need one reader republishing it, e.g. over RO
 DDS, which the robot needs anyway for Nav2; `hybrid_viewer.py --source ros` is a
 viewer that only listens. As of 2026-11-01 nothing on the robot publishes the lidar or
 camera on ROS 2.
+
+**Unitree's services** (`robot_state` client in `unitree_sdk2py.go2.robot_state`:
+ServiceList reads, ServiceSwitch turns one on or off; status 0 is running, 1 off).
+Switching changes the robot for everyone: ask first.
+- `lidar_driver`, **switched on 2026-11-01** (it was off): Unitree's lidar service. It
+  re-points the lidar to itself, so PC2 gets no raw UDP while it runs (`record.py`,
+  `lidar_viewer.py` and any Livox driver see nothing), and publishes on Unitree's DDS
+  (domain 0), readable by any number of programs: `rt/utlidar/cloud_livox_mid360`
+  (`PointCloud2_`, 9.4 Hz, 20,064 points, in the lidar's own upside-down frame; x y z
+  intensity ring time; stamped about 0.1 s behind PC2's clock) and
+  `rt/utlidar/imu_livox_mid360`. Off again: ServiceSwitch("lidar_driver", False).
+  Long runs beside HARP's harness are untested.
+- `unitree_slam`, `auto_test_*`, `ota_box` off; `state_estimator`, the videohubs on.
+- Colour: `videohub` answers any number of programs (GetImageSample: 1920×1080 JPEG,
+  about 233 KB, 27 ms a request, up to 36 a second). Depth: no Unitree service; our
+  `testground/camera/depth_node.py` owns the camera and publishes it on ROS 2. ROS 1's
+  `realsense2_camera` (Noetic) is installed; no ROS 2 RealSense or Livox driver is.
+- numpy on the Jetson: set `OPENBLAS_NUM_THREADS=1` before importing it (our scripts do);
+  its BLAS pool otherwise keeps 7 threads spinning (the hybrid viewer used 6.4 cores, then
+  0.7).
+- Unitree's SDK beside a sourced ROS 2 Foxy: put `~/cyclonedds_ws/install/cyclonedds/lib`
+  first on `LD_LIBRARY_PATH`, or its CycloneDDS fails ("undefined symbol
+  ddsi_sertype_v0") against Foxy's.
 
 **ROS 2 on the robot:** HARP's harness uses domain 97, localhost only, Fast DDS (only
 `/safety/*` topics). On domain 0, Unitree's DDS domain, `ros2 topic list` fails with

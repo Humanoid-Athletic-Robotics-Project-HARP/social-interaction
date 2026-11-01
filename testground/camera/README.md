@@ -14,7 +14,15 @@ it can see: `context/g1-head-camera.md`.
   every second: grey is floor, coloured dots are things sticking up, by height. The
   fit also gives the camera's real height and pitch.
 
-On PC2, in `~/Workspace/testground_social_interaction/camera`:
+`depth_node.py` instead owns the depth camera and publishes it on ROS 2 (a depth image,
+its nominal camera info and a point cloud, in the camera's optical frame), so any
+number of programs can read it, `../hybrid/hybrid_viewer.py --source ros` among them:
+
+```bash
+source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=42 && python3 depth_node.py
+```
+
+For the viewer, on PC2, in `~/Workspace/testground_social_interaction/camera`:
 
 ```bash
 python3 camera_viewer.py

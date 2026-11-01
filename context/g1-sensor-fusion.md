@@ -3,7 +3,7 @@ name: g1-sensor-fusion
 description: Read before combining the head lidar and the head camera's depth (a fused cloud or costmap, seeing ahead of the robot) — the frame, the offsets, and how well they fit
 metadata:
   type: project
-  updated: 2026-11-01T22:55:32Z
+  updated: 2026-11-01T23:18:25Z
   covers: [testground/hybrid/*]
 ---
 
@@ -20,6 +20,8 @@ of either mount); the camera is then moved by its offset from the lidar in Unitr
 each shows its newest data (lidar the last 0.3 s, camera the last frame).
 Its tabs also serve the lidar's and the camera's own viewers from the same streams,
 so it is the one program to run when someone wants to watch either sensor.
+With `--source ros` it reads both from ROS 2 topics instead (a lidar `PointCloud2`,
+a depth `Image`) and opens no hardware, so it can run beside whoever owns the sensors.
 
 **What it showed** (2026-11-01, robot standing indoors):
 - The camera's points fill the lidar's +x gap and meet the lidar's at the cone's

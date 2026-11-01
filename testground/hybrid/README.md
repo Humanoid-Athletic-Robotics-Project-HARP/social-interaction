@@ -27,8 +27,12 @@ depth `Image`, from whatever node owns the devices (`--lidar-topic`, `--depth-to
 colour still comes from videohub):
 
 ```bash
-source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=42 && python3 hybrid_viewer.py --source ros
+source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=42 LD_LIBRARY_PATH=$HOME/cyclonedds_ws/install/cyclonedds/lib:$LD_LIBRARY_PATH && python3 hybrid_viewer.py --source ros
 ```
+
+By default the lidar comes from Unitree's `lidar_driver` service (on Unitree's DDS) and
+depth from `../camera/depth_node.py` (on ROS 2). The `LD_LIBRARY_PATH` keeps Unitree's
+SDK on its own CycloneDDS, not Foxy's.
 
 with `ROS_DOMAIN_ID` set to the publishers' domain (it refuses 0, Unitree's: see
 `context/robot-pc2.md`). Until something publishes, both say "Not connected."

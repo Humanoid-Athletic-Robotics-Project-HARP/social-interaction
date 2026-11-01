@@ -8,7 +8,7 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
 |---|---|---|
 | `pc2/probe.sh`, `pc2/topics.py`, `pc2/v4l2_survey.py` | PC2 | Read-only survey: system, installed SDK, network, disk, load, every DDS topic, the cameras' video modes. |
 | `lidar/` | both | The head lidar (a Livox MID-360): recordings, analysis and a live viewer ([lidar/README.md](lidar/README.md)). |
-| `camera/` | PC2 | The head camera (a RealSense D435i) live in a browser ([camera/README.md](camera/README.md)). |
+| `camera/` | PC2 | The head camera (a RealSense D435i) live in a browser, and its depth as ROS 2 topics for everyone (`depth_node.py`) ([camera/README.md](camera/README.md)). |
 | `hybrid/` | PC2 | The lidar and the camera's depth together live, the camera filling the lidar's blind cone ahead, with tabs for each sensor's own view ([hybrid/README.md](hybrid/README.md)). |
 | `sync.sh` | laptop | Copy the scripts to PC2, pull a test's captures back, or open a shell there. |
 
@@ -25,7 +25,10 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
   UDP port) or stream the depth camera; colour (Unitree's videohub) and everything on
   DDS (`rt/lowstate`, ...) any number can read. A viewer that finds the lidar or the
   camera taken says "Not connected." there and keeps the rest running; to leave them
-  to someone else from the start, `--no-lidar` / `--no-depth`.
+  to someone else from the start, `--no-lidar` / `--no-depth`. To share them, one
+  program publishes each: Unitree's `lidar_driver` service (the lidar on DDS) and
+  `camera/depth_node.py` (depth on ROS 2); `hybrid/hybrid_viewer.py --source ros` reads
+  both without touching the hardware.
 - PC2's login lives in the main checkout's `.env` (`G1_HOST=user@address`), which git
   ignores. Never commit it.
 

@@ -23,11 +23,15 @@ and the rest keeps running.
 """
 import argparse
 import json
+import os
 import socket
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# One BLAS thread: numpy's pool otherwise keeps 7 threads spinning on the Jetson's cores
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 

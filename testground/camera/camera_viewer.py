@@ -35,6 +35,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+# One BLAS thread: numpy's pool otherwise keeps 7 threads spinning on the Jetson's cores
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import cv2
 import numpy as np
 
