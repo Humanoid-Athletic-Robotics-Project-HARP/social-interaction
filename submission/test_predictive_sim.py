@@ -88,7 +88,7 @@ def separation_segment(robot_start, robot_end, object_start, object_end, radius)
     return float(np.linalg.norm(r + t * dr)) - ROBOT_RADIUS - radius
 
 
-def run(name, spec):
+def run(name, spec, observer=None):
     world, tracker, planner = World(spec["objects"]), Tracker(), Planner()
     pose, velocity, queued = np.zeros(3), np.zeros(3), np.zeros(3)
     goal = np.asarray(spec["goal"], dtype=float)
@@ -110,6 +110,8 @@ def run(name, spec):
             result = planner.plan(tuple(pose), tuple(velocity), desired, tracks, stamp)
             latencies.append(time.perf_counter() - before)
         command = np.asarray(result.command, dtype=float)
+        if observer is not None:
+            observer(world, pose.copy(), stamp, points, tracks, result)
         if not np.isfinite(command).all():
             raise AssertionError("Non-finite command")
         if np.linalg.norm(command[:2]) > .300001 or abs(command[2]) > .600001:

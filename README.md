@@ -274,6 +274,16 @@ Run the smaller planar MuJoCo check with the submission Python dependencies:
 PYTHONPATH=submission python3 submission/test_predictive_sim.py --output runs/predictive-component
 ```
 
+Watch the moving-object scenario with LiDAR hits and live avoidance (macOS):
+
+```bash
+PYTHONPATH=submission OPENBLAS_NUM_THREADS=1 mjpython submission/view_predictive_sim.py --scenario head_on
+```
+
+Use `--scenario crossing` for crossing traffic. This view uses the planar robot
+model. Close the window to exit.
+
+
 Add `--view` to watch each run live at the address printed: press Start
 there (after 2 minutes it starts the run anyway, but the page only shows a
 run started from it). It closes the viewer 10 s after the run, before the

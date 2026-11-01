@@ -3,8 +3,8 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-01T04:47:05Z
-  covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/predictive_avoidance.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/test_predictive_sim.py, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py]
+  updated: 2026-11-01T05:01:47Z
+  covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/predictive_avoidance.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/test_predictive_sim.py, submission/view_predictive_sim.py, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py]
 ---
 
 **Selection:** `course.py --avoidance predictive` adds `avoidance` to task JSON, preserving route options. `entrypoint.sh` selects exactly one `/cmd_vel_nav` → `/cmd_vel` filter. Default is `approach_stop`. Predictive mode rejects hardware, missing-world and planned-move combinations before starting producers. Nav2 waypoints support detours; straight-move drift guards deliberately do not. HIM retains motor ownership.
@@ -20,3 +20,5 @@ metadata:
 **Measured component results:** `context/predictive-sim-result.json` records four passing scenarios with source hashes. Open/crossing/head-on reached within 0.1 m; crossing and head-on resumed after avoidance, with minimum surface separation 0.464/0.452 m. The trapped scenario confirms zero plus alert before impact; it does not test survival of an unavoidable collision. Longest observed planner call: 36.3 ms on this host.
 
 **Validation boundary:** `test_predictive_sim.py` uses actual MuJoCo raycasts, a delayed acceleration-limited planar plant, ideal odometry and circular footprints. It tests perception-to-command behavior, not GR00T balance, Foxy/Nav2 orchestration or physical stopping. Native ROS tests use Jazzy. Target Docker/Foxy build and HIM courses require the external harness, recovery model and Docker, absent on Lam's current machine. Reproduce the component check and then the README's predictive crossing/route commands on that target before enabling broader use.
+
+**Live component viewer:** `view_predictive_sim.py --scenario head_on` under native `mjpython` displays the actual test loop, real ray hits, tracked velocity arrows and robot mode colors at wall-clock speed. Closing it exits. A visible head-on run passes with 0 contacts and 0.030 m goal error. The JSON source hashes describe the original measured revision `5ac6d16`; subsequent observer hooks leave headless scenario behavior unchanged.
