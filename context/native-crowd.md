@@ -3,11 +3,11 @@ name: native-crowd
 description: Read before running or tuning native walking G1 crowd trials or interpreting their results
 metadata:
   type: reference
-  updated: 2026-11-01T06:40:22Z
+  updated: 2026-11-01T06:49:01Z
   covers: [submission/native_g1_sim.py, submission/native_g1_sim.sh, submission/native_crowd_world.py, submission/harp/crowd_motion.py, submission/harp/local_route.py, submission/tests/test_native_g1_sim.py, submission/tests/test_crowd_navigation.py, context/native-g1-result.json]
 ---
 
-**Runtime:** the retained native Jazzy environment and Unitree model beside the main checkout are required. `native_g1_sim.sh` locates the environment through git's common directory; `HARP_NATIVE_PYTHON` can select another native environment. Historical native simulator/walker source is pinned at `9ee9255`, extracted into ignored `.build/native-g1`. Actual G1 joint dynamics and GR00T ONNX locomotion run on loopback SDK184/ROS185. One trial owns the domains. Parent cleanup terminates its owned child processes.
+**Runtime:** the retained native Jazzy environment and Unitree model beside the main checkout are required. `native_g1_sim.sh` locates the environment through git's common directory; `HARP_NATIVE_PYTHON` can select another native environment. Historical native simulator/walker source is pinned at `9ee9255`, extracted into ignored `.build/native-g1`. Actual G1 joint dynamics and GR00T ONNX locomotion run on loopback SDK184/ROS185. One trial owns the domains. Parent cleanup terminates its owned child processes. On macOS the GUI restart must preserve `native_crowd_world`; restarting the historical `harp_sim.run_sim` loses the continuous-crowd/LiDAR overrides. The corrected visible launch emits seven-actor `/sim/crowd` frames.
 
 **Control:** native route requests use the current measured LiDAR tracks and a bounded arrival-time grid. Fixed obstacles block cells; moving people add temporal cost. The shared predictive ROS filter scores actual rollout progress toward the goal and produces `/cmd_vel`; native trials do not run Nav2/HIM. The submission image keeps Nav2 as route owner. Simulator truth reaches the pedestrian model and scorer only.
 
