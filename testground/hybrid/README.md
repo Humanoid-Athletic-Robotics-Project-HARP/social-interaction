@@ -21,6 +21,18 @@ It reads both sensors itself; whichever another program already has (`lidar_view
 python3 hybrid_viewer.py
 ```
 
+To touch no hardware at all, so it can run while someone else has the sensors, it
+listens to ROS 2 topics instead: a lidar `PointCloud2` in the lidar's own frame and a
+depth `Image`, from whatever node owns the devices (`--lidar-topic`, `--depth-topic`;
+colour still comes from videohub):
+
+```bash
+source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=42 && python3 hybrid_viewer.py --source ros
+```
+
+with `ROS_DOMAIN_ID` set to the publishers' domain (it refuses 0, Unitree's: see
+`context/robot-pc2.md`). Until something publishes, both say "Not connected."
+
 Then open `http://ADDRESS:8082` (PC2's Wi-Fi address, in the main checkout's `.env`).
 `--camera-yaw DEG` turns the camera's points if they don't line up with the lidar's
 where both see.

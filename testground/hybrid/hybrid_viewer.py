@@ -22,6 +22,12 @@ Levelling each sensor on the floor it sees takes out the torso's lean and any mo
 error in tilt and height; heading and the sideways offset come from the URDF
 (--camera-yaw corrects the heading if the two disagree where they overlap).
 
+--source ros reads both from ROS 2 topics instead, published by whatever node owns
+the devices (ours or someone else's), so it touches no hardware and any number can
+run: a PointCloud2 in the lidar's own frame (--lidar-topic) and a depth Image, 16UC1
+in mm or 32FC1 in m (--depth-topic). Source ROS 2 first and set ROS_DOMAIN_ID to the
+publishers' domain (not 0, Unitree's: discovery there runs out of memory).
+
 Uses ../lidar/lidar_viewer.py and ../camera/camera_viewer.py. Only one program can
 read the lidar's port or stream the depth camera: if another has one, or --no-lidar /
 --no-depth leaves it to someone else, that part says "Not connected." and the rest
@@ -51,6 +57,90 @@ LIDAR_SELF = 0.6        # m: lidar returns nearer than this hit the robot
 CAMERA_SELF = 0.3       # m around the camera's foot that is the robot's own arms
 OBSTACLE = 0.08         # m above the floor: higher is something sticking up
 LIDAR_MAX = 40000       # points sent from the lidar per update (it has about 60k)
+
+
+class TopicDepth:
+    """A depth Image topic, looking to camera_viewer.Depth like its V4L2Stream."""
+
+    def __init__(self, topic, width, height):
+        self.topic, self.size = topic, (width, height)
+        self.lock = threading.Lock()
+        self.frame, self.count, self.last_rx = None, 0, None
+        self.why = f"nothing published on {topic}"
+        self.status = f"ROS 2 {topic}"
+
+    def on_image(self, msg):
+        import cv2
+        if msg.encoding in ("16UC1", "mono16"):
+            frame = np.frombuffer(bytes(msg.data), "<u2" if not msg.is_bigendian else ">u2")
+        elif msg.encoding == "32FC1":
+            frame = (np.frombuffer(bytes(msg.data), "<f4" if not msg.is_bigendian else ">f4") * 1000)
+        else:
+            self.why = f"{self.topic} is {msg.encoding}, not 16UC1 or 32FC1 depth"
+            return
+        row = msg.step // frame.itemsize
+        frame = frame[:row * msg.height].reshape(msg.height, row)[:, :msg.width]
+        frame = np.nan_to_num(frame, nan=0, posinf=0).astype(np.uint16)
+        if (msg.width, msg.height) != self.size:   # keep the nominal intrinsics' size
+            frame = cv2.resize(frame, self.size, interpolation=cv2.INTER_NEAREST)
+        with self.lock:
+            self.frame, self.count = frame, self.count + 1
+        self.why, self.last_rx = None, time.monotonic()
+
+    def latest(self):
+        with self.lock:
+            return self.frame
+
+    def connected(self):
+        return self.why is None and self.last_rx is not None and time.monotonic() - self.last_rx < 2.0
+
+    def close(self):
+        pass
+
+
+class RosSources:
+    """The lidar and depth from ROS 2 topics: a node of ours or someone else's owns the
+    devices, and this only listens."""
+
+    def __init__(self, buf, lidar_topic, depth_topic, size):
+        import rclpy
+        from rclpy.qos import qos_profile_sensor_data
+        from sensor_msgs.msg import Image, PointCloud2
+        rclpy.init()
+        self.node = rclpy.create_node("g1_hybrid_viewer")
+        self.buf, self.lidar_topic = buf, lidar_topic
+        buf.why = f"nothing published on {lidar_topic}"
+        self.depth = TopicDepth(depth_topic, *size)
+        self.node.create_subscription(PointCloud2, lidar_topic, self.on_cloud, qos_profile_sensor_data)
+        self.node.create_subscription(Image, depth_topic, self.depth.on_image, qos_profile_sensor_data)
+        threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True).start()
+
+    def on_cloud(self, msg):
+        """A cloud in the lidar's own frame (m), into the buffer as the lidar's packets go."""
+        fields = {f.name: f for f in msg.fields}
+        if not all(n in fields and fields[n].datatype == 7 for n in "xyz"):   # FLOAT32
+            self.buf.why = f"{self.lidar_topic} has no float32 x, y, z"
+            return
+        order = ">" if msg.is_bigendian else "<"
+        names, formats, offsets = ["x", "y", "z"], [order + "f4"] * 3, [fields[n].offset for n in "xyz"]
+        if "intensity" in fields and fields["intensity"].datatype == 7:
+            names.append("intensity"), formats.append(order + "f4"), offsets.append(fields["intensity"].offset)
+        dtype = np.dtype({"names": names, "formats": formats, "offsets": offsets, "itemsize": msg.point_step})
+        n = msg.width * msg.height
+        if msg.height > 1 and msg.row_step != msg.width * msg.point_step:
+            raw = np.frombuffer(bytes(msg.data), np.uint8).reshape(msg.height, msg.row_step)
+            raw = raw[:, :msg.width * msg.point_step].copy()
+            pts = np.frombuffer(raw.tobytes(), dtype, n)
+        else:
+            pts = np.frombuffer(bytes(msg.data), dtype, n)
+        ok = np.isfinite(pts["x"]) & np.isfinite(pts["y"]) & np.isfinite(pts["z"])
+        rec = np.zeros(int(ok.sum()), lidar_viewer.POINT_DTYPE)
+        for name in "xyz":
+            rec[name] = np.round(pts[name][ok] * 1000)
+        if "intensity" in names:
+            rec["refl"] = np.clip(pts["intensity"][ok], 0, 255)
+        self.buf.add(rec)
+        self.buf.why, self.buf.last_rx = None, time.monotonic()
 
 
 def level_rotation(n):
@@ -456,6 +546,13 @@ def main():
     ap.add_argument("--window", type=float, default=0.3, help="seconds of lidar points shown")
     ap.add_argument("--size", default="848x480", help="depth resolution")
     ap.add_argument("--fps", type=int, default=15, help="depth frame rate")
+    ap.add_argument("--source", choices=("devices", "ros"), default="devices",
+                    help="devices: read the lidar and depth camera directly; ros: only listen to "
+                         "ROS 2 topics, touching no hardware")
+    ap.add_argument("--lidar-topic", default="/utlidar/cloud_livox_mid360",
+                    help="with --source ros: a PointCloud2 in the lidar's own frame")
+    ap.add_argument("--depth-topic", default="/camera/depth/image_rect_raw",
+                    help="with --source ros: a depth Image (16UC1 mm or 32FC1 m)")
     ap.add_argument("--no-lidar", action="store_true",
                     help="leave the lidar's port to another program: it says Not connected")
     ap.add_argument("--no-depth", action="store_true",
@@ -470,17 +567,25 @@ def main():
 
     buf = lidar_viewer.PointBuffer(args.window)
     floor = lidar_viewer.FloorEstimator(buf)
-    if args.no_lidar:
-        buf.why = "turned off (--no-lidar)"
-    else:
-        threading.Thread(target=lidar_viewer.receive, args=(buf, args.lidar_port), daemon=True).start()
-    threading.Thread(target=floor.run, daemon=True).start()
     w, h = (int(v) for v in args.size.split("x"))
-    stream = camera_viewer.V4L2Stream("/dev/video0", "Z16 ", w, h, args.fps, "<u2")
-    if args.no_depth:
-        stream.why = stream.status = "turned off (--no-depth)"
+    if args.source == "ros":
+        if os.environ.get("ROS_DOMAIN_ID", "0") == "0":
+            sys.exit("Set ROS_DOMAIN_ID to the publishers' domain: 0 is Unitree's DDS domain, "
+                     "where ROS 2 discovery runs out of memory.")
+        stream = RosSources(buf, args.lidar_topic, args.depth_topic, (w, h)).depth
+        print(f"Listening on ROS 2 (domain {os.environ['ROS_DOMAIN_ID']}): {args.lidar_topic}, "
+              f"{args.depth_topic}; no hardware is opened.", flush=True)
     else:
-        stream.start()
+        if args.no_lidar:
+            buf.why = "turned off (--no-lidar)"
+        else:
+            threading.Thread(target=lidar_viewer.receive, args=(buf, args.lidar_port), daemon=True).start()
+        stream = camera_viewer.V4L2Stream("/dev/video0", "Z16 ", w, h, args.fps, "<u2")
+        if args.no_depth:
+            stream.why = stream.status = "turned off (--no-depth)"
+        else:
+            stream.start()
+    threading.Thread(target=floor.run, daemon=True).start()
     time.sleep(0.5)
     depth = camera_viewer.Depth(stream, args.lean)
     threading.Thread(target=depth.run, daemon=True).start()   # floor fit, and the camera tab's images

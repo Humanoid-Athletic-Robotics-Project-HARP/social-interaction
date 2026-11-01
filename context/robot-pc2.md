@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T22:55:32Z
+  updated: 2026-11-01T23:04:17Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
@@ -36,7 +36,14 @@ stream take one reader each (a second gets "Address already in use" / "Device or
 resource busy"); videohub colour and DDS topics are shared. Our viewers say "Not
 connected." for a taken one and take `--no-lidar` / `--no-depth` (tested 2026-11-01).
 Two people reading the same sensor need one reader republishing it, e.g. over ROS 2 or
-DDS, which the robot needs anyway for Nav2.
+DDS, which the robot needs anyway for Nav2; `hybrid_viewer.py --source ros` is a
+viewer that only listens. As of 2026-11-01 nothing on the robot publishes the lidar or
+camera on ROS 2.
+
+**ROS 2 on the robot:** HARP's harness uses domain 97, localhost only, Fast DDS (only
+`/safety/*` topics). On domain 0, Unitree's DDS domain, `ros2 topic list` fails with
+`bad_alloc` (discovery of Unitree's hundreds of entities), so our ROS 2 nodes use
+another domain (42 in testing).
 
 **The robot's DDS** (`pc2/topics.py`, 89 topics on domain 0, eth0): `rt/lowstate` (2
 publishers, about 1 kHz together), `rt/lowcmd`, `rt/sportmodestate`,
