@@ -3,14 +3,15 @@ name: sim-vs-real
 description: Read before trusting a sim result, especially anything ahead of the robot, or before changing the sim's lidar or camera, Nav2's sensors, approach_stop or person detection — what the sim models of the real G1's sensors, what it doesn't, and how to close each gap
 metadata:
   type: project
-  updated: 2026-11-01T23:35:53Z
+  updated: 2026-11-01T23:41:47Z
   covers: [submission/harp/lidar.py, submission/harp/depth_camera.py, submission/harp/camera_mount.py, submission/harp/lidar_mount.py, submission/harp/lidar_relay.py, submission/harp/approach_stop.py, submission/nav2/nav2_params.yaml]
 ---
 
 The sim is **not a 1:1 of the robot's sensors**: geometry, rates and the blind cone
 match; posture, sensor detail and some robot-side plumbing don't. Measured on the robot
 2026-11-01 ([[g1-lidar-measured]], [[g1-head-camera]], [[g1-sensor-fusion]]). Course
-results with these sensors: [[nav2-sim]]. How to see ahead anyway: [[seeing-ahead-research]].
+results with these sensors: [[nav2-sim]]. How to see ahead anyway: [[seeing-ahead-research]]. Recordings to check the sim
+against: [[robot-reference-data]].
 
 **Modelled** (`harp/lidar.py`, `harp/depth_camera.py`, both cast from one state):
 - Both mounts from the rev 1.0 URDF on `torso_link`, following the torso's live tilt.

@@ -57,6 +57,9 @@ From `testground/` on the laptop:
 ./sync.sh pull lidar
 ```
 
+Recordings worth keeping go to `Humanoids/robot-captures/` beside the repo as well
+(`context/robot-reference-data.md`): `captures/` sits in a git worktree and is ignored.
+
 `push` copies the scripts into the folder on PC2 (files already the same there are left
 untouched; nothing is ever deleted). `pull` brings a test's captures back into its
 `captures/` here (ignored by git).

@@ -3,7 +3,7 @@ name: g1-head-camera
 description: Read before using the G1's head camera (RealSense D435i) — to see ahead where the lidar is blind, detect people, or record depth or colour on PC2
 metadata:
   type: project
-  updated: 2026-11-01T23:35:54Z
+  updated: 2026-11-01T23:41:56Z
   covers: [testground/pc2/v4l2_survey.py, testground/camera/*]
 ---
 
@@ -20,7 +20,8 @@ Depth streams fine straight through V4L2 while `videohub` serves colour (tested
 won't stream alongside depth that way (EIO): it would need librealsense. Live view:
 `testground/camera/camera_viewer.py`; shared on ROS 2 by `testground/camera/depth_node.py`
 (15 fps depth image, camera info, point cloud; tested 2026-11-01 with the hybrid viewer
-reading it at 14–16 fps). Colour from `videohub`: [[robot-pc2]]. [[robot-pc2]]
+reading it at 14–16 fps). Colour from `videohub`: [[robot-pc2]]. Recorded for offline work by
+`testground/camera/record_camera.py` (what exists: [[robot-reference-data]]). [[robot-pc2]]
 
 **Where it looks** (official: Unitree's `unitree_ros` `g1_29dof_rev_1_0.urdf`, our
 revision): `d435_joint` on `torso_link` at (0.0576, 0.0175, 0.4299), pitched down

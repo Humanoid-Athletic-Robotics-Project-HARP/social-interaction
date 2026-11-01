@@ -29,6 +29,18 @@ devices), run it on HARP's ROS 2 network instead, which the image shares:
 source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=97 ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp && python3 depth_node.py
 ```
 
+To record the camera for offline work, `record_camera.py` saves depth (16-bit PNGs in mm,
+from `depth_node.py`'s topic by default, or `--depth-source device`), colour
+(videohub's JPEGs) and the robot's joints into `captures/NAME/` (about 5 MB/s), with
+the depth node's ROS settings (see its docstring):
+
+```bash
+python3 record_camera.py wall-2m --seconds 20 --note "flat wall 2.00 m ahead of the lidar"
+```
+
+`../sync.sh pull camera` brings captures to the laptop. Colour comes unevenly when
+another program is also asking videohub (the viewers do).
+
 For the viewer, on PC2, in `~/Workspace/testground_social_interaction/camera`:
 
 ```bash
