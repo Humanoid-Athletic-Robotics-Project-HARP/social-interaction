@@ -8,6 +8,9 @@ import math
 import unittest
 from unittest.mock import patch
 from nav_msgs.msg import Odometry
+from std_msgs.msg import String
+from unittest.mock import Mock
+from harp.moves import main
 
 from harp.moves import (Moves, RATE, SETTLE, WALK_ACCEL, WALK_DECEL, WALK_MIN_SPEED,
                         TURN_ACCEL, TURN_DECEL, TURN_MIN_SPEED, HEADING_TOLERANCE)
@@ -128,6 +131,45 @@ class MoveTermination(unittest.TestCase):
             moves.step()
         self.assertEqual(moves.index, 1)
         self.assertAlmostEqual(moves.sent[-1][0], -WALK_ACCEL / RATE)
+
+
+class ProgramExit(unittest.TestCase):
+    def test_shared_events_ignore_malformed_or_nonobject_json(self):
+        moves = walking()
+        moves.ready_at = None
+        for value in ("hello", "[]", "null", "42"):
+            moves.on_event(String(data=value))
+        self.assertIsNone(moves.ready_at)
+        with patch("harp.moves.time.monotonic", return_value=10.0):
+            moves.on_event(String(data='{"event":"control_ready"}'))
+        self.assertEqual(moves.ready_at, 10.0)
+
+    def run_main(self, moves, spin_error=None):
+        node = Mock()
+        with patch("harp.moves.moves_from_env", return_value=([("walk", 1.0)], 0.2, 0.3)), \
+             patch("harp.moves.rclpy.init"), patch("harp.moves.rclpy.ok", return_value=True), \
+             patch("harp.moves.rclpy.create_node", return_value=node), \
+             patch("harp.moves.Moves", return_value=moves), \
+             patch("harp.moves.rclpy.spin_once", side_effect=spin_error), \
+             patch("harp.moves.rclpy.shutdown") as shutdown:
+            try:
+                return main()
+            finally:
+                self.assertEqual(moves.sent[-1], [0.0, 0.0])
+                node.destroy_node.assert_called_once()
+                shutdown.assert_called_once()
+
+    def test_fault_returns_nonzero_and_success_returns_zero(self):
+        for completed, expected in ((0, 1), (1, 0)):
+            moves = walking()
+            moves.phase, moves.index = "done", completed
+            self.assertEqual(self.run_main(moves), expected)
+
+    def test_callback_failure_still_sends_zero_and_cleans_up(self):
+        moves = walking()
+        moves.cmd = [0.4, 0.3]
+        with self.assertRaisesRegex(RuntimeError, "callback"):
+            self.run_main(moves, RuntimeError("callback"))
 
 
 class TurnSpeed(unittest.TestCase):

@@ -139,7 +139,11 @@ class Moves:
         print(text, flush=True)
 
     def on_event(self, msg):
-        if json.loads(msg.data).get("event") == "control_ready" and self.ready_at is None:
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            return
+        if isinstance(record, dict) and record.get("event") == "control_ready" and self.ready_at is None:
             self.ready_at = time.monotonic()
             self.next_at = self.ready_at + SETTLE
 
@@ -311,12 +315,17 @@ def main():
         while rclpy.ok() and moves.phase != "done":
             rclpy.spin_once(node, timeout_sec=0.1)
     except KeyboardInterrupt:
-        pass
-    moves.cmd = [0.0, 0.0]
-    moves.send()
-    node.destroy_node()
-    rclpy.shutdown()
-    return 0
+        return 130
+    finally:
+        moves.cmd = [0.0, 0.0]
+        try:
+            if rclpy.ok():
+                moves.send()
+        finally:
+            node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
+    return 0 if moves.index == len(moves.moves) else 1
 
 
 if __name__ == "__main__":

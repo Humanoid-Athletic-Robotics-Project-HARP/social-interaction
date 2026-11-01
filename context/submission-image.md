@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-11-01T02:51:23Z
+  updated: 2026-11-01T03:05:25Z
   covers: [submission/**]
 ---
 
@@ -27,6 +27,8 @@ metadata:
 - **Routes** (`--route NAME_OR_FILE` from `submission/routes/`, or `--waypoint X Y [HEADING]` per point, `--laps N`; format in `harp/route.py`): `course.py` validates the route, saves it as the run's `route.yaml` and passes it as `G1_TASK_COMMAND` `{"route": ...}` to `course_goal`, which visits each point in turn and moves on only after Nav2 reports it reached; a rejection, failure or timeout (240 s per point, finding Nav2 and acceptance included) ends the route. Scoring then uses the route's last point for the end error and its own `criteria` (none: no verdict). HIM's run length is fixed, so `course.py` sizes it from the route's `max_time_s`, or 0.15 m/s along its legs plus 10 s per point. `course.py` exits 1 if any run didn't succeed or failed its criteria. `rectangle` on `one_box`, one lap: 4/4 points, 73.6 s, closest 0.59 m, 0 contacts or recoveries (`runs/2026-10-28_09-30-12Z_sim_one_box_route`).
 
 **Planned moves** (`harp/moves.py`): `G1_TASK_COMMAND` with `"moves"` or `"to"` reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity ([[planned-moves]]). With `G1_TASK_COMMAND` empty and no world in the image, `entrypoint.sh` uses the image's `HARP_DEFAULT_TASK` (`Dockerfile`), so operators who launch it without a task still get the move; HIM passes the variable empty when unset, so an image `ENV` of `G1_TASK_COMMAND` itself would be overwritten. A world image keeps Nav2 and its course goal.
+
+**Failure reporting:** course verdicts reject non-finite measurements/limits. Route criteria accept `max_speed_near_people_mps`. Waiting for control handoff is bounded by `NAV2_START`, with `CONTROL_NOT_READY` on expiry. Failed route results latch the command filter to zero for the session ([[nav2-sim]]); this blocks late goal commands but is not confirmation of Nav2 cancellation.
 
 **Run length:** a `sim.sh` run always lasts HIM's 5 s start-up balance plus `--seconds` plus 5 s of Holosoma balance after our container is stopped (`G1_SIM_HANDOFF_SECONDS`), whether or not the moves are done: our image never exits on its own. Holosoma's takeover can shift the standing robot a few cm (4 cm in the (0.5, 0.5) run), so score a move at its `move_done`, not at the trace's end. Docker start-up and the report add wall time, and HIM's viewer stays up until Ctrl-C.
 

@@ -25,3 +25,7 @@ renamed exceptions and includes:
 
 To update: copy the package from a newer upstream commit, reapply these changes, build the image
 and rerun the courses (`submission/course.py`).
+
+- In-place rotation clamps to `v_angular_max`, including a speed cap below the usual minimum; a zero angle returns zero.
+- Trajectories outside the costmap are rejected because their collision state is unknown.
+- Orientation validation preserves nonuniform headings in either rotation direction.

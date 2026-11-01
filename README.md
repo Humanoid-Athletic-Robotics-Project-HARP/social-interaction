@@ -231,6 +231,10 @@ of sideways drift or 0.1 m of wrong-way travel ends the plan with zero requested
 In-place turns and final curve alignment ramp their turn rate and slow near
 the target heading. Target and fault stops request zero immediately.
 
+Planned-move faults return a nonzero exit status. Nav2 commands stay at zero
+until usable lidar, its live transform, and speed feedback arrive. Losing any
+of these for over 0.5 s holds zero. A failed route holds zero until a new session.
+
 If your computer runs short of memory, HARP's harness can stop the run
 (`host_stall`, `observation_timeout`). Close other apps and any viewer still
 up from an earlier run (each holds about 700 MB until you press Ctrl-C). Or

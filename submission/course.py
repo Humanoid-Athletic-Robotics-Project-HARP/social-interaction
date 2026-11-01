@@ -254,7 +254,8 @@ def check(summary, c):
                               ("max_recoveries", "recoveries", float.__gt__),
                               ("max_end_error_m", "end_error_m", float.__gt__)):
         value = summary[field]
-        if key in c and (value is None or worse(float(value), float(c[key]))):
+        if key in c and (value is None or not math.isfinite(float(value))
+                         or not math.isfinite(float(c[key])) or worse(float(value), float(c[key]))):
             failed.append(key)
     return not failed, failed
 
