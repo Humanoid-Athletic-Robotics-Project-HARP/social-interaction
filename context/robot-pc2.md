@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T21:55:03Z
+  updated: 2026-11-01T22:00:55Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 

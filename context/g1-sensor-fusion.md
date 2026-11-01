@@ -3,7 +3,7 @@ name: g1-sensor-fusion
 description: Read before combining the head lidar and the head camera's depth (a fused cloud or costmap, seeing ahead of the robot) — the frame, the offsets, and how well they fit
 metadata:
   type: project
-  updated: 2026-11-01T21:54:57Z
+  updated: 2026-11-01T22:00:55Z
   covers: [testground/hybrid/*]
 ---
 
@@ -18,6 +18,8 @@ levelled on its own floor fit (removes the torso's lean and any tilt or height e
 of either mount); the camera is then moved by its offset from the lidar in Unitree's
 `g1_29dof_rev_1_0.urdf` (5.7 cm ahead, 1.8 cm left; same heading). No time sync:
 each shows its newest data (lidar the last 0.3 s, camera the last frame).
+Its tabs also serve the lidar's and the camera's own viewers from the same streams,
+so it is the one program to run when someone wants to watch either sensor.
 
 **What it showed** (2026-11-01, robot standing indoors):
 - The camera's points fill the lidar's +x gap and meet the lidar's at the cone's

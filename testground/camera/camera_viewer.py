@@ -199,6 +199,7 @@ class Depth:
         self.lock = threading.Lock()
         self.depth_jpeg = self.map_jpeg = None
         self.stats = {}
+        self.wanted = 0.0           # time.monotonic() a page last asked for an image
 
     def points(self, depth, step=STEP):
         """Camera-frame points (x right, y down, z forward), m, from every step-th pixel."""
@@ -304,11 +305,13 @@ class Depth:
             if depth is None:
                 continue
             now = time.monotonic()
-            jpeg = self.draw_depth(depth)
             pts = self.points(depth)
             if now - last_fit > 1.0:
                 self.fit_floor(pts)
                 last_fit = now
+            if now - self.wanted > 3.0:          # nobody looking: keep only the floor fit
+                continue
+            jpeg = self.draw_depth(depth)
             ground = self.level(pts)
             map_jpeg = self.draw_map(ground)
             centre = depth[depth.shape[0] // 3:2 * depth.shape[0] // 3,
@@ -404,7 +407,7 @@ function poll(id, url, period) {
 }
 async function stats() {
   try {
-    const s = await (await fetch('/stats')).json();
+    const s = await (await fetch('stats')).json();
     const parts = [`depth ${s.depth_fps ?? '–'} fps`, `${s.valid ?? '–'}% pixels with depth`];
     if (s.centre != null) parts.push(`centre ${s.centre} m`);
     if (s.nearest_thing != null) parts.push(`nearest thing in view ${s.nearest_thing} m away`);
@@ -420,13 +423,13 @@ async function stats() {
 $('depth').addEventListener('click', async e => {
   const r = e.target.getBoundingClientRect();
   const q = `x=${(e.clientX - r.left) / r.width}&y=${(e.clientY - r.top) / r.height}`;
-  const m = await (await fetch('/measure?' + q)).json();
+  const m = await (await fetch('measure?' + q)).json();
   $('pick').textContent = m.ok
     ? `${m.range.toFixed(2)} m away · ${m.ahead.toFixed(2)} m ahead, ${Math.abs(m.left).toFixed(2)} m ${m.left >= 0 ? 'left' : 'right'}, ${m.height.toFixed(2)} m above the floor`
     : (m.why || 'nothing there');
 });
-poll('depth', '/depth.jpg', 100); poll('map', '/map.jpg', 200);
-poll('colour', '/colour.jpg', 150); stats();
+poll('depth', 'depth.jpg', 100); poll('map', 'map.jpg', 200);
+poll('colour', 'colour.jpg', 150); stats();
 </script></body></html>
 """
 
@@ -452,6 +455,7 @@ def make_handler(depth, colour):
             if url.path in ("/", "/index.html"):
                 self.send(PAGE.encode(), "text/html; charset=utf-8")
             elif url.path == "/depth.jpg":
+                depth.wanted = time.monotonic()
                 self.send(depth.depth_jpeg, "image/jpeg")
             elif url.path == "/map.jpg":
                 self.send(depth.map_jpeg, "image/jpeg")

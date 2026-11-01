@@ -3,6 +3,10 @@
 
     python3 hybrid_viewer.py            # then open http://<robot-wlan-ip>:8082
 
+Tabs along the top switch between this combined view and the lidar's and the
+camera's own viewers (lidar_viewer.py, camera_viewer.py), all served from this one
+program, since only one program can read each sensor.
+
 The MID-360 can't see a cone of about 100 deg in front of the robot (its own head
 is in the way) nor the floor within about 1 m; the RealSense looks down at exactly
 that. This puts both in one frame, so the gaps the lidar leaves are filled where the
@@ -30,6 +34,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
@@ -70,6 +75,21 @@ class Hybrid:
         self.lock = threading.Lock()
         self.packed = b""
         self.stats = {}
+        self.colour, self.colour_error = None, None
+        self.colour_lock = threading.Lock()
+        self.interface = "eth0"
+
+    def start_colour(self):
+        """Unitree's videohub colour, started the first time the camera tab is opened."""
+        with self.colour_lock:
+            if self.colour is None and self.colour_error is None:
+                try:
+                    self.colour = camera_viewer.Colour(self.interface, 0.1)
+                    self.colour.start()
+                except Exception as e:
+                    self.colour_error = f"{type(e).__name__}: {e}"
+                    print(f"No colour ({self.colour_error}).")
+        return self.colour
 
     def lidar(self):
         pts = self.buf.snapshot()
@@ -87,9 +107,6 @@ class Hybrid:
         frame = self.depth.stream.latest()
         if frame is None:
             return np.zeros((0, 3)), np.zeros(0, bool)
-        if time.monotonic() - getattr(self, "last_fit", 0) > 1.0:
-            self.depth.fit_floor(self.depth.points(frame))
-            self.last_fit = time.monotonic()
         g = self.depth.level(self.depth.points(frame))      # ahead, left, height
         self_hit = np.hypot(g[:, 0], g[:, 1]) < CAMERA_SELF
         g[:, :2] = g[:, :2] @ self.yaw.T + CAMERA_OFFSET
@@ -291,13 +308,13 @@ for (const [k, d] of Object.entries(settings)) {
 }
 async function pollPoints() {
   if (!$('pause').checked) {
-    try { last = await (await fetch('/points')).arrayBuffer(); updateCloud(); }
+    try { last = await (await fetch('points')).arrayBuffer(); updateCloud(); }
     catch (e) { $('stats').textContent = 'lost connection to the viewer'; }
   }
   setTimeout(pollPoints, 200);
 }
 async function pollStats() {
-  try { stats = await (await fetch('/stats')).json(); showStats(); } catch (e) {}
+  try { stats = await (await fetch('stats')).json(); showStats(); } catch (e) {}
   setTimeout(pollStats, 1000);
 }
 goTo(store.get('view', 'top'), true); pollPoints(); pollStats();
@@ -314,9 +331,48 @@ goTo(store.get('view', 'top'), true); pollPoints(); pollStats();
 """
 
 
+TABS = r"""<!doctype html>
+<html><head><meta charset="utf-8"><title>G1 Sensors</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--bg:#0b0e12;--text:#d7dee6;--muted:#8a96a3;--accent:#ff8c1a;--line:#2a323c}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 system-ui,sans-serif}
+  body{display:flex;flex-direction:column}
+  nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 12px;border-bottom:1px solid var(--line)}
+  nav b{margin-right:8px}
+  nav button{font:inherit;color:var(--text);background:#1d242d;border:1px solid var(--line);border-radius:6px;padding:4px 12px;cursor:pointer}
+  nav button:hover{border-color:var(--accent)}
+  nav button[aria-selected="true"]{border-color:var(--accent);background:#2a2116;color:#fff}
+  iframe{flex:1;width:100%;border:0;display:block}
+</style></head>
+<body>
+<nav role="tablist"><b>G1 sensors</b>
+  <button role="tab" data-tab="hybrid">Lidar + camera</button>
+  <button role="tab" data-tab="lidar">Lidar</button>
+  <button role="tab" data-tab="camera">Camera</button></nav>
+<iframe id="view" title="sensor view"></iframe>
+<script>
+const NAMES = ['hybrid', 'lidar', 'camera'], tabs = document.querySelectorAll('[data-tab]'), frame = document.getElementById('view');
+function show(name) {
+  tabs.forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  frame.src = name + '/';
+  history.replaceState(null, '', '#' + name);
+  try { localStorage.setItem('g1sensors.tab', name); } catch (e) {}
+}
+tabs.forEach(b => b.onclick = () => show(b.dataset.tab));
+let first = location.hash.slice(1);
+if (!NAMES.includes(first)) { try { first = localStorage.getItem('g1sensors.tab'); } catch (e) {} }
+show(NAMES.includes(first) ? first : 'hybrid');
+</script></body></html>
+"""
+
+
 def make_handler(hybrid):
     class Handler(BaseHTTPRequestHandler):
         def send(self, body, ctype):
+            if body is None:
+                self.send_error(503, "not ready")
+                return
             try:
                 self.send_response(200)
                 self.send_header("Content-Type", ctype)
@@ -328,16 +384,51 @@ def make_handler(hybrid):
                 pass   # the browser gave up on this request
 
         def do_GET(self):
-            if self.path in ("/", "/index.html"):
+            url = urlparse(self.path)
+            path, depth = url.path, hybrid.depth
+            if path in ("/hybrid", "/lidar", "/camera"):      # pages need the trailing slash
+                self.send_response(301)
+                self.send_header("Location", path + "/")
+                self.end_headers()
+            elif path in ("/", "/index.html"):
+                self.send(TABS.encode(), "text/html; charset=utf-8")
+            elif path == "/hybrid/":
                 self.send(PAGE.encode(), "text/html; charset=utf-8")
-            elif self.path == "/points":
+            elif path == "/hybrid/points":
                 with hybrid.lock:
                     body = hybrid.packed
                 self.send(body, "application/octet-stream")
-            elif self.path == "/stats":
+            elif path == "/hybrid/stats":
                 with hybrid.lock:
                     body = json.dumps(hybrid.stats).encode()
                 self.send(body, "application/json")
+            elif path == "/lidar/":
+                self.send(lidar_viewer.PAGE.encode(), "text/html; charset=utf-8")
+            elif path == "/lidar/points":
+                self.send(hybrid.buf.snapshot().tobytes(), "application/octet-stream")
+            elif path == "/lidar/calib":
+                self.send(hybrid.floor.json(), "application/json")
+            elif path == "/camera/":
+                hybrid.start_colour()
+                self.send(camera_viewer.PAGE.encode(), "text/html; charset=utf-8")
+            elif path == "/camera/depth.jpg":
+                depth.wanted = time.monotonic()
+                self.send(depth.depth_jpeg, "image/jpeg")
+            elif path == "/camera/map.jpg":
+                self.send(depth.map_jpeg, "image/jpeg")
+            elif path == "/camera/colour.jpg":
+                colour = hybrid.start_colour()
+                self.send(colour.jpeg if colour else None, "image/jpeg")
+            elif path == "/camera/stats":
+                with depth.lock:
+                    s = dict(depth.stats)
+                s["depth_status"] = depth.stream.status
+                s["colour"] = hybrid.colour.status if hybrid.colour else None
+                self.send(json.dumps(s).encode(), "application/json")
+            elif path == "/camera/measure":
+                q = parse_qs(url.query)
+                self.send(json.dumps(depth.measure(float(q["x"][0]), float(q["y"][0]))).encode(),
+                          "application/json")
             else:
                 self.send_error(404)
 
@@ -356,6 +447,7 @@ def main():
     ap.add_argument("--fps", type=int, default=15, help="depth frame rate")
     ap.add_argument("--camera-yaw", type=float, default=0.0,
                     help="deg to turn the camera's points, if they don't line up with the lidar's")
+    ap.add_argument("--interface", default="eth0", help="PC2's port on the robot network (camera colour)")
     ap.add_argument("--lean", type=float, default=6.0,
                     help="deg the torso leans forward, for the camera until it finds the floor")
     args = ap.parse_args()
@@ -369,7 +461,10 @@ def main():
     stream = camera_viewer.V4L2Stream("/dev/video0", "Z16 ", w, h, args.fps, "<u2")
     stream.start()
     time.sleep(0.5)
-    hybrid = Hybrid(buf, floor, camera_viewer.Depth(stream, args.lean), args.camera_yaw)
+    depth = camera_viewer.Depth(stream, args.lean)
+    threading.Thread(target=depth.run, daemon=True).start()   # floor fit, and the camera tab's images
+    hybrid = Hybrid(buf, floor, depth, args.camera_yaw)
+    hybrid.interface = args.interface
     threading.Thread(target=hybrid.run, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(hybrid))
     print(f"Serving on http://0.0.0.0:{args.port}  (Ctrl+C to stop)")
@@ -380,6 +475,8 @@ def main():
     finally:
         server.server_close()
         stream.close()
+        if hybrid.colour:
+            hybrid.colour.running = False
 
 
 if __name__ == "__main__":

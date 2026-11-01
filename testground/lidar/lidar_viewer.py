@@ -589,13 +589,13 @@ renderer.domElement.addEventListener('pointerup', e => {
 // ---------- data ----------
 async function pollPoints() {
   if (!$('pause').checked) {
-    try { last = new Float32Array(await (await fetch('/points')).arrayBuffer()); updateCloud(); }
+    try { last = new Float32Array(await (await fetch('points')).arrayBuffer()); updateCloud(); }
     catch (e) { $('stats').textContent = 'lost connection to the viewer: ' + e; }
   }
   setTimeout(pollPoints, 100);
 }
 async function pollCalib() {
-  try { if (!$('pause').checked) { calib = await (await fetch('/calib')).json(); applyCalib(); } } catch (e) {}
+  try { if (!$('pause').checked) { calib = await (await fetch('calib')).json(); applyCalib(); } } catch (e) {}
   setTimeout(pollCalib, 1000);
 }
 

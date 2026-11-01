@@ -3,7 +3,7 @@ name: g1-head-camera
 description: Read before using the G1's head camera (RealSense D435i) — to see ahead where the lidar is blind, detect people, or record depth or colour on PC2
 metadata:
   type: project
-  updated: 2026-11-01T21:54:57Z
+  updated: 2026-11-01T22:00:56Z
   covers: [testground/pc2/v4l2_survey.py, testground/camera/*]
 ---
 

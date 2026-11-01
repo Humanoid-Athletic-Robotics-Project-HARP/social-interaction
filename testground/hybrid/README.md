@@ -8,6 +8,11 @@ it showed: `context/g1-sensor-fusion.md`.
 camera depth in orange (dim on the floor, bright on things sticking up), and how much
 of the lidar's blind cone the camera sees.
 
+Tabs along the top switch to the lidar's and the camera's own views
+(`lidar/lidar_viewer.py`, `camera/camera_viewer.py`), served by the same program
+from the same sensor streams: one program to start for all three. Colour is asked
+of Unitree's videohub only once the Camera tab is opened.
+
 It reads both sensors itself, so first stop `lidar_viewer.py`, `record.py` and
 `camera_viewer.py`. On PC2, in `~/Workspace/testground_social_interaction/hybrid`:
 
