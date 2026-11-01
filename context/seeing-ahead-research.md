@@ -3,7 +3,7 @@ name: seeing-ahead-research
 description: Read when planning how the real robot finds people or avoids obstacles in front of it, given that the lidar is blind ahead and the camera looks down
 metadata:
   type: reference
-  updated: 2026-11-01T22:07:14Z
+  updated: 2026-11-01T23:52:53Z
   covers: []
 ---
 
@@ -35,3 +35,17 @@ memory keeps what the lidar saw before it came in front. Still unseen: past 2.7 
 ahead and anything high ahead (a table top above 0.8 m at 1 m). Ways round: walk
 slowly forward, turn to look before going straight into unseen space, and keep
 marked obstacles longer.
+
+**Also possible:** a small forward 2D lidar at waist or chest height (far ahead, no
+camera tilt problem); a brief torso tilt back while standing, if GR00T or HIM allow it
+(a look up, not while walking); a speed cap so the robot can stop within the
+camera's 2.7 m.
+
+**Open questions on the robot** (2026-11-02; what's already known: [[robot-pc2]],
+[[g1-official-docs]]): why `lidar_driver` loses clouds over DDS (load, or itself:
+record with nothing else running) and whether it filters returns ahead; the D435i's
+own intrinsics and whether its IMU works on the Jetson; `unitree_slam` (off: a map and
+global pose for free?) and `state_estimator`'s odometry against ours; the voice
+service and microphones (`vui_service`, for talking); what `videohub_pc4_chest`'s
+camera is; whether Dex3 hands are fitted; the torso's lean under GR00T.
+
