@@ -24,3 +24,5 @@
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
 - [Off-robot testing](off-robot-testing.md) — when considering another simulator
 - [RL ideas](rl-ideas.md) — when someone asks about reinforcement learning on the G1
+
+- [Person perception sources](person-perception-sources.md) — before evaluating or updating the pinned detector/tracker forks

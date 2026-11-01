@@ -22,6 +22,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
+| `third_party/` | Pinned team forks of Ultralytics (YOLO26) and BoT-SORT for person-perception evaluation; [checkout instructions](third_party/README.md). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
 ## Goals and progress
