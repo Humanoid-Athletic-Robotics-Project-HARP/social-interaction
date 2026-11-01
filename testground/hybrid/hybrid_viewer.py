@@ -22,8 +22,10 @@ Levelling each sensor on the floor it sees takes out the torso's lean and any mo
 error in tilt and height; heading and the sideways offset come from the URDF
 (--camera-yaw corrects the heading if the two disagree where they overlap).
 
-Uses ../lidar/lidar_viewer.py and ../camera/camera_viewer.py, which must not be
-running: only one program can read the lidar's port or the depth camera.
+Uses ../lidar/lidar_viewer.py and ../camera/camera_viewer.py. Only one program can
+read the lidar's port or stream the depth camera: if another has one, or --no-lidar /
+--no-depth leaves it to someone else, that part says "Not connected." and the rest
+keeps running (colour, from videohub, can always be shared).
 """
 import argparse
 import json
@@ -156,12 +158,17 @@ class Hybrid:
                 if now - last_stats > 1.0:
                     filled, cells = self.fill(cam[~cam_self] if n_c else cam, floor_state)
                     d = self.depth
+                    lidar_state = json.loads(self.floor.json())
+                    camera_ok = d.stream.connected()
                     self.stats = {
                         "lidar": {"ok": floor_state["ok"], "height": floor_state["height"],
                                   "pps": floor_state["pps"], "blocked": floor_state.get("blocked", []),
-                                  "floor_from": floor_state.get("floor_from")},
+                                  "floor_from": floor_state.get("floor_from"),
+                                  "connected": lidar_state["connected"], "why": lidar_state["why"]},
                         "camera": {"ok": d.floor_ok, "height": round(d.height, 3),
-                                   "pitch": round(d.pitch(), 1), "status": d.stream.status},
+                                   "pitch": round(d.pitch(), 1), "status": d.stream.status,
+                                   "connected": camera_ok,
+                                   "why": None if camera_ok else (d.stream.why or "no depth frames for 2 s")},
                         "points": {"lidar": n_l, "camera": n_c}, "filled": filled, "blind_cells": cells,
                         "camera_offset": CAMERA_OFFSET}
                     last_stats = now
@@ -184,6 +191,9 @@ PAGE = r"""<!doctype html>
   label.row{cursor:pointer;margin:3px 0}
   .sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px}
   #fill{font-size:15px;margin:6px 0 2px}
+  #nc{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--line);
+       border-radius:8px;padding:14px 20px;text-align:center;font-size:20px;max-width:calc(100vw - 48px)}
+  #nc .muted{font-size:13px;margin-top:4px}
   @media (max-width:600px){#hud{width:auto;right:10px;max-height:45vh}}
 </style>
 <script type="importmap">
@@ -191,6 +201,7 @@ PAGE = r"""<!doctype html>
 "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
 </script></head>
 <body>
+<div id="nc" hidden>Not connected.<div class="muted">neither the lidar nor the depth camera</div></div>
 <div id="hud">
   <h1>G1 hybrid view: lidar + camera</h1>
   <div id="fill">…</div>
@@ -289,9 +300,11 @@ function showStats() {
   const L = stats.lidar, C = stats.camera;
   $('fill').innerHTML = stats.filled == null ? '<span class="muted">Waiting for the lidar\'s blind area…</span>'
     : `The camera sees <b>${stats.filled}%</b> of the lidar's blind area out to 2.5 m.`;
-  const parts = [`lidar ${(L.pps / 1000).toFixed(0)}k points/s, ${L.ok ? L.height.toFixed(2) + ' m above the floor' : 'floor not found yet'}`,
-                 `camera ${C.ok ? C.height.toFixed(2) + ' m up, ' + C.pitch.toFixed(0) + '&deg; down' : 'floor not found yet'} (${C.status})`];
+  const nc = why => `<span class="warn">Not connected.</span> ${why || ''}`;
+  const parts = [`lidar: ${L.connected === false ? nc(L.why) : (L.pps / 1000).toFixed(0) + 'k points/s, ' + (L.ok ? L.height.toFixed(2) + ' m above the floor' : 'floor not found yet')}`,
+                 `camera: ${C.connected === false ? nc(C.why) : (C.ok ? C.height.toFixed(2) + ' m up, ' + C.pitch.toFixed(0) + '&deg; down' : 'floor not found yet') + ' (' + C.status + ')'}`];
   $('stats').innerHTML = parts.join('<br>');
+  $('nc').hidden = !(L.connected === false && C.connected === false);
 }
 const VIEWS = {top: [V(-0.01, 0, 9), V(0.8, 0, 0)], behind: [V(-3, 0, 2.6), V(1.5, 0, 0.4)], front: [V(3.2, -1.0, 1.6), V(0, 0, 0.6)]};
 let anim = null;
@@ -420,10 +433,8 @@ def make_handler(hybrid):
                 colour = hybrid.start_colour()
                 self.send(colour.jpeg if colour else None, "image/jpeg")
             elif path == "/camera/stats":
-                with depth.lock:
-                    s = dict(depth.stats)
-                s["depth_status"] = depth.stream.status
-                s["colour"] = hybrid.colour.status if hybrid.colour else None
+                s = camera_viewer.camera_stats(depth, hybrid.colour,
+                                               hybrid.colour_error or "starting")
                 self.send(json.dumps(s).encode(), "application/json")
             elif path == "/camera/measure":
                 q = parse_qs(url.query)
@@ -445,6 +456,10 @@ def main():
     ap.add_argument("--window", type=float, default=0.3, help="seconds of lidar points shown")
     ap.add_argument("--size", default="848x480", help="depth resolution")
     ap.add_argument("--fps", type=int, default=15, help="depth frame rate")
+    ap.add_argument("--no-lidar", action="store_true",
+                    help="leave the lidar's port to another program: it says Not connected")
+    ap.add_argument("--no-depth", action="store_true",
+                    help="leave the depth camera to another program: it says Not connected")
     ap.add_argument("--camera-yaw", type=float, default=0.0,
                     help="deg to turn the camera's points, if they don't line up with the lidar's")
     ap.add_argument("--interface", default="eth0", help="PC2's port on the robot network (camera colour)")
@@ -455,11 +470,17 @@ def main():
 
     buf = lidar_viewer.PointBuffer(args.window)
     floor = lidar_viewer.FloorEstimator(buf)
-    threading.Thread(target=lidar_viewer.receive, args=(buf, args.lidar_port), daemon=True).start()
+    if args.no_lidar:
+        buf.why = "turned off (--no-lidar)"
+    else:
+        threading.Thread(target=lidar_viewer.receive, args=(buf, args.lidar_port), daemon=True).start()
     threading.Thread(target=floor.run, daemon=True).start()
     w, h = (int(v) for v in args.size.split("x"))
     stream = camera_viewer.V4L2Stream("/dev/video0", "Z16 ", w, h, args.fps, "<u2")
-    stream.start()
+    if args.no_depth:
+        stream.why = stream.status = "turned off (--no-depth)"
+    else:
+        stream.start()
     time.sleep(0.5)
     depth = camera_viewer.Depth(stream, args.lean)
     threading.Thread(target=depth.run, daemon=True).start()   # floor fit, and the camera tab's images

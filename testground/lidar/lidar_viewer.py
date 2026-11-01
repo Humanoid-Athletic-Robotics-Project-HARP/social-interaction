@@ -17,8 +17,9 @@ It also shows where the lidar can't see: the directions the robot's own head
 blocks (counted from the live returns, so it is what this lidar really sees) and
 the floor around the feet below its field of view.
 
-Only one process can receive the lidar stream, so stop livox_ros_driver2 or
-any other SDK2 program first.
+Only one process can receive the lidar stream (UDP 56301). If another program has it,
+or --no-lidar is given (to leave it to someone else), the page says "Not connected."
+and the rest keeps running.
 """
 import argparse
 import json
@@ -51,6 +52,8 @@ class PointBuffer:
         self.chunks = deque()
         self.lock = threading.Lock()
         self.received = 0
+        self.last_rx = None         # monotonic s of the last packet
+        self.why = "starting"       # why there are no points, or None
 
     def add(self, pts):
         now = time.monotonic()
@@ -206,15 +209,27 @@ class FloorEstimator:
 
     def json(self):
         with self.lock:
-            return json.dumps(self.state).encode()
+            state = dict(self.state)
+        why = self.buf.why
+        if why is None and (self.buf.last_rx is None or time.monotonic() - self.buf.last_rx > 2.0):
+            why = "no lidar packets for 2 s"
+        state.update(connected=why is None, why=why)
+        return json.dumps(state).encode()
 
 
 def receive(buf, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 << 20)
-    sock.bind(("0.0.0.0", port))
+    try:
+        sock.bind(("0.0.0.0", port))
+    except OSError as e:
+        buf.why = f"UDP {port} is taken: another program is reading the lidar ({e.strerror})"
+        print(f"Not connected: {buf.why}.", flush=True)
+        return
+    buf.why = None
     while True:
         data, _ = sock.recvfrom(65535)
+        buf.last_rx = time.monotonic()
         if len(data) < HEADER_SIZE or data[10] != 1:
             continue
         dot_num = int.from_bytes(data[5:7], "little")
@@ -240,6 +255,9 @@ PAGE = r"""<!doctype html>
   label.row{cursor:pointer;margin:3px 0}
   #legend canvas{width:100%;height:10px;border-radius:3px;display:block}
   #legend .lab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+  #nc{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--line);
+       border-radius:8px;padding:14px 20px;text-align:center;font-size:20px;max-width:calc(100vw - 48px)}
+  #nc .muted{font-size:13px;margin-top:4px}
   #pick{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);background:var(--panel);
         border:1px solid var(--accent);border-radius:8px;padding:6px 12px;display:none;text-align:center}
   @media (max-width:600px){#hud{width:auto;right:10px;max-height:45vh}}
@@ -283,6 +301,7 @@ PAGE = r"""<!doctype html>
     Click a point to measure it. Drag to orbit, right-drag to pan, scroll to zoom.</div>
 </div>
 <div id="pick"></div>
+<div id="nc" hidden>Not connected.<div class="muted" id="ncwhy"></div></div>
 <script type="module">
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -500,6 +519,8 @@ function applyCalib() {
   else if (gap < -0.04) status = `<span class="warn">Model feet sit ${Math.round(-gap * 100)} cm below the floor: the robot is crouched or the floor fit is off.</span>`;
   else status = "Robot's feet are on the floor.";
   $('calibtxt').innerHTML = `LiDAR is ${calib.height.toFixed(2)} m above the floor, tilted ${tilt.toFixed(1)}&deg;.<br>${status}`;
+  $('nc').hidden = calib.connected !== false;
+  $('ncwhy').textContent = calib.why || '';
   drawBlind();
 }
 
@@ -652,11 +673,16 @@ def main():
     ap.add_argument("--lidar-port", type=int, default=56301, help="UDP point data port on this host")
     ap.add_argument("--window", type=float, default=0.3,
                     help="seconds of points to accumulate (MID-360 is non-repetitive; longer = denser)")
+    ap.add_argument("--no-lidar", action="store_true",
+                    help="leave the lidar's port to another program: the page says Not connected")
     args = ap.parse_args()
 
     buf = PointBuffer(args.window)
     floor = FloorEstimator(buf)
-    threading.Thread(target=receive, args=(buf, args.lidar_port), daemon=True).start()
+    if args.no_lidar:
+        buf.why = "turned off (--no-lidar)"
+    else:
+        threading.Thread(target=receive, args=(buf, args.lidar_port), daemon=True).start()
     threading.Thread(target=floor.run, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(buf, floor))
     print(f"Serving on http://0.0.0.0:{args.port}  (Ctrl+C to stop)")

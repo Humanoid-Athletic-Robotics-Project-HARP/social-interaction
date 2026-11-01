@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T22:00:55Z
+  updated: 2026-11-01T22:55:32Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
@@ -30,6 +30,13 @@ rsync, git, internet over Wi-Fi. No sudo password, no tcpdump. 1.8 TB free.
 60% of a core; [[him-sim2real]]), Unitree's `master_service` and `videohub_pc4` (head
 camera) in `/unitree/module/`, and other people's SSH, VS Code and Claude sessions.
 Keep heavy work off it (HIM's 0.2 s deadlines, [[safety]]); `record.py` runs at nice 10.
+
+**Sharing with others on the robot:** the lidar's UDP port and the depth camera's
+stream take one reader each (a second gets "Address already in use" / "Device or
+resource busy"); videohub colour and DDS topics are shared. Our viewers say "Not
+connected." for a taken one and take `--no-lidar` / `--no-depth` (tested 2026-11-01).
+Two people reading the same sensor need one reader republishing it, e.g. over ROS 2 or
+DDS, which the robot needs anyway for Nav2.
 
 **The robot's DDS** (`pc2/topics.py`, 89 topics on domain 0, eth0): `rt/lowstate` (2
 publishers, about 1 kHz together), `rt/lowcmd`, `rt/sportmodestate`,

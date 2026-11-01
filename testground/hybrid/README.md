@@ -13,8 +13,9 @@ Tabs along the top switch to the lidar's and the camera's own views
 from the same sensor streams: one program to start for all three. Colour is asked
 of Unitree's videohub only once the Camera tab is opened.
 
-It reads both sensors itself, so first stop `lidar_viewer.py`, `record.py` and
-`camera_viewer.py`. On PC2, in `~/Workspace/testground_social_interaction/hybrid`:
+It reads both sensors itself; whichever another program already has (`lidar_viewer.py`,
+`record.py`, `camera_viewer.py`, someone else's driver) says "Not connected.", and
+`--no-lidar` / `--no-depth` leave them to others from the start. On PC2, in `~/Workspace/testground_social_interaction/hybrid`:
 
 ```bash
 python3 hybrid_viewer.py

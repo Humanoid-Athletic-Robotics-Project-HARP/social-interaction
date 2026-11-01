@@ -21,6 +21,11 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
   agreed to it. An operator owns the robot during a
   session (power, gantry, remote, stopping: `context/safety.md`). HARP's harness may be
   running on PC2: keep heavy work off it.
+- **Sharing the robot's sensors:** only one program at a time can read the lidar (its
+  UDP port) or stream the depth camera; colour (Unitree's videohub) and everything on
+  DDS (`rt/lowstate`, ...) any number can read. A viewer that finds the lidar or the
+  camera taken says "Not connected." there and keeps the rest running; to leave them
+  to someone else from the start, `--no-lidar` / `--no-depth`.
 - PC2's login lives in the main checkout's `.env` (`G1_HOST=user@address`), which git
   ignores. Never commit it.
 

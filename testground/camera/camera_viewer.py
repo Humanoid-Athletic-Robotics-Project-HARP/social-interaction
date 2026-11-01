@@ -15,6 +15,10 @@ become points with nominal intrinsics (Intel's 87 x 58 deg field of view), level
 on a floor plane fitted every second, so the page also shows the camera's real
 height and pitch (the URDF says 47.6 deg down from the torso).
 
+Only one program can stream the depth camera. If another program has it, or
+--no-depth is given (to leave it to someone else), the depth panels say "Not
+connected." and colour, which anyone can ask videohub for, keeps working.
+
 Python 3.8 and what PC2 has: numpy, OpenCV, unitree_sdk2py. Runs at low priority
 beside HARP's harness.
 """
@@ -63,7 +67,12 @@ class V4L2Stream(threading.Thread):
         self.size, self.fps = (width, height), fps
         self.lock = threading.Lock()
         self.frame, self.count, self.status = None, 0, "starting"
+        self.why = "starting"       # why there are no frames, or None
+        self.last_rx = None         # monotonic s of the last frame
         self.running = True
+
+    def connected(self):
+        return self.why is None and self.last_rx is not None and time.monotonic() - self.last_rx < 2.0
 
     def open(self):
         self.fd = os.open(self.device, os.O_RDWR | os.O_NONBLOCK)
@@ -101,7 +110,10 @@ class V4L2Stream(threading.Thread):
             self.open()
         except OSError as e:
             self.status = f"can't open {self.device}: {e}"
+            self.why = f"{self.device} is busy or missing: another program may be using it ({e.strerror})"
+            print(f"Not connected: {self.why}.", flush=True)
             return
+        self.why = None
         w, h = self.size
         self.status = f"{w}x{h} {self.code} at {self.fps} fps"
         while self.running:
@@ -122,6 +134,7 @@ class V4L2Stream(threading.Thread):
             frame = raw[:self.stride * h].reshape(h, self.stride)[:, :row].copy().view(self.dtype)
             with self.lock:
                 self.frame, self.count = frame, self.count + 1
+            self.last_rx = time.monotonic()
             self.status = f"{w}x{h} {self.code} at {self.fps} fps"
 
     def latest(self):
@@ -166,7 +179,11 @@ class Colour(threading.Thread):
         self.hub.Init()
         self.period = period
         self.jpeg, self.count, self.status = None, 0, "starting"
+        self.last_rx = None         # monotonic s of the last image
         self.running = True
+
+    def connected(self):
+        return self.last_rx is not None and time.monotonic() - self.last_rx < 3.0
 
     def run(self):
         while self.running:
@@ -179,6 +196,7 @@ class Colour(threading.Thread):
                 time.sleep(1.0)
                 continue
             self.jpeg, self.count = bytes(data), self.count + 1
+            self.last_rx = time.monotonic()
             self.status = "videohub JPEG"
             time.sleep(self.period)
 
@@ -350,6 +368,20 @@ class Depth:
                 "left": round(float(left), 2), "height": round(float(height), 2)}
 
 
+def camera_stats(depth, colour, colour_off="turned off (--no-colour)"):
+    """The page's /stats: depth numbers, and whether depth and colour are connected."""
+    with depth.lock:
+        s = dict(depth.stats)
+    stream = depth.stream
+    s["depth_status"] = stream.status
+    s["depth_connected"] = stream.connected()
+    s["depth_why"] = None if s["depth_connected"] else (stream.why or "no depth frames for 2 s")
+    s["colour"] = colour.status if colour else None
+    s["colour_connected"] = bool(colour and colour.connected())
+    s["colour_why"] = None if s["colour_connected"] else (colour.status if colour else colour_off)
+    return s
+
+
 PAGE = r"""<!doctype html>
 <html><head><meta charset="utf-8"><title>G1 Camera View</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -364,6 +396,10 @@ PAGE = r"""<!doctype html>
   figcaption{padding:6px 10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
   img{display:block;width:100%;height:auto;background:#000}
   #depth{cursor:crosshair}
+  .nc{aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+      background:#000;font-size:18px}
+  .nc[hidden],img[hidden]{display:none}
+  .nc span{font-size:12px;color:var(--muted);padding:0 14px;text-align:center}
   .legend{height:8px;margin:0 10px 8px;border-radius:3px;background:linear-gradient(90deg,#7a0403,#f05b12,#e6c42f,#3be08a,#2b8ad8,#30123b)}
   .lab{display:flex;justify-content:space-between;margin:0 10px 8px;font-size:11px;color:var(--muted)}
   #pick{color:var(--accent)}
@@ -378,12 +414,15 @@ PAGE = r"""<!doctype html>
   <label><input type="checkbox" id="pause"> Pause</label></header>
 <main>
   <figure id="colourbox"><figcaption><b>Colour</b><span id="colourtxt" class="muted"></span></figcaption>
-    <img id="colour" alt="colour image"></figure>
+    <img id="colour" data-feed="colour" alt="colour image">
+    <div class="nc" data-nc="colour" hidden>Not connected.<span></span></div></figure>
   <figure><figcaption><b>Depth</b><span id="pick" class="muted">click to measure</span></figcaption>
-    <img id="depth" alt="depth image"><div class="legend"></div>
+    <img id="depth" data-feed="depth" alt="depth image">
+    <div class="nc" data-nc="depth" hidden>Not connected.<span></span></div><div class="legend"></div>
     <div class="lab"><span>0.2 m</span><span>2 m</span><span>4 m+</span></div></figure>
   <figure><figcaption><b>In front of the robot, seen from above</b><span class="muted">from the depth camera</span></figcaption>
-    <img id="map" alt="top-down map of what the camera sees in front of the robot">
+    <img id="map" data-feed="depth" alt="top-down map of what the camera sees in front of the robot">
+    <div class="nc" data-nc="depth" hidden>Not connected.<span></span></div>
     <div class="keys">
       <span><i style="background:#787878"></i>floor the camera sees</span>
       <span><i class="hgrad"></i>something sticking up; its colour is its height (0.1 m → 1.5 m)</span>
@@ -405,6 +444,10 @@ function poll(id, url, period) {
   }
   load();
 }
+function conn(src, ok, why) {   // a feed's images, or its "Not connected." placeholders
+  document.querySelectorAll(`[data-nc="${src}"]`).forEach(d => { d.hidden = ok; d.querySelector('span').textContent = why || ''; });
+  document.querySelectorAll(`[data-feed="${src}"]`).forEach(i => { i.hidden = !ok; });
+}
 async function stats() {
   try {
     const s = await (await fetch('stats')).json();
@@ -415,8 +458,9 @@ async function stats() {
     $('floortxt').innerHTML = s.floor_ok
       ? `Camera measured from the floor: ${s.height.toFixed(2)} m up, looking ${s.pitch.toFixed(1)}&deg; down.`
       : '<span class="warn">floor not found yet: nominal pose</span>';
-    $('colourtxt').textContent = s.colour || '';
-    $('colourbox').hidden = !s.colour;
+    $('colourtxt').textContent = s.colour_connected ? (s.colour || '') : '';
+    conn('depth', s.depth_connected, s.depth_why);
+    conn('colour', s.colour_connected, s.colour_why);
   } catch (e) { $('stats').textContent = 'lost connection to the viewer'; }
   setTimeout(stats, 1000);
 }
@@ -462,11 +506,7 @@ def make_handler(depth, colour):
             elif url.path == "/colour.jpg":
                 self.send(colour.jpeg if colour else None, "image/jpeg")
             elif url.path == "/stats":
-                with depth.lock:
-                    s = dict(depth.stats)
-                s["depth_status"] = depth.stream.status
-                s["colour"] = colour.status if colour else None
-                self.send(json.dumps(s).encode(), "application/json")
+                self.send(json.dumps(camera_stats(depth, colour)).encode(), "application/json")
             elif url.path == "/measure":
                 q = parse_qs(url.query)
                 m = depth.measure(float(q["x"][0]), float(q["y"][0]))
@@ -486,6 +526,8 @@ def main():
     ap.add_argument("--size", default="848x480", help="depth resolution, e.g. 640x480 or 1280x720")
     ap.add_argument("--fps", type=int, default=15, help="depth frame rate: 6, 15, 30, 60 or 90")
     ap.add_argument("--no-colour", action="store_true", help="don't ask videohub for colour")
+    ap.add_argument("--no-depth", action="store_true",
+                    help="leave the depth camera to another program: its panels say Not connected")
     ap.add_argument("--lean", type=float, default=6.0,
                     help="deg the torso leans forward, for the pose until the floor is found")
     ap.add_argument("--interface", default="eth0", help="PC2's port on the robot network")
@@ -494,7 +536,10 @@ def main():
 
     w, h = (int(v) for v in args.size.split("x"))
     stream = V4L2Stream("/dev/video0", "Z16 ", w, h, args.fps, "<u2")
-    stream.start()
+    if args.no_depth:
+        stream.why = stream.status = "turned off (--no-depth)"
+    else:
+        stream.start()
     colour = None
     if not args.no_colour:
         try:

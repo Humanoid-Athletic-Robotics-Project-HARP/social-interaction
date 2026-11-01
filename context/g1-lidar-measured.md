@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-01T22:07:26Z
+  updated: 2026-11-01T22:55:32Z
   covers: [testground/lidar/*.py]
 ---
 
