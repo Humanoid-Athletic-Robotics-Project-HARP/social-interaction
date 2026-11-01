@@ -12,6 +12,35 @@ def square(x, y, half=0.12):
 
 
 class Tracking(unittest.TestCase):
+    def test_occluded_track_cannot_steal_a_continuously_observed_object(self):
+        tracker = Tracker()
+        initial = tracker.update(np.vstack((square(2.,0.),square(3.2,0.))),0.)
+        visible_id = min(initial,key=lambda t: t.x).id
+        hidden_id = max(initial,key=lambda t: t.x).id
+        # One object remains exactly where measured; the other is occluded.
+        # Growing age must not make the hidden ID preferable to the exact match.
+        for step in range(1,11):
+            stamp = step*.1
+            tracks = {t.id:t for t in tracker.update(square(2.,0.),stamp)}
+            with self.subTest(stamp=stamp):
+                self.assertEqual(tracks[visible_id].last_seen,stamp)
+                self.assertAlmostEqual(tracks[visible_id].x,2.)
+                self.assertAlmostEqual(tracks[visible_id].vx,0.)
+                self.assertEqual(tracks[hidden_id].last_seen,0.)
+                self.assertAlmostEqual(tracks[hidden_id].x,3.2)
+                self.assertAlmostEqual(tracks[hidden_id].vx,0.)
+
+    def test_occluded_track_reassociates_when_it_returns_near_prediction(self):
+        tracker = Tracker()
+        for i in range(10):
+            last = tracker.update(square(2.+.05*i,0.),.1*i)[0]
+        tracker.update(np.empty((0,2)),1.3)
+        returned = tracker.update(square(2.+.5*1.4,0.),1.4)
+        self.assertEqual(len(returned),1)
+        self.assertEqual(returned[0].id,last.id)
+        self.assertEqual(returned[0].last_seen,1.4)
+        self.assertAlmostEqual(returned[0].vx,.5,delta=.05)
+
     def test_constant_velocity_and_stable_ids(self):
         tracker = Tracker()
         ident = None

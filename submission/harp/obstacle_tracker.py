@@ -157,11 +157,15 @@ class Tracker:
         for row,track in enumerate(predicted):
             age = stamp - track.last_seen
             gate = .35+3.*age
-            costs[row,len(observations)+row] = gate+.3
+            # Missing an older track must not cost MORE than missing a fresh one.
+            # Otherwise Hungarian steals a fresh object's exact observation to
+            # avoid the large dummy cost of a distant stale ID (identity jumps).
+            costs[row,len(observations)+row] = .95
+            missed = max(0., self._stamp-track.last_seen)
             for index, (center, radius) in enumerate(observations):
                 distance = float(np.linalg.norm(center - [track.x, track.y]))
                 if distance <= gate:
-                    costs[row,index] = distance+.3*abs(radius-track.radius)
+                    costs[row,index] = distance+.3*abs(radius-track.radius)+.5*missed
         rows,columns = linear_sum_assignment(costs)
         pairs = [(costs[row,col],predicted[row].id,col) for row,col in zip(rows,columns)
                  if col < len(observations) and costs[row,col] < 1e6]

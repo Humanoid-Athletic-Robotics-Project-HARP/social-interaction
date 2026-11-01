@@ -72,6 +72,7 @@ class Planner:
         self.escape_direction = None
         self.initialized = False
         self.goal = None
+        self.urgent = False
 
     def _blocked(self, clearance=-math.inf, reason="invalid_input"):
         self.previous[:] = 0
@@ -99,6 +100,13 @@ class Planner:
         change = np.clip(controls[:, 0] - self.previous, -self.accel*c.period, self.accel*c.period)
         change = self._linear_limit(change, c.acceleration*c.period)
         first = self._linear_limit(np.clip(change + self.previous, -self.limits, self.limits), c.speed)
+        if self.urgent:
+            # GR00T receives a velocity target, not an instantaneous physical
+            # velocity. For an incoming collision, do not add a second slow
+            # request ramp on top of the delayed acceleration-limited plant.
+            first = controls[:,0].copy()
+        request = first.copy()
+        next_request_time = c.period
         for step in range(1, len(self.times)):
             moving_step = step - self.delay_steps - 1
             if step <= self.delay_steps:
@@ -106,7 +114,15 @@ class Planner:
             elif moving_step < self.steps:
                 # Only the first request executes before the next replan.
                 block = min(2, moving_step * 3 // self.steps)
-                target = first if moving_step * c.dt < c.period else controls[:, block]
+                if moving_step*c.dt+1e-9 >= next_request_time:
+                    if self.urgent:
+                        request = controls[:,block].copy()
+                    else:
+                        change = np.clip(controls[:,block]-request,
+                                         -self.accel*c.period,self.accel*c.period)
+                        request += self._linear_limit(change,c.acceleration*c.period)
+                    next_request_time += c.period
+                target = request
             else:
                 target = np.zeros(3)
             if brake_after is not None and moving_step*c.dt >= brake_after:
@@ -134,6 +150,16 @@ class Planner:
             result[:, step] = poses[:, :2]
         return result, first
 
+    @staticmethod
+    def _approach(paths, objects, times):
+        """Closest approach during each interval, not only at time samples."""
+        future = objects[None, :, :2] + times[:, None, None]*objects[None, :, 2:4]
+        relative = paths[:, :, None, :] - future[None, :, :, :]
+        a, delta = relative[:, :-1], np.diff(relative, axis=1)
+        fraction = np.clip(-np.sum(a*delta, axis=-1) /
+                           np.maximum(np.sum(delta*delta, axis=-1), 1e-12), 0, 1)
+        return np.linalg.norm(a + fraction[..., None]*delta, axis=-1), relative
+
     def _clearances(self, paths, objects, time_limit=None, recover_margin=False):
         if not len(objects):
             return np.full(len(paths), math.inf)
@@ -142,13 +168,7 @@ class Planner:
         if time_limit is not None:
             count = max(2,int(time_limit/c.dt)+1)
             paths, times = paths[:,:count], times[:count]
-        # Closest approach during each interval, not only at time samples.
-        future = objects[None, :, :2] + times[:, None, None]*objects[None, :, 2:4]
-        relative = paths[:, :, None, :] - future[None, :, :, :]
-        a, delta = relative[:, :-1], np.diff(relative, axis=1)
-        fraction = np.clip(-np.sum(a*delta, axis=-1) /
-                           np.maximum(np.sum(delta*delta, axis=-1), 1e-12), 0, 1)
-        distance = np.linalg.norm(a + fraction[..., None]*delta, axis=-1)
+        distance, relative = self._approach(paths, objects, times)
         # Bound curvature/acceleration interpolation error between samples.
         interpolation = (c.acceleration + math.sqrt(2)*c.speed*c.yaw_speed)*c.dt*c.dt
         required = (c.robot_radius + c.margin + interpolation + objects[None, :, 4]
@@ -210,6 +230,27 @@ class Planner:
         overlap = np.maximum(0.,1.-distance/envelope[None,None,:])
         return 10.*np.max(overlap**2*np.exp(-self.times/1.2)[None,:,None],axis=(1,2))
 
+    def _intrusion(self, paths, objects):
+        """Time-discounted envelope intrusion of each trajectory, integrated over time.
+
+        Used only when nothing is certifiably clear. Standing is scored like any
+        other trajectory: freezing in front of an incoming object is predicted
+        to be hit, so it is not a safe default. Entering the body/observed-shape
+        envelope dominates entering the comfort margins, and imminent intrusion
+        dominates a later constant-velocity overlap that replanning can revisit.
+        Integrating (not the worst instant) means an unavoidable present overlap
+        cannot hide the difference between leaving it and staying or deepening it.
+        """
+        c = self.config
+        distance, _ = self._approach(paths, objects, self.times)
+        times = self.times[1:, None]
+        physical = c.robot_radius + objects[:, 4]
+        comfort = (physical + c.margin + np.minimum(objects[:, 5], c.max_collision_uncertainty)
+                   + c.uncertainty_rate*times)
+        intrusion = ((10.*np.maximum(0., physical-distance) + np.maximum(0., comfort-distance))
+                     * np.exp(-times/1.5)[None])
+        return np.sum(intrusion, axis=(1, 2))*c.dt
+
     def _evaluate(self, controls, pose, velocity, objects, recover_margin=False):
         paths, commands = self._rollout(controls, pose, velocity)
         return self._clearances(paths, objects,recover_margin=recover_margin), commands
@@ -239,6 +280,10 @@ class Planner:
         if not self.initialized:
             self.previous[:] = self._linear_limit(velocity,c.speed)
             self.initialized = True
+        self.urgent = False
+        if len(objects):
+            stopped,_ = self._rollout(np.zeros((3,3)),pose,velocity,brake_after=0.)
+            self.urgent = bool(self._clearances(stopped,objects,time_limit=2.5)[0] < 0.)
         nominal = np.tile(desired, (3, 1))
         clear, commands = self._evaluate(nominal, pose, velocity, objects)
         if clear[0] >= .12 or not len(objects):
@@ -280,12 +325,29 @@ class Planner:
                     max(c.yaw_speed,abs(float(velocity[2])))/c.yaw_acceleration)+2*c.dt)
             near = self._clearances(paths,objects,time_limit=stopping_time,recover_margin=True)
             safe = np.flatnonzero(near >= 0)
+            continuations,firsts = self._rollout(seeds,pose,velocity)
             if not len(safe):
-                return self._blocked(float(np.max(clearance)), 'no_feasible_escape')
+                # Seed 0 is standing. Returning it unconditionally here froze the
+                # robot while non-yielding people walked into it. Choose the least
+                # intrusive trajectory instead; it is standing only if that wins.
+                intrusion = self._intrusion(continuations,objects)
+                costs = intrusion + .1*self._costs(seeds,desired,continuations)
+                chosen = int(np.argmin(costs))
+                command = firsts[chosen]
+                # Move only for a material reduction, so forecast noise does not
+                # dither between standing and stepping when every option is bad.
+                if (chosen == 0 or np.linalg.norm(command) < 1e-6
+                        or intrusion[chosen] > .9*intrusion[0]):
+                    return self._blocked(float(np.max(clearance)), 'no_feasible_escape')
+                self.previous[:] = command
+                speed = float(np.linalg.norm(seeds[chosen,0,:2]))
+                if speed > .06:
+                    self.escape_direction = seeds[chosen,0,:2]/speed
+                return Result(tuple(float(v) for v in command),'evade',True,
+                              float(clearance[chosen]),'least_intrusion')
             # Do not ignore the forecast that rejected the long continuation:
             # otherwise a greedy short step walks toward an incoming actor until
             # escape becomes impossible. Prefer the least long-horizon risk.
-            continuations,_ = self._rollout(seeds,pose,velocity)
             costs = self._costs(seeds,desired,continuations)-.08*np.minimum(near,1.)+self._urgent_risk(continuations,objects)
             chosen = safe[np.argmin(costs[safe])]
             command = commands[chosen]

@@ -14,6 +14,40 @@ def obstacle(x, y, vx=0, vy=0, radius=.2, uncertainty=.03):
 
 
 class PredictiveMpc(unittest.TestCase):
+    def test_forecast_matches_executed_request_ramps_during_reversal(self):
+        config = Config(speed=.5,response_delay=0.,lateral_tracking_gain=.6)
+        forecast,execution = Planner(config),Planner(config)
+        for planner in (forecast,execution):
+            planner.previous[:] = (0.,.4,0.)
+            planner.initialized = True
+        target = np.array([0.,-.4,0.])
+        pose,velocity = np.zeros(3),np.array([0.,.24,0.])
+        paths,_ = forecast._rollout(np.tile(target,(3,1)),pose,velocity)
+        actual = [pose[:2].copy()]
+        for tick in range(10):
+            cmd = np.array(execution.plan(pose,velocity,target,[],tick*.2).command)
+            cmd[1] *= config.lateral_tracking_gain
+            for _ in range(2):
+                velocity += np.clip(cmd-velocity,-config.acceleration*.1,config.acceleration*.1)
+                pose += velocity*.1
+                actual.append(pose[:2].copy())
+        np.testing.assert_allclose(paths[0,:len(actual)],actual,atol=1e-9)
+
+    def test_incoming_collision_requests_a_sustained_lateral_target_promptly(self):
+        planner = Planner(Config(speed=.5,tracking_gain=.85,lateral_tracking_gain=.6))
+        result = planner.plan((0,0,0),(0,0,0),(.45,0,0),
+                              [obstacle(2.,0.,vx=-.5,radius=.25,uncertainty=.05)],0.,(6.,0.))
+        self.assertEqual(result.mode,'evade')
+        self.assertGreater(abs(result.command[1]),.25)
+        self.assertLessEqual(abs(result.command[1]),.4)
+        self.assertGreaterEqual(result.clearance,0.)
+        # A target step never means teleporting to the target physical speed.
+        paths,_ = planner._rollout(np.tile(result.command,(3,1)),np.zeros(3),np.zeros(3))
+        speed = np.diff(paths[0],axis=0)/planner.config.dt
+        np.testing.assert_allclose(speed[:planner.delay_steps],0.)
+        acceleration = np.linalg.norm(np.diff(speed,axis=0),axis=1)/planner.config.dt
+        self.assertLessEqual(acceleration.max(),planner.config.acceleration+1e-9)
+
     def test_existing_forecast_margin_violation_can_escape_but_cannot_remain(self):
         item = obstacle(.75,0.,uncertainty=.15)
         planner = Planner()
@@ -110,12 +144,51 @@ class PredictiveMpc(unittest.TestCase):
 
     def test_trapped_scene_requests_zero_and_alert(self):
         planner = Planner()
-        # Existing overlap is deliberately infeasible: no predicted escape may certify it.
-        result = planner.plan((0, 0, 0), (.1, 0, 0), (.25, 0, 0), [obstacle(.5, 0)], 0)
+        # Boxed in: every step deepens an intrusion that standing only grazes.
+        box = [obstacle(.72*math.cos(a),.72*math.sin(a))
+               for a in np.linspace(0,2*math.pi,10,endpoint=False)]
+        result = planner.plan((0, 0, 0), (0, 0, 0), (.25, 0, 0), box, 0)
         self.assertEqual(result.command, (0., 0., 0.))
         self.assertEqual(result.mode, 'blocked')
         self.assertTrue(result.alert)
         self.assertLess(result.clearance, 0)
+
+    def test_existing_overlap_is_left_with_an_alert_rather_than_held(self):
+        planner = Planner()
+        item = obstacle(.5, 0)
+        # No predicted escape can certify this overlap, but standing keeps it forever.
+        result = planner.plan((0, 0, 0), (.1, 0, 0), (.25, 0, 0), [item], 0)
+        self.assertEqual(result.mode, 'evade')
+        self.assertEqual(result.solver, 'least_intrusion')
+        self.assertTrue(result.alert)
+        self.assertLess(result.clearance, 0)
+        paths,_ = planner._rollout(np.tile(result.command,(3,1)),np.zeros(3),np.array([.1,0,0]))
+        separation = np.linalg.norm(paths[0]-[item.x,item.y],axis=1)
+        self.assertGreater(separation[int(2/planner.config.dt)], .5)
+
+    def test_does_not_freeze_in_front_of_an_incoming_object(self):
+        # Recorded crowd contacts: nothing was certifiably clear, so the old
+        # fallback stood still while a non-yielding actor walked into the robot.
+        config = Config(speed=.5,tracking_gain=.85,lateral_tracking_gain=.6)
+        planner = Planner(config)
+        pose,velocity,person = np.zeros(3),np.zeros(3),np.array([0.,1.3,0.,-.55])
+        pending = [np.zeros(3)]*int(round(config.response_delay/.1))
+        minimum, modes = math.inf, []
+        for tick in range(25):
+            track = obstacle(*person,radius=.33,uncertainty=.05)
+            result = planner.plan(pose,velocity,(.5,0,0),[track],tick*.2,(6.,0.))
+            modes.append(result.mode)
+            gain = np.array([config.tracking_gain,config.lateral_tracking_gain,1.])
+            for _ in range(2):
+                pending.append(np.array(result.command)*gain)
+                velocity += np.clip(pending.pop(0)-velocity,-config.acceleration*.1,config.acceleration*.1)
+                pose[:2] += velocity[:2]*.1
+                person[:2] += person[2:]*.1
+                minimum = min(minimum,math.hypot(*(person[:2]-pose[:2])))
+        # Moves at once, while the actor approaches. Standing would let the
+        # actor's centre pass within 0.0 m of the robot's.
+        self.assertEqual(modes[:8],['evade']*8)
+        self.assertGreater(minimum,config.robot_radius+.2)
 
     def test_swept_collision_is_detected_between_time_samples(self):
         planner = Planner()
