@@ -54,6 +54,8 @@ python3 record.py person-front-2m --seconds 20 --note "someone standing 2.0 m st
 | `person-walk` | someone walking around the robot 1–3 m away | 30 s |
 | `arms-*` | other arm poses, only if the operator sets them | 15 s each |
 
+With Unitree's `lidar_driver` service on (the lidar then sends PC2 nothing directly),
+record its DDS topics instead: `--source dds` (shared, so viewers can run meanwhile).
 Full captures are about 175 MB a minute; `--headers-only` keeps only packet headers
 (timing and loss, about 100 KB/s).
 

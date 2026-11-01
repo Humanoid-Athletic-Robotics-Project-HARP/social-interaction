@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T23:41:56Z
+  updated: 2026-11-01T23:45:05Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
@@ -50,6 +50,9 @@ Switching changes the robot for everyone: ask first.
   (`PointCloud2_`, 9.4 Hz, 20,064 points, in the lidar's own upside-down frame; x y z
   intensity ring time; stamped about 0.1 s behind PC2's clock) and
   `rt/utlidar/imu_livox_mid360`. Off again: ServiceSwitch("lidar_driver", False).
+  Over DDS it loses clouds the raw stream didn't: 19 of 158 intervals over 1.5 periods,
+  up to 0.5 s (`dds-trial-20s`, read by Python beside the hybrid viewer), and it passes
+  almost nothing within 30° of ahead (0–2 returns a cloud, raw 36).
   Long runs beside HARP's harness are untested.
 - `unitree_slam`, `auto_test_*`, `ota_box` off; `state_estimator`, the videohubs on.
 - Colour: `videohub` answers any number of programs (GetImageSample: 1920×1080 JPEG,

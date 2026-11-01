@@ -1,6 +1,6 @@
 """Reads a capture folder written by record.py: the MID-360's raw Livox SDK2 packets,
 decoded into 100 ms clouds of points, its IMU, its status messages, and the robot's
-low state.
+low state; or, with --source dds, Unitree's lidar_driver clouds and IMU (read_dds).
 
 Packets (Livox SDK2, as this lidar sends them): a 36-byte header (version, length,
 time_interval in 0.1 us, dot_num, udp_cnt, frame_cnt, data_type, time_type, crc32,
@@ -142,13 +142,59 @@ class Capture:
     def __init__(self, folder):
         self.folder = Path(folder)
         self.meta = json.loads((self.folder / "meta.json").read_text())
+        self.source = self.meta.get("source", "udp")
         self.headers_only = self.meta.get("headers_only", False)
+        self.lowstate = read_table(self.folder / "lowstate.csv")
+        if self.source == "dds":
+            self.read_dds()
+            return
         by_port = packets((self.folder / "udp.bin").read_bytes())
         self.status = [decode_status(p) for p in by_port.get(56201, ([], []))[1]]
         self.status_arrival_ns = by_port.get(56201, (np.zeros(0, np.int64), []))[0]
         self.read_points(*by_port.get(56301, (np.zeros(0, np.int64), [])))
         self.read_imu(*by_port.get(56401, (np.zeros(0, np.int64), [])))
-        self.lowstate = read_table(self.folder / "lowstate.csv")
+
+    def read_dds(self):
+        """A capture of Unitree's lidar_driver topics: each cloud is one frame, its points
+        put in the raw stream's layout (mm; reflectivity from intensity; time added to the
+        cloud's stamp). No packets, packet counters or status messages over DDS."""
+        lay = self.meta.get("layout")
+        if lay is None:
+            raise ValueError(f"{self.folder}: no clouds were recorded")
+        index = np.loadtxt(self.folder / "clouds.csv", delimiter=",", skiprows=1, dtype=np.int64, ndmin=2)
+        arrival, stamp, offset, nbytes = index[:, 0], index[:, 1], index[:, 2], index[:, 3]
+        order = ">" if lay["is_bigendian"] else "<"
+        fields = {f["name"]: f for f in lay["fields"]}
+        names = [n for n in ("x", "y", "z", "intensity", "time") if n in fields and fields[n]["datatype"] == 7]
+        dtype = np.dtype({"names": names, "formats": [order + "f4"] * len(names),
+                          "offsets": [fields[n]["offset"] for n in names], "itemsize": lay["point_step"]})
+        raw = np.memmap(self.folder / "clouds.bin", dtype=np.uint8, mode="r")
+        self.t0 = int(stamp[0])
+        self.t = (stamp - self.t0) * 1e-9
+        self.arrival = (arrival - arrival[0]) * 1e-9
+        self.packet_t, self.packet_arrival, self.packet_arrival_ns = self.t, self.arrival, arrival
+        self.header, self.status, self.status_arrival_ns = None, [], np.zeros(0, np.int64)
+        clouds, times, counts = [], [], []
+        for t, o, n in zip(self.t, offset, nbytes):
+            c = np.frombuffer(raw[o:o + n], dtype, n // lay["point_step"])
+            rec = np.zeros(len(c), POINT)
+            for axis in "xyz":
+                rec[axis] = np.round(np.nan_to_num(c[axis]) * 1000)
+            if "intensity" in names:
+                rec["reflectivity"] = np.clip(c["intensity"], 0, 255)
+            clouds.append(rec)
+            times.append(t + (c["time"] if "time" in names else 0.0))
+            counts.append(len(c))
+        self.points = np.concatenate(clouds)
+        self.point_t = np.concatenate(times).astype(np.float64)
+        self.point_start = np.r_[0, np.cumsum(counts)]
+        self.frame_start = np.arange(len(counts))
+        self.frame_end = self.frame_start + 1
+        imu = read_table(self.folder / "imu.csv")
+        if imu:
+            imu["arrival_ns"] = imu["arrival_ns"].astype(np.int64)
+            imu["stamp_ns"] = imu["stamp_ns"].astype(np.int64)
+        self.imu = imu
 
     def read_points(self, arrival, data):
         if not data:

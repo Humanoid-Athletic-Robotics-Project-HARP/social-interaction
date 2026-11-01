@@ -125,7 +125,8 @@ class Report:
         self.section("The lidar (its status messages)")
         status = [s for s in self.c.status if s]
         if not status:
-            self.out("No status messages.")
+            self.out("None: Unitree's lidar_driver doesn't pass them on over DDS." if self.c.source == "dds"
+                     else "No status messages.")
             return
         first, last = status[0], status[-1]
         rows = [[k, v if k not in ("core_temp", "local_time_now") or v == last.get(k)
@@ -136,6 +137,9 @@ class Report:
     def stream(self):
         c, h, m = self.c, self.c.header, self.c.meta
         self.section("The stream")
+        if h is None:
+            self.dds_stream()
+            return
         seconds = c.packet_t[-1]
         lost = int(np.sum((np.diff(h["udp_cnt"].astype(np.int64)) - 1) % 65536))
         dots = h["dot_num"]
@@ -163,9 +167,40 @@ class Report:
                                 sorted(zip(u, n), key=lambda x: -x[1])[:6])
                 self.out(f"- `{name}`: {len(u)} values, {v.min()} to {v.max()}; most common {top}.")
 
+    def dds_stream(self):
+        """A capture of Unitree's lidar_driver topics: clouds, not packets."""
+        c, m = self.c, self.c.meta
+        lay = m["layout"]
+        dt = np.diff(c.t)
+        period = np.median(dt) if len(dt) else float("nan")
+        gaps = int(np.count_nonzero(dt > 1.5 * period)) if len(dt) else 0
+        per = c.point_start[1:] - c.point_start[:-1]
+        valid = [len(p) for p in self.clouds]
+        self.out(f"- From Unitree's lidar_driver over DDS ({m['topics']['cloud']}): {len(c)} clouds, "
+                 f"{1 / period:.2f} Hz; {gaps} gaps over 1.5 periods (a cloud lost or late).",
+                 f"- Frame `{lay['frame_id']}`, {lay['point_step']} bytes a point, fields "
+                 f"{', '.join(f['name'] for f in lay['fields'])}; layout changed in "
+                 f"{m.get('layout_changes', 0)} clouds.",
+                 f"- Per cloud: {stats(per, 0)} points, of which returns {stats(valid, 0)}.")
+        if c.imu:
+            n = len(c.imu["stamp_ns"])
+            span = (c.imu["stamp_ns"][-1] - c.imu["stamp_ns"][0]) * 1e-9
+            self.out(f"- IMU samples: {n}, {(n - 1) / span:.0f} Hz.")
+        sample = np.concatenate([c.cloud(i) for i in self.sample[:20]])
+        v = sample["reflectivity"]
+        self.out(f"- `intensity` (as reflectivity): {v.min()} to {v.max()}, median {np.median(v):.0f}.")
+
     def timing(self):
         c = self.c
         self.section("Timing")
+        if c.header is None:
+            dt, da = np.diff(c.t), np.diff(c.arrival)
+            offset = (c.packet_arrival_ns - (c.t * 1e9 + c.t0)) * 1e-9
+            self.out(f"- Between clouds, by their stamps: {stats(dt * 1e3, 1)} ms; between "
+                     f"arrivals on PC2: {stats(da * 1e3, 1)} ms.",
+                     f"- PC2's clock minus the clouds' stamps: {stats(offset * 1e3, 0)} ms "
+                     "(lidar_driver stamps with a clock about 0.1 s behind PC2's).")
+            return
         dt = np.diff(c.packet_t)
         da = np.diff(c.packet_arrival)
         ti = c.header["time_interval"] * 1e-7
