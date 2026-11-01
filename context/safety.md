@@ -3,7 +3,7 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-10-31T09:38:15Z
+  updated: 2026-11-01T02:49:44Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
@@ -13,6 +13,8 @@ metadata:
 - HIM's own docs: physical stopping is not yet accepted (a jerky T-pose stop shut down a joint).
 
 **Our part:** answer every `/safety/policy_state` within 0.2 s (keep heavy work out of the policy process and at lower priority: [[submission-image]]); `/cmd_vel` drives the walker and goes to zero after 0.5 s of silence; moves and Nav2 stop by sending zero, and GR00T balances.
+
+Planned moves end their plan and request zero on lost valid odometry ([[planned-moves]]).
 
 Normal straight-walk speed ramps ([[planned-moves]]) never delay the target/timeout zero request. The waypoint recorder ([[waypoint-recorder]]) only reads odometry; exiting it does not stop the active movement program.
 

@@ -7,6 +7,7 @@ create a ROS node or publish. The point-mass loop is a command model, not GR00T.
 import math
 import unittest
 from unittest.mock import patch
+from nav_msgs.msg import Odometry
 
 from harp.moves import Moves, RATE, SETTLE, WALK_ACCEL, WALK_DECEL, WALK_MIN_SPEED
 
@@ -16,6 +17,7 @@ def walking(distance=1.0, speed=0.4):
     moves.moves, moves.index = [("walk", distance)], 0
     moves.speed, moves.turn_speed = speed, 0.3
     moves.pose = moves.start = (0.0, 0.0, 0.0)
+    moves.odom_time = 10.0
     moves.heading = moves.start_heading = 0.0
     moves.cmd = [0.0, 0.0]
     moves.phase, moves.give_up_at = "moving", 1000.0
@@ -120,10 +122,67 @@ class MoveTermination(unittest.TestCase):
         with patch("harp.moves.time.monotonic", return_value=10.0):
             moves.step()
         with patch("harp.moves.time.monotonic", return_value=13.0):
+            moves.odom_time = 13.0
             moves.step()
             moves.step()
         self.assertEqual(moves.index, 1)
         self.assertAlmostEqual(moves.sent[-1][0], -WALK_ACCEL / RATE)
+
+
+class FeedbackWatchdog(unittest.TestCase):
+    def test_start_waits_for_fresh_feedback(self):
+        for received in (None, 9.0):
+            moves = walking()
+            moves.phase, moves.next_at, moves.odom_time = "waiting", 0.0, received
+            with patch("harp.moves.time.monotonic", return_value=10.0):
+                moves.step()
+            self.assertEqual(moves.sent, [[0.0, 0.0]])
+            self.assertEqual(moves.phase, "waiting")
+
+    def test_lost_feedback_stops_every_move_type_without_ramping(self):
+        for move in (("walk", 1.0), ("turn", 1.0), ("to", (1.0, 1.0, 45.0))):
+            with self.subTest(move=move):
+                moves = walking()
+                moves.moves, moves.cmd = [move], [0.4, 0.3]
+                with patch("harp.moves.time.monotonic", return_value=10.51):
+                    moves.step()
+                self.assertEqual(moves.sent, [[0.0, 0.0]])
+                self.assertEqual(moves.phase, "done")
+                self.assertEqual(moves.events[0][0], "odom_timeout")
+
+    def test_lost_feedback_during_settling_blocks_the_next_move(self):
+        moves = walking()
+        moves.moves.append(("walk", -1.0))
+        moves.phase, moves.next_at = "settling", 10.1
+        with patch("harp.moves.time.monotonic", return_value=11.0):
+            moves.step()
+        self.assertEqual(moves.index, 0)
+        self.assertEqual(moves.phase, "done")
+        self.assertEqual(moves.events[0][0], "odom_timeout")
+
+    def test_invalid_feedback_does_not_refresh_or_change_pose(self):
+        for x, z, w in ((float("nan"), 0.0, 1.0), (0.0, float("inf"), 1.0), (0.0, 0.0, 0.0)):
+            moves, msg = walking(), Odometry()
+            msg.pose.pose.position.x = x
+            msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = z, w
+            with patch("harp.moves.time.monotonic", return_value=10.4):
+                moves.on_odom(msg)
+            self.assertEqual(moves.odom_time, 10.0)
+            self.assertEqual(moves.pose, (0.0, 0.0, 0.0))
+
+    def test_valid_feedback_refreshes_receipt_and_fault_does_not_resume(self):
+        moves, msg = walking(), Odometry()
+        msg.pose.pose.orientation.w = 1.0
+        with patch("harp.moves.time.monotonic", return_value=10.4):
+            moves.on_odom(msg)
+            moves.step()
+        self.assertGreater(moves.sent[-1][0], 0)
+        with patch("harp.moves.time.monotonic", return_value=11.0):
+            moves.step()
+            moves.on_odom(msg)
+            moves.step()
+        self.assertEqual(moves.sent[-1], [0.0, 0.0])
+        self.assertEqual(moves.phase, "done")
 
 
 if __name__ == "__main__":

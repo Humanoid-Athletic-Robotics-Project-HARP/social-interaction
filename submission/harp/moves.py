@@ -24,7 +24,7 @@ wherever the last one ended, so errors carry over. A move that takes much
 longer than expected, or a turn that goes over 10 deg the wrong way, stops the
 rest. Stops, falls and damping are HIM's. Events on /harp/events: move_start,
 move_done (target, estimate: x, y forward/left of the move's start and heading
-in degrees, from leg odometry), move_timeout or wrong_way, then all_moves_done;
+in degrees, from leg odometry), move_timeout, odom_timeout or wrong_way; all_moves_done only on success;
 each with the move's number and sim_time when HIM's sim gives one.
 """
 
@@ -46,6 +46,7 @@ MAX_SPEED = 0.4           # m/s, hard cap no matter what is passed in
 MAX_TURN_SPEED = 30.0     # deg/s, hard cap no matter what is passed in
 SETTLE = 2.0              # s before the first move, between moves and after the last
 RATE = 50.0               # Hz of /cmd_vel
+ODOM_TIMEOUT = 0.5       # s without valid position feedback ends an active plan
 WRONG_WAY_LIMIT = math.radians(10.0)  # stop if a turn goes this far the wrong way
 HEADING_GAIN = 1.5        # rad/s of turn per rad of heading error, during walks
 MAX_HEADING_CORRECTION = 0.3  # rad/s, cap on that correction
@@ -110,6 +111,7 @@ class Moves:
         self.speed, self.turn_speed = speed, turn_speed
         self.index = 0
         self.pose = None          # x, y, yaw from /odom
+        self.odom_time = None     # monotonic receipt of the last valid pose
         self.heading = 0.0        # unwrapped yaw, for turns past 180 deg
         self.sim_time = None
         self.ready_at = None      # monotonic time of HIM's handoff
@@ -140,10 +142,13 @@ class Moves:
 
     def on_odom(self, msg):
         p, o = msg.pose.pose.position, msg.pose.pose.orientation
+        if not all(math.isfinite(v) for v in (p.x, p.y, o.z, o.w)) or math.hypot(o.z, o.w) == 0:
+            return  # Invalid feedback must not refresh the watchdog or poison the pose.
         yaw = 2.0 * math.atan2(o.z, o.w)
         if self.pose is not None:
             self.heading += wrap_angle(yaw - self.pose[2])
         self.pose = (p.x, p.y, yaw)
+        self.odom_time = time.monotonic()
 
     def begin(self):
         kind, value = self.moves[self.index]
@@ -224,7 +229,15 @@ class Moves:
                 toward(self.cmd[1], w, CURVE_TURN_ACCEL / RATE)]
 
     def step(self):
+        if self.phase == "done":
+            return
         now = time.monotonic()
+        if self.odom_time is None or now - self.odom_time > ODOM_TIMEOUT:
+            if self.phase == "waiting":
+                self.send()  # Hold zero until the first fresh pose and handoff.
+            else:
+                self.stop_all("odom_timeout", *self.moves[self.index])
+            return
         if self.phase in ("waiting", "settling"):
             self.send()
             if self.next_at is None or now < self.next_at or self.pose is None:

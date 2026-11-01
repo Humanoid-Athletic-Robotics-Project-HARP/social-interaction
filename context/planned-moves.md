@@ -3,13 +3,15 @@ name: planned-moves
 description: Read when changing or debugging planned moves (harp/moves.py, G1_TASK_COMMAND), the curve law or leg odometry, or when you need their accuracy
 metadata:
   type: reference
-  updated: 2026-10-31T09:37:20Z
+  updated: 2026-11-01T02:49:44Z
   covers: [submission/harp/moves.py, submission/harp/smooth_control.py, submission/harp/leg_odometry.py, submission/tests/test_moves.py]
 ---
 
 Usage: README "Run it in the sim" and `harp/moves.py`'s docstring. Moves run in order, 2 s apart, each from where the last ended (errors carry over); speeds are capped at 0.4 m/s and 30°/s.
 
 **Walks** hold the starting heading and ramp speed requests by `WALK_ACCEL / RATE` per update. Their approach speed follows the braking envelope `sqrt(2 * WALK_DECEL * remaining)`, with a walking floor bounded by the requested speed, so GR00T does not switch to Balance short of the target. Once there, or on timeout, zero is immediate; smoothing never delays a fault stop. Constants live in `harp/moves.py`. Ramp-up briefly passes through the policy's deadband; requests entirely below that deadband can still time out. The deadline remains finite. **Turns** stop on angle, and stop everything if they go 10° the wrong way. **Curves** (`"to"`) use Park & Kuipers' smooth control law (ICRA 2011), the same law and gains as Nav2's Graceful Controller: one forward curve ending at the target heading, slowing on sharp curves and near the point (at least 0.1 m/s, above GR00T's 0.05 Balance switch), then a turn in place if over 5° off. Never sideways: a close point to the side takes a small loop. Points under 0.16 m are refused. A curve counts as there within 8 cm, so use `"walk"` for straight distance. A move that takes far longer than expected stops the rest (`move_timeout`).
+
+**Feedback guard:** planned moves wait for a valid pose. A gap over `ODOM_TIMEOUT` in valid pose receipts ends an active/settling plan with immediate zero and `odom_timeout`; later feedback does not resume it. Invalid positions or yaw quaternions do not refresh receipt time. This is an arrival watchdog, not a check of sensor acquisition age.
 
 **Leg odometry** (`harp/leg_odometry.py`, our `/odom` in the sim and on the robot): heading from the pelvis IMU; position from MuJoCo forward kinematics of HIM's G1, taking the lower foot as planted. On the step where the planted foot switches it uses the previous planted foot; otherwise each switch dropped that step's motion (about 7% short over a walk).
 
