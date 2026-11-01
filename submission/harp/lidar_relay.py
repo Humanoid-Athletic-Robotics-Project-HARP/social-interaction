@@ -1,17 +1,22 @@
 """The robot's head lidar into our ROS 2 graph, for Nav2 on the robot (in the sim,
 harp/lidar.py stands in for it). entrypoint.sh starts it outside the sim.
 
-On the G1, Unitree's lidar service publishes rt/utlidar/cloud_livox_mid360
-(PointCloud2, 10 Hz, livox_frame) on the robot's DDS domain (ROBOT_DOMAIN, 0)
+On the G1, Unitree's lidar service (lidar_driver, which must be switched on:
+context/robot-pc2.md) publishes rt/utlidar/cloud_livox_mid360 (PointCloud2, about
+9.4 Hz, livox_frame) on the robot's DDS domain (ROBOT_DOMAIN, 0)
 over its network (ROBOT_INTERFACE, eth0), which HIM's launcher passes to our
 image; our ROS 2 runs on HIM's localhost graph instead. This reads the cloud
 through Unitree's SDK (its own CycloneDDS beside ROS's Fast DDS) and publishes
 it unchanged except for the time: the robot stamps it with its own clock, and
 Nav2 needs stamps that match /tf, so each cloud gets its arrival time (at most
-about 50-100 ms late).
+about 50-100 ms late). It also publishes the cloud turned 180 deg about the lidar's z
+(lidar_mount.REAR_FRAME, +x pointing back), which Nav2's clearing reads so that its
+view, which STVL centres on +x, can leave out the blind cone ahead; the sim lidar
+publishes both the same way.
 
   Subscribes  rt/utlidar/cloud_livox_mid360  (DDS, the robot's domain)
   Publishes   /utlidar/cloud_livox_mid360    sensor_msgs/PointCloud2, restamped
+              /utlidar/cloud_rear            the same in livox_rear
 """
 
 import array
@@ -21,21 +26,41 @@ import signal
 import sys
 import time
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2, PointField
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
 from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
 
+from harp import lidar_mount
+
 ROBOT_TOPIC = "rt/utlidar/cloud_livox_mid360"   # Unitree's lidar service
-TOPIC = "/utlidar/cloud_livox_mid360"           # what Nav2 reads
+TOPIC = lidar_mount.TOPIC                       # what Nav2 marks with
 QUIET = 5.0   # s without a cloud before warning
+
+
+def turned(data, fields, point_step, bigendian):
+    """A cloud's point bytes with x and y negated (turned 180 deg about z); every other
+    field (intensity, ring, time) left as it is."""
+    points = np.frombuffer(bytes(data), np.uint8).copy()
+    points = points[:len(points) - len(points) % point_step].reshape(-1, point_step)
+    kind = ">f4" if bigendian else "<f4"
+    for f in fields:
+        if f.name in ("x", "y"):
+            if f.datatype != PointField.FLOAT32:
+                raise ValueError("x and y must be float32")
+            column = points[:, f.offset:f.offset + 4].copy().view(kind)
+            # negating gives native byte order: back to the cloud's before the bytes go in
+            points[:, f.offset:f.offset + 4] = (-column).astype(kind).view(np.uint8)
+    return points.tobytes()
 
 
 class LidarRelay(Node):
     def __init__(self):
         super().__init__("lidar_relay")
         self.pub = self.create_publisher(PointCloud2, TOPIC, 10)
+        self.rear_pub = self.create_publisher(PointCloud2, lidar_mount.REAR_TOPIC, 10)
         self.last = None              # time.monotonic() of the last cloud
         self.quiet_since = time.monotonic()
         self.create_timer(1.0, self.check_quiet)
@@ -51,8 +76,18 @@ class LidarRelay(Node):
                       for f in msg.fields]
         out.is_bigendian, out.is_dense = msg.is_bigendian, msg.is_dense
         out.point_step, out.row_step = msg.point_step, msg.row_step
-        out.data = array.array("B", bytes(msg.data))  # array.array, not bytes: Foxy's rclpy checks bytes one by one (124 ms for 800 KB, 1 ms this way)
+        # array.array, not bytes: Foxy's rclpy checks bytes one by one (about 70 ms a cloud)
+        out.data = array.array("B", bytes(msg.data))
         self.pub.publish(out)
+        rear = PointCloud2(height=out.height, width=out.width, fields=out.fields,
+                           is_bigendian=out.is_bigendian, point_step=out.point_step,
+                           row_step=out.row_step, is_dense=out.is_dense)
+        rear.header.stamp, rear.header.frame_id = out.header.stamp, lidar_mount.REAR_FRAME
+        try:
+            rear.data = array.array("B", turned(msg.data, out.fields, out.point_step, out.is_bigendian))
+            self.rear_pub.publish(rear)
+        except ValueError as e:
+            print(f"No rear cloud: {e}.", flush=True)
         if self.last is None:
             offset = now.nanoseconds * 1e-9 - (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
             print(f"Lidar: {msg.width * msg.height} points in {msg.header.frame_id}, fields "

@@ -1,53 +1,52 @@
 ---
 name: sim-vs-real
-description: Read before trusting a sim result for anything ahead of the robot, or before changing the sim lidar, adding a sim camera, Nav2's sensors, approach_stop or person detection — where the sim's sensors differ from the real G1's and what each gap breaks
+description: Read before trusting a sim result, especially anything ahead of the robot, or before changing the sim's lidar or camera, Nav2's sensors, approach_stop or person detection — what the sim models of the real G1's sensors, what it doesn't, and how to close each gap
 metadata:
   type: project
-  updated: 2026-11-01T23:14:38Z
-  covers: [submission/harp/lidar.py, submission/harp/approach_stop.py, submission/nav2/nav2_params.yaml]
+  updated: 2026-11-01T23:31:38Z
+  covers: [submission/harp/lidar.py, submission/harp/depth_camera.py, submission/harp/camera_mount.py, submission/harp/lidar_mount.py, submission/harp/lidar_relay.py, submission/harp/approach_stop.py, submission/nav2/nav2_params.yaml]
 ---
 
-Measured on the robot 2026-11-01 ([[g1-lidar-measured]], [[g1-head-camera]],
-[[g1-sensor-fusion]]) against `harp/lidar.py` and HIM's G1 model.
+The sim is **not a 1:1 of the robot's sensors**: geometry, rates and the blind cone
+match; posture, sensor detail and some robot-side plumbing don't. Measured on the robot
+2026-11-01 ([[g1-lidar-measured]], [[g1-head-camera]], [[g1-sensor-fusion]]). Course
+results with these sensors: [[nav2-sim]]. How to see ahead anyway: [[seeing-ahead-research]].
 
-**Gaps** (sim → robot):
-- **Lidar sees through the head.** The head's geoms belong to `torso_link`, which
-  `lidar.py` excludes from its rays, so the sim sees all around; the robot is nearly
-  blind ±50° around the front (0.3% of returns within ±30°, about 1.5% at 30–60°).
-- **No camera in the sim** (HIM's model has none); the robot's depth camera is the
-  only sensor ahead, and only near and low.
-- Lidar data: the sim publishes `/utlidar/cloud_livox_mid360` itself; the robot sends
-  raw Livox UDP to PC2 unless Unitree's `lidar_driver` runs, which publishes it on DDS for
-  `harp/lidar_relay.py` ([[robot-pc2]]).
-- Smaller: the sim drops 5% of rays, the robot 43% (no echo); sim rays are an even
-  grid at one instant, the robot's a wandering pattern over 100 ms (smears when
-  turning). The mount, height and floor ring (seen from about 0.8–1.0 m) match.
+**Modelled** (`harp/lidar.py`, `harp/depth_camera.py`, both cast from one state):
+- Both mounts from the rev 1.0 URDF on `torso_link`, following the torso's live tilt.
+- Lidar: −7° to +52° in its frame, upside down; the blind cone as shares of rays kept
+  (`BLIND`: 3% within ±30° of ahead, 15% at 30–60°; robot 0.6% / 3.1%, sim 0.9% / 3.7%);
+  200,000 random rays a second over each 100 ms scan, 10 Hz, smeared by motion; 15%
+  no-echo outside the cone; 2 cm range noise; the arms and shoulders in the cloud.
+- Camera: 87° × 58° nominal, 47.6° down, 15 Hz, 0.2 m minimum, depth noise growing
+  with distance², 15% random dropout, optical frame on `/camera/depth/points`.
+- Both in Nav2's STVL costmaps; lidar clearing only over the 260° it sees (its cloud
+  turned 180° on `/utlidar/cloud_rear`); `approach_stop.py` uses the nearer of both.
 
-**What breaks on the robot, though it passes in the sim:**
-- `approach_stop.py`: its strip (±0.7 m, out to 6 m, 0.3–1.8 m up) is inside the
-  blind cone beyond 0.6 m and inside `BODY` nearer, so it never sees someone walking
-  straight at the robot.
-- Nav2: obstacles straight ahead aren't marked until they are about 50° off the nose
-  (STVL then remembers them 15 s); course scores in the sim overstate the robot.
-- The README's person-detection milestone ("on the D435i, out to 4 m"): the camera
-  sees nothing past 2.7 m and only legs nearer (up to 0.79 m at 1 m, 0.33 m at 2 m).
+**Not modelled, biggest effect first** (each: effect; how to close):
+1. **Posture.** The sim torso leans 1.6° forward (−1.8° to +1.8°, `runs/*_one_box_real-sensors-2`),
+   the real one about 6° (not under GR00T yet): the sim camera sees the floor to about
+   3.3 m, the robot's 2.7 m, so seeing ahead is optimistic. Measure the lean on the first
+   GR00T run on the robot; if still about 6°, add the difference to the sim mounts.
+2. **Blind cone by elevation.** The sim keeps the same share at every elevation; the
+   robot's few returns ahead are floor about 1.2 m out (low rays get under the face).
+   Measure per elevation from a capture (`testground/lidar/`), make `BLIND` 2-D.
+3. **Camera dropout and detail.** Sim: 106 × 60 rays, random holes; robot: 848 × 480,
+   holes in patches (edges, dark, shiny, glass, sunlight). Thin or dark things may vanish
+   on the robot but not in the sim. Denser grid; holes by surface or edge.
+4. **No colour camera** in the sim: person detection (YOLO) can't be tested there; use
+   recorded colour from `videohub` ([[robot-pc2]]).
+5. **Lidar pattern and returns.** Uniform random rays (Livox's is uneven); every surface
+   reflects (no glass, dark or far misses); no intensity, no lidar IMU, no 0.1 s delay.
+6. **Unmeasured on the robot, guessed in the sim:** lidar range noise and camera depth
+   noise (needs the tape-measured wall test, `testground/lidar/README.md`), the camera's
+   real intrinsics (nominal 87° × 58° used on both sides).
 
-**In the sim now** (2026-11-01): the lidar's blind cone and real no-echo rate
-(`harp/lidar.py`, `BLIND`), its rays at random and cast over each 100 ms scan
-(200,000 a second, smeared by motion like the real one); a depth camera at 15 Hz cast
-from the same states at the URDF pose (`harp/depth_camera.py`, `/camera/depth/points`,
-optical frame, live TF from `harp/state.py`); both in Nav2's STVL costmaps, the
-lidar's clearing view leaving out its blind cone (its cloud republished in
-`livox_rear`, turned 180°, on `/utlidar/cloud_rear`); and `approach_stop.py` taking
-the nearer of the lidar's and the camera's point in its strip. Results: [[nav2-sim]].
-
-**Still different:** the sim robot stands upright, the real one leaned about 6°
-forward (posture under GR00T on the robot is unmeasured), so the sim camera sees the
-floor to about 3.6 m, the real one 2.7 m; the camera has no colour and casts an even
-grid; the lidar's rays are uniform over its field of view and every surface reflects.
-
-**Robot side to match:** `lidar_relay.py` from Unitree's `lidar_driver`, also
-publishing `/utlidar/cloud_rear`, and the depth camera into `/camera/depth/points` in
-the optical frame (`testground/camera/depth_node.py` does that, on its own ROS 2
-domain)
-([[seeing-ahead-research]]).
+**Robot side, done and tested:** the lidar from Unitree's `lidar_driver` through
+`harp/lidar_relay.py`, which publishes `/utlidar/cloud_livox_mid360` and
+`/utlidar/cloud_rear` (10 Hz each, run on PC2 outside the image, 2026-11-01); the depth
+camera from `testground/camera/depth_node.py` (`/camera/depth/points`, optical frame,
+15 fps). **Not done:** the depth node isn't in our image yet (`entrypoint.sh` starts only
+the relay on the robot), so Nav2 and `approach_stop.py` on the robot get no camera; nor
+the camera's TF on the robot beyond `harp/state.py`'s computed pose; nor Nav2 on the robot
+at all.

@@ -15,6 +15,8 @@ FRAME = "livox_frame"
 # livox_frame turned 180 deg about its z: its +x points back, where the lidar sees, so
 # Nav2's clearing view (centred on +x) can leave out the blind cone ahead
 REAR_FRAME = "livox_rear"
+TOPIC = "/utlidar/cloud_livox_mid360"   # the cloud, in FRAME
+REAR_TOPIC = "/utlidar/cloud_rear"      # the same, in REAR_FRAME
 
 
 def rpy_matrix(r, p, y):

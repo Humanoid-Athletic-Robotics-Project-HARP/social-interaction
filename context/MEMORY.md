@@ -23,7 +23,7 @@
 - [PC2](robot-pc2.md) — before logging in to the robot's Jetson or running anything on it
 - [The head camera](g1-head-camera.md) — before using the RealSense: what it sees ahead (near and low), how to read it
 - [Lidar + camera](g1-sensor-fusion.md) — before combining the lidar and camera depth: frame, offsets, how well they fit
-- [Sim vs robot sensors](sim-vs-real.md) — before trusting a sim result ahead of the robot, or changing the sim's sensors
+- [Sim vs robot sensors](sim-vs-real.md) — before trusting a sim result: what the sim does and does not model of the real sensors, and how to close each gap
 - [Seeing ahead](seeing-ahead-research.md) — when planning person detection or obstacle avoidance in front of the real robot
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack
 - [G1 official docs](g1-official-docs.md) — for a Unitree doc page, or the robot's address, login and sensors

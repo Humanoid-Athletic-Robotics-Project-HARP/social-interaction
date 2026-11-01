@@ -57,8 +57,8 @@ PERIOD = 0.1         # s of sim time between scans
 CAMERA_PERIOD = 1 / 15   # s of sim time between camera frames (the robot's at 15 fps)
 # Unitree's lidar service on the robot publishes rt/utlidar/cloud_livox_mid360
 # in livox_frame, so the sim uses the same names.
-TOPIC = "/utlidar/cloud_livox_mid360"
-REAR_TOPIC = "/utlidar/cloud_rear"   # the same cloud in lidar_mount.REAR_FRAME
+TOPIC = lidar_mount.TOPIC
+REAR_TOPIC = lidar_mount.REAR_TOPIC
 SCENE = "/harp/model/lidar_scene.xml"
 XYZ_FIELDS = [PointField(name=c, offset=4 * i, datatype=PointField.FLOAT32, count=1)
               for i, c in enumerate("xyz")]

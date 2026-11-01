@@ -78,8 +78,10 @@ unchanged, cloned next to this repo, and keep only our code here.
   they're in it: a moving-object detector (scans compared in `odom`, the
   points that moved grouped and their speed tracked).
 - 🟡 Robot: real lidar data in ROS 2, then the same walk. The lidar is
-  recorded and measured on the robot (`testground/lidar/`); next, read its
-  UDP stream to PC2 into ROS 2.
+  recorded and measured on the robot (`testground/lidar/`), and reaches ROS 2
+  through Unitree's `lidar_driver` service and `harp/lidar_relay.py` (tried on
+  PC2 outside our image); next, the head camera's depth in our image, then Nav2
+  on the robot.
 
 ### Find people and walk up to them
 
@@ -127,8 +129,9 @@ This has to happen before any of the "Robot" boxes above.
     courses without people.
   - ✅ Course tests, their scores and criteria, comparing runs, and each run's
     git commit (`course.py`).
-  - ⬜ The robot's lidar into ROS 2, from the Livox UDP stream it sends to PC2
-    (decoded in `testground/lidar/capture.py`).
+  - 🟡 The robot's lidar into ROS 2 (`harp/lidar_relay.py`, from Unitree's
+    `lidar_driver` service): both its clouds at 10 Hz on PC2, not yet in a
+    session through HARP's harness.
 - 🟡 Stopping from the remote: HARP's harness (double Start damps, double F3
   switches to its recovery policy, D-pad Left + B hands control to us).
   Robot: not yet tried.
