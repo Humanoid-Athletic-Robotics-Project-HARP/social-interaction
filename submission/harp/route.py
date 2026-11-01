@@ -18,7 +18,7 @@ course.py hands it to the image as G1_TASK_COMMAND {"route": {...}}, the same ma
 import math
 
 COUNT_CRITERIA = {"max_contacts", "max_recoveries"}
-NUMBER_CRITERIA = {"max_time_s", "min_clearance_m", "max_end_error_m"}
+NUMBER_CRITERIA = {"max_time_s", "min_clearance_m", "max_end_error_m", "max_speed_near_people_mps"}
 
 
 class Route:

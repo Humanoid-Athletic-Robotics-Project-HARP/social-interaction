@@ -18,8 +18,8 @@ APPROACH: a still obstacle entering the strip as the robot turns is one step, no
 several. Once standing, it also stays while the nearest point moved faster than MOVING
 over the WINDOW (someone walking across the strip, whose range has stopped shrinking),
 and stands until neither has held for CLEAR s. It also stands while
-no scan has come for LIDAR_TIMEOUT s, once one has (Nav2 on Foxy walks on with a dead
-lidar).
+no usable scan, speed feedback or live lidar transform has arrived within
+LIDAR_TIMEOUT s, including startup (Nav2 on Foxy walks on with a dead lidar).
 
 Events (policy.log, /harp/events): approach_stop (range m, closing m/s) and
 approach_go (stopped_s), and lidar_lost / lidar_back.
@@ -35,7 +35,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
@@ -64,12 +64,25 @@ def rotation(q):
 
 def xyz(cloud):
     """N x 3 float array of a PointCloud2's x, y, z, whatever else its points hold."""
-    offsets = {f.name: f.offset for f in cloud.fields}
-    layout = np.dtype({"names": ["x", "y", "z"], "formats": ["<f4"] * 3,
-                       "offsets": [offsets["x"], offsets["y"], offsets["z"]],
-                       "itemsize": cloud.point_step})
-    points = np.frombuffer(bytes(cloud.data), dtype=layout, count=cloud.width * cloud.height)
-    return np.stack([points["x"], points["y"], points["z"]], axis=1).astype(float)
+    fields = {f.name: f for f in cloud.fields}
+    formats, offsets = [], []
+    for name in ("x", "y", "z"):
+        field = fields.get(name)
+        if field is None or field.count != 1 or field.datatype not in (PointField.FLOAT32, PointField.FLOAT64):
+            raise ValueError("Cloud needs scalar float x/y/z fields")
+        size = 4 if field.datatype == PointField.FLOAT32 else 8
+        if field.offset < 0 or field.offset + size > cloud.point_step:
+            raise ValueError("Cloud field exceeds point_step")
+        formats.append((">" if cloud.is_bigendian else "<") + f"f{size}")
+        offsets.append(field.offset)
+    if (cloud.point_step <= 0 or cloud.row_step < cloud.width * cloud.point_step
+            or len(cloud.data) < cloud.height * cloud.row_step):
+        raise ValueError("Cloud has invalid row layout or truncated data")
+    layout = np.dtype({"names": ["x", "y", "z"], "formats": formats,
+                       "offsets": offsets, "itemsize": cloud.point_step})
+    points = np.ndarray((cloud.height, cloud.width), dtype=layout, buffer=bytes(cloud.data),
+                        strides=(cloud.row_step, cloud.point_step))
+    return np.stack([points[n].ravel() for n in ("x", "y", "z")], axis=1).astype(float)
 
 
 def nearest_ahead(points):
@@ -109,6 +122,7 @@ class ApproachStop:
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
         latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.events = node.create_publisher(String, "/harp/events", latched)
+        node.create_subscription(String, "/harp/events", self.on_event, latched)
         node.create_subscription(Twist, "/cmd_vel_nav", self.on_nav, 10)
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(TFMessage, "/tf", self.on_tf, 50)
@@ -116,10 +130,13 @@ class ApproachStop:
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         node.create_timer(PERIOD, self.on_timer)
         self.lidar = None           # (rotation, translation): livox_frame in base_link
+        self.lidar_time = None      # receipt of a valid dynamic lidar transform
+        self.odom_time = None       # receipt of valid speed feedback
         self.speed = 0.0            # m/s forward, from /odom
         self.history = deque(maxlen=WINDOW + 1)
         self.last_scan = None       # monotonic s of the last scan; None before the first
-        self.lost = False
+        self.lost = True
+        self.goal_failed = False   # latch route failure, including late goal acceptance
         self.stopped_at = None      # monotonic s it began standing for an approach
         self.last_coming = None
 
@@ -128,31 +145,63 @@ class ApproachStop:
         self.events.publish(String(data=text))
         print(text, flush=True)
 
+    def inputs_fresh(self, now):
+        return all(t is not None and now - t <= LIDAR_TIMEOUT
+                   for t in (self.last_scan, self.lidar_time, self.odom_time))
+
     def standing(self):
-        return self.stopped_at is not None or self.lost
+        return (self.goal_failed or self.stopped_at is not None or self.lost
+                or not self.inputs_fresh(time.monotonic()))
+
+    def on_event(self, msg):
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            return
+        if (isinstance(record, dict) and record.get("source") == "goal"
+                and record.get("event") == "goal_result" and record.get("status") != "SUCCEEDED"):
+            self.goal_failed = True
+            self.out.publish(Twist())  # A late acceptance/cancel timeout cannot resume this route.
 
     def on_nav(self, msg):
         self.out.publish(Twist() if self.standing() else msg)
 
     def on_odom(self, msg):
-        self.speed = msg.twist.twist.linear.x
+        speed = msg.twist.twist.linear.x
+        if np.isfinite(speed):
+            self.speed, self.odom_time = speed, time.monotonic()
 
     def on_tf(self, msg):
         for t in msg.transforms:
             if t.header.frame_id == "base_link" and t.child_frame_id == lidar_mount.FRAME:
                 q, p = t.transform.rotation, t.transform.translation
-                self.lidar = (rotation((q.x, q.y, q.z, q.w)), np.array([p.x, p.y, p.z]))
+                quat, shift = np.array([q.x, q.y, q.z, q.w]), np.array([p.x, p.y, p.z])
+                norm = np.linalg.norm(quat)
+                if np.isfinite(shift).all() and np.isfinite(norm) and norm > 1e-6:
+                    self.lidar = (rotation(quat / norm), shift)
+                    self.lidar_time = time.monotonic()
 
     def on_cloud(self, cloud):
         now = time.monotonic()
+        if (cloud.header.frame_id != lidar_mount.FRAME or self.lidar is None
+                or any(t is None or now - t > LIDAR_TIMEOUT
+                       for t in (self.lidar_time, self.odom_time))):
+            return
+        try:
+            turn, shift = self.lidar
+            points = xyz(cloud)
+            points = points[np.isfinite(points).all(axis=1)]
+            if not len(points):
+                return  # An empty/invalid scan cannot establish a clear scene.
+            nearest = nearest_ahead(points @ turn.T + shift)
+        except (ValueError, TypeError):
+            return  # Leave the last usable receipt unchanged; the watchdog holds zero.
+        if self.last_scan is None or now - self.last_scan > LIDAR_TIMEOUT:
+            self.history.clear()
         self.last_scan = now
         if self.lost:
             self.lost = False
             self.event("lidar_back")
-        if self.lidar is None:
-            return
-        turn, shift = self.lidar
-        nearest = nearest_ahead(xyz(cloud) @ turn.T + shift)
         self.history.append((now, nearest))
         hit, closing = coming(self.history, self.speed)
         if hit or (self.stopped_at is not None and moving(self.history)):
@@ -166,9 +215,9 @@ class ApproachStop:
             self.stopped_at = None
 
     def on_timer(self):
-        if (not self.lost and self.last_scan is not None
-                and time.monotonic() - self.last_scan > LIDAR_TIMEOUT):
+        if not self.lost and not self.inputs_fresh(time.monotonic()):
             self.lost = True
+            self.history.clear()
             self.event("lidar_lost")
         if self.standing():
             self.out.publish(Twist())
