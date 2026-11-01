@@ -9,7 +9,8 @@ import unittest
 from unittest.mock import patch
 from nav_msgs.msg import Odometry
 
-from harp.moves import Moves, RATE, SETTLE, WALK_ACCEL, WALK_DECEL, WALK_MIN_SPEED
+from harp.moves import (Moves, RATE, SETTLE, WALK_ACCEL, WALK_DECEL, WALK_MIN_SPEED,
+                        TURN_ACCEL, TURN_DECEL, TURN_MIN_SPEED, HEADING_TOLERANCE)
 
 
 def walking(distance=1.0, speed=0.4):
@@ -127,6 +128,81 @@ class MoveTermination(unittest.TestCase):
             moves.step()
         self.assertEqual(moves.index, 1)
         self.assertAlmostEqual(moves.sent[-1][0], -WALK_ACCEL / RATE)
+
+
+class TurnSpeed(unittest.TestCase):
+    def test_turns_ramp_in_both_directions_and_respect_cap(self):
+        for sign in (-1, 1):
+            moves = walking()
+            for _ in range(60):
+                previous = moves.cmd[1]
+                moves.cmd = moves.turn_command(sign * math.pi / 2)
+                self.assertGreater(sign * moves.cmd[1], 0)
+                self.assertLessEqual(abs(moves.cmd[1]), moves.turn_speed)
+                self.assertLessEqual(abs(moves.cmd[1] - previous), TURN_ACCEL / RATE + 1e-12)
+
+    def test_turns_slow_near_angle_without_stalling(self):
+        for sign in (-1, 1):
+            moves = walking()
+            moves.heading, moves.cmd = sign * (math.pi / 2 - 0.0001), [0.0, sign * 0.3]
+            for _ in range(60):
+                previous = abs(moves.cmd[1])
+                moves.cmd = moves.turn_command(sign * math.pi / 2)
+                self.assertLessEqual(previous - abs(moves.cmd[1]), TURN_DECEL / RATE + 1e-12)
+                self.assertGreaterEqual(abs(moves.cmd[1]), TURN_MIN_SPEED)
+            self.assertAlmostEqual(abs(moves.cmd[1]), TURN_MIN_SPEED)
+
+    def test_low_requested_turn_rate_is_not_raised_to_floor(self):
+        moves = walking()
+        moves.turn_speed = 0.08
+        for _ in range(40):
+            moves.cmd = moves.turn_command(0.01)
+            self.assertLessEqual(moves.cmd[1], 0.08)
+
+    def test_synthetic_turns_finish_including_past_180_degrees(self):
+        for sign in (-1, 1):
+            for degrees in (1, 30, 90, 180, 450):
+                with self.subTest(sign=sign, degrees=degrees):
+                    moves = walking()
+                    angle = sign * math.radians(degrees)
+                    for _ in range(5000):
+                        cmd = moves.turn_command(angle)
+                        if cmd is None:
+                            break
+                        self.assertIsInstance(cmd, list)
+                        moves.cmd = cmd
+                        moves.heading += 0.85 * cmd[1] / RATE
+                    else:
+                        self.fail("Synthetic turn never reached its angle")
+                    self.assertLess(abs(moves.heading - angle), math.radians(0.5))
+
+    def test_final_curve_alignment_ramps_even_after_opposite_rotation(self):
+        moves = walking()
+        moves.target, moves.pose = (1.0, 1.0, math.pi / 2), (1.0, 1.0, 0.0)
+        moves.facing, moves.cmd = False, [0.2, -0.3]
+        for _ in range(60):
+            previous = moves.cmd[1]
+            moves.cmd = moves.curve_command()
+            self.assertEqual(moves.cmd[0], 0.0)
+            self.assertLessEqual(abs(moves.cmd[1] - previous), max(TURN_ACCEL, TURN_DECEL) / RATE + 1e-12)
+        self.assertGreater(moves.cmd[1], 0)
+        moves.pose = (1.0, 1.0, math.pi / 2 - HEADING_TOLERANCE - 0.0001)
+        for _ in range(60):
+            moves.cmd = moves.curve_command()
+        self.assertAlmostEqual(moves.cmd[1], TURN_MIN_SPEED)
+        moves.pose = moves.target
+        self.assertIsNone(moves.curve_command())
+
+    def test_target_and_wrong_way_turns_bypass_smoothing(self):
+        for sign in (-1, 1):
+            for heading, phase in ((sign * math.pi / 2, "settling"), (-sign * 0.3, "done")):
+                moves = walking()
+                moves.moves = [("turn", sign * math.pi / 2)]
+                moves.heading, moves.cmd = heading, [0.0, sign * 0.3]
+                with patch("harp.moves.time.monotonic", return_value=10.0):
+                    moves.step()
+                self.assertEqual(moves.sent, [[0.0, 0.0]])
+                self.assertEqual(moves.phase, phase)
 
 
 class StraightDirection(unittest.TestCase):

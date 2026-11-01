@@ -8,8 +8,9 @@ image both in HIM's sim and on the robot:
   G1_TASK_COMMAND='{"to": [1, 1, 45]}'                     (one curve, the same as a list of one)
 
   walk: meters straight ahead (negative walks backward), holding the heading it
-        started with, measuring signed forward/backward progress, ramping up and slowing near the end before requesting zero.
-  turn: degrees in place (positive turns left).
+        started with, measuring signed forward/backward progress, ramping up
+        and slowing near the end before requesting zero.
+  turn: degrees in place (positive turns left), ramping up and slowing near the angle.
   to:   [X, Y] or [X, Y, HEADING]: X m forward, Y m left of where the move
         starts, ending facing HEADING degrees (positive left; leave it out to
         face away from the start). Park & Kuipers' law (smooth_control.py), then
@@ -55,6 +56,9 @@ WALK_DECEL = 0.4         # m/s^2, braking envelope near the distance target
 WALK_MAX_CROSS_TRACK = 0.2  # m of sideways displacement before aborting a straight walk
 WALK_WRONG_WAY_LIMIT = 0.1  # m opposite the requested direction before aborting
 WALK_MIN_SPEED = 0.1     # m/s, final approach stays above GR00T's 0.05 Balance switch
+TURN_ACCEL = 1.0        # rad/s^2, angular ramp for turns and final curve alignment
+TURN_DECEL = 1.0        # rad/s^2, angular braking envelope
+TURN_MIN_SPEED = 0.1    # rad/s, final approach above the policy Balance switch
 CURVE_MIN_SPEED = 0.1     # m/s, keeps the curve walking (GR00T balances below 0.05)
 CURVE_ACCEL = 0.4         # m/s^2, ramp for the curve's forward speed
 CURVE_TURN_ACCEL = 1.0    # rad/s^2, ramp for its turn rate
@@ -207,15 +211,22 @@ class Moves:
         yaw_rate = max(-MAX_HEADING_CORRECTION, min(MAX_HEADING_CORRECTION, HEADING_GAIN * error))
         return [math.copysign(speed, meters), yaw_rate]
 
+    def turn_rate(self, remaining, sign):
+        """Ramp angular velocity toward a braking envelope, keeping an approach floor."""
+        target = min(self.turn_speed, max(TURN_MIN_SPEED, math.sqrt(2 * TURN_DECEL * remaining)))
+        target = math.copysign(target, sign)
+        limit = TURN_ACCEL if self.cmd[1] * target >= 0 and abs(target) >= abs(self.cmd[1]) else TURN_DECEL
+        return toward(self.cmd[1], target, limit / RATE)
+
     def turn_command(self, angle):
-        """In place, at turn_speed; None once turned far enough, "wrong_way" if going the other way."""
+        """Ramp an in-place turn, slow near its angle, and reject wrong-way rotation."""
         sign = math.copysign(1.0, angle)
         turned = sign * (self.heading - self.start_heading)
         if turned < -WRONG_WAY_LIMIT:
             return "wrong_way"
         if turned >= abs(angle):
             return None
-        return [0.0, sign * self.turn_speed]
+        return [0.0, self.turn_rate(abs(angle) - turned, sign)]
 
     def curve_command(self):
         """Forward speed and turn rate toward the target; None once it is reached."""
@@ -229,7 +240,7 @@ class Moves:
             # Stop inside the tolerance, or once the turn carries past the heading.
             if abs(error) < HEADING_TOLERANCE or error * self.facing_sign < 0:
                 return None
-            return [0.0, self.facing_sign * self.turn_speed]
+            return [0.0, self.turn_rate(abs(error) - HEADING_TOLERANCE, self.facing_sign)]
         v, w = command(self.pose, self.target, self.speed, self.turn_speed, CURVE_MIN_SPEED)
         # Ramp toward the law's command so the robot doesn't lurch into or out of the curve.
         return [toward(self.cmd[0], v, CURVE_ACCEL / RATE),
