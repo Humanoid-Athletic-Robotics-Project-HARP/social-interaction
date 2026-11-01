@@ -3,7 +3,7 @@ name: g1-sensor-fusion
 description: Read before combining the head lidar and the head camera's depth (a fused cloud or costmap, seeing ahead of the robot) — the frame, the offsets, and how well they fit
 metadata:
   type: project
-  updated: 2026-11-01T23:18:25Z
+  updated: 2026-11-01T23:35:54Z
   covers: [testground/hybrid/*]
 ---
 

@@ -3,7 +3,7 @@ name: sim-vs-real
 description: Read before trusting a sim result, especially anything ahead of the robot, or before changing the sim's lidar or camera, Nav2's sensors, approach_stop or person detection — what the sim models of the real G1's sensors, what it doesn't, and how to close each gap
 metadata:
   type: project
-  updated: 2026-11-01T23:31:38Z
+  updated: 2026-11-01T23:35:53Z
   covers: [submission/harp/lidar.py, submission/harp/depth_camera.py, submission/harp/camera_mount.py, submission/harp/lidar_mount.py, submission/harp/lidar_relay.py, submission/harp/approach_stop.py, submission/nav2/nav2_params.yaml]
 ---
 
@@ -46,7 +46,9 @@ results with these sensors: [[nav2-sim]]. How to see ahead anyway: [[seeing-ahea
 `harp/lidar_relay.py`, which publishes `/utlidar/cloud_livox_mid360` and
 `/utlidar/cloud_rear` (10 Hz each, run on PC2 outside the image, 2026-11-01); the depth
 camera from `testground/camera/depth_node.py` (`/camera/depth/points`, optical frame,
-15 fps). **Not done:** the depth node isn't in our image yet (`entrypoint.sh` starts only
-the relay on the robot), so Nav2 and `approach_stop.py` on the robot get no camera; nor
-the camera's TF on the robot beyond `harp/state.py`'s computed pose; nor Nav2 on the robot
-at all.
+15 fps). **Not done:** the depth camera can't be read inside our image (HIM's launcher passes
+no devices: [[submission-image]]), so it needs `depth_node.py` running on PC2 itself
+on HIM's ROS graph, which our container shares: tried 2026-11-01, 15 fps there
+(`testground/camera/README.md`); our image reading it in a session isn't tried yet. Nav2 and
+`approach_stop.py` don't run on the robot yet (`entrypoint.sh` starts them only in the
+sim); the camera's TF on the robot is `harp/state.py`'s computed pose.

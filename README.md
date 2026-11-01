@@ -132,6 +132,9 @@ This has to happen before any of the "Robot" boxes above.
   - 🟡 The robot's lidar into ROS 2 (`harp/lidar_relay.py`, from Unitree's
     `lidar_driver` service): both its clouds at 10 Hz on PC2, not yet in a
     session through HARP's harness.
+  - 🟡 The head camera's depth on HARP's ROS 2 network, beside our image
+    (`testground/camera/depth_node.py` on PC2): 15 fps, the harness
+    unaffected; not yet read by our image in a session.
 - 🟡 Stopping from the remote: HARP's harness (double Start damps, double F3
   switches to its recovery policy, D-pad Left + B hands control to us).
   Robot: not yet tried.

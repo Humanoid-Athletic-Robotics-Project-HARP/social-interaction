@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T23:18:25Z
+  updated: 2026-11-01T23:35:53Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
@@ -64,7 +64,10 @@ Switching changes the robot for everyone: ask first.
   ddsi_sertype_v0") against Foxy's.
 
 **ROS 2 on the robot:** HARP's harness uses domain 97, localhost only, Fast DDS (only
-`/safety/*` topics). On domain 0, Unitree's DDS domain, `ros2 topic list` fails with
+`/safety/*` topics). Our depth node ran there (2026-11-01, `ROS_DOMAIN_ID=97 ROS_LOCALHOST_ONLY=1
+RMW_IMPLEMENTATION=rmw_fastrtps_cpp`): depth at 15 fps, and the harness's status still
+2 a second, its CPU 55–61% as before, while it waited with no policy. On domain 0,
+Unitree's DDS domain, `ros2 topic list` fails with
 `bad_alloc` (discovery of Unitree's hundreds of entities), so our ROS 2 nodes use
 another domain (42 in testing).
 

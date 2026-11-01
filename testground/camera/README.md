@@ -22,6 +22,13 @@ number of programs can read it, `../hybrid/hybrid_viewer.py --source ros` among 
 source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=42 && python3 depth_node.py
 ```
 
+For our robot image, which can't open the camera itself (HARP's launcher passes it no
+devices), run it on HARP's ROS 2 network instead, which the image shares:
+
+```bash
+source /opt/ros/foxy/setup.bash && export ROS_DOMAIN_ID=97 ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp && python3 depth_node.py
+```
+
 For the viewer, on PC2, in `~/Workspace/testground_social_interaction/camera`:
 
 ```bash

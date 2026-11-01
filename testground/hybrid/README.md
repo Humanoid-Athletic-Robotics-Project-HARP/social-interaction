@@ -34,7 +34,8 @@ By default the lidar comes from Unitree's `lidar_driver` service (on Unitree's D
 depth from `../camera/depth_node.py` (on ROS 2). The `LD_LIBRARY_PATH` keeps Unitree's
 SDK on its own CycloneDDS, not Foxy's.
 
-with `ROS_DOMAIN_ID` set to the publishers' domain (it refuses 0, Unitree's: see
+with `ROS_DOMAIN_ID` set to the depth node's domain (97, `ROS_LOCALHOST_ONLY=1` and
+`RMW_IMPLEMENTATION=rmw_fastrtps_cpp` when it runs on HARP's network) (it refuses 0, Unitree's: see
 `context/robot-pc2.md`). Until something publishes, both say "Not connected."
 
 Then open `http://ADDRESS:8082` (PC2's Wi-Fi address, in the main checkout's `.env`).
