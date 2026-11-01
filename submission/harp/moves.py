@@ -8,7 +8,7 @@ image both in HIM's sim and on the robot:
   G1_TASK_COMMAND='{"to": [1, 1, 45]}'                     (one curve, the same as a list of one)
 
   walk: meters straight ahead (negative walks backward), holding the heading it
-        started with, ramping up and slowing near the end before requesting zero.
+        started with, measuring signed forward/backward progress, ramping up and slowing near the end before requesting zero.
   turn: degrees in place (positive turns left).
   to:   [X, Y] or [X, Y, HEADING]: X m forward, Y m left of where the move
         starts, ending facing HEADING degrees (positive left; leave it out to
@@ -24,7 +24,7 @@ wherever the last one ended, so errors carry over. A move that takes much
 longer than expected, or a turn that goes over 10 deg the wrong way, stops the
 rest. Stops, falls and damping are HIM's. Events on /harp/events: move_start,
 move_done (target, estimate: x, y forward/left of the move's start and heading
-in degrees, from leg odometry), move_timeout, odom_timeout or wrong_way; all_moves_done only on success;
+in degrees, from leg odometry), move_timeout, odom_timeout, walk_drift or wrong_way; all_moves_done only on success;
 each with the move's number and sim_time when HIM's sim gives one.
 """
 
@@ -52,6 +52,8 @@ HEADING_GAIN = 1.5        # rad/s of turn per rad of heading error, during walks
 MAX_HEADING_CORRECTION = 0.3  # rad/s, cap on that correction
 WALK_ACCEL = 0.4         # m/s^2, ramp for straight walking's forward/backward speed
 WALK_DECEL = 0.4         # m/s^2, braking envelope near the distance target
+WALK_MAX_CROSS_TRACK = 0.2  # m of sideways displacement before aborting a straight walk
+WALK_WRONG_WAY_LIMIT = 0.1  # m opposite the requested direction before aborting
 WALK_MIN_SPEED = 0.1     # m/s, final approach stays above GR00T's 0.05 Balance switch
 CURVE_MIN_SPEED = 0.1     # m/s, keeps the curve walking (GR00T balances below 0.05)
 CURVE_ACCEL = 0.4         # m/s^2, ramp for the curve's forward speed
@@ -186,7 +188,12 @@ class Moves:
     def walk_command(self, meters):
         """Ramp ahead/back, brake near the distance target, hold heading; None once there."""
         x, y, _ = self.progress()
-        remaining = abs(meters) - math.hypot(x, y)
+        along = math.copysign(1.0, meters) * x
+        if along < -WALK_WRONG_WAY_LIMIT:
+            return "wrong_way"
+        if abs(y) > WALK_MAX_CROSS_TRACK:
+            return "walk_drift"
+        remaining = abs(meters) - along
         if remaining <= 0:
             return None
         # v^2 = 2*a*d bounds the approach speed. Keep a walking floor so the
@@ -259,8 +266,8 @@ class Moves:
             return
         cmd = (self.curve_command() if kind == "to" else self.turn_command(value) if kind == "turn"
                else self.walk_command(value))
-        if cmd == "wrong_way":
-            self.stop_all("wrong_way", kind, value)
+        if isinstance(cmd, str):
+            self.stop_all(cmd, kind, value)
             return
         if cmd is None:
             self.cmd = [0.0, 0.0]

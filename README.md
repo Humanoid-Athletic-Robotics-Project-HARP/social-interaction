@@ -226,6 +226,8 @@ They approach at up to 0.1 m/s (bounded by the requested speed), then request
 zero at the distance threshold. Fault stops request zero immediately.
 Planned moves wait for valid position feedback, then end the plan and request
 zero if valid `/odom` updates stop arriving for over 0.5 s.
+Straight walks measure progress along their starting heading. More than 0.2 m
+of sideways drift or 0.1 m of wrong-way travel ends the plan with zero requested.
 
 If your computer runs short of memory, HARP's harness can stop the run
 (`host_stall`, `observation_timeout`). Close other apps and any viewer still

@@ -129,6 +129,44 @@ class MoveTermination(unittest.TestCase):
         self.assertAlmostEqual(moves.sent[-1][0], -WALK_ACCEL / RATE)
 
 
+class StraightDirection(unittest.TestCase):
+    def test_sideways_distance_does_not_complete_a_forward_or_backward_target(self):
+        for sign in (-1, 1):
+            moves = walking(distance=sign)
+            moves.pose = (sign * 0.99, 0.15, 0.0)
+            cmd = moves.walk_command(sign)
+            self.assertIsInstance(cmd, list)
+            self.assertGreater(sign * cmd[0], 0)
+
+    def test_progress_uses_the_start_heading(self):
+        for sign in (-1, 1):
+            moves = walking(distance=sign)
+            moves.start = (2.0, 3.0, math.pi / 2)
+            moves.pose = (2.0, 3.0 + sign * 1.01, math.pi / 2)
+            moves.heading = moves.start_heading = math.pi / 2
+            self.assertIsNone(moves.walk_command(sign))
+
+    def test_drift_and_wrong_direction_request_zero_and_abort(self):
+        for sign in (-1, 1):
+            for x, y, reason in ((-sign, 0.0, "wrong_way"),
+                                 (sign * 0.6, 0.8, "walk_drift"),
+                                 (sign * 1.1, 0.3, "walk_drift")):
+                with self.subTest(sign=sign, x=x, y=y):
+                    moves = walking(distance=sign)
+                    moves.pose, moves.cmd = (x, y, 0.0), [sign * 0.4, 0.3]
+                    with patch("harp.moves.time.monotonic", return_value=10.0):
+                        moves.step()
+                    self.assertEqual(moves.sent, [[0.0, 0.0]])
+                    self.assertEqual(moves.phase, "done")
+                    self.assertEqual(moves.events[0][0], reason)
+
+    def test_small_wrong_way_displacement_is_not_progress(self):
+        for sign in (-1, 1):
+            moves = walking(distance=sign * 0.01)
+            moves.pose = (-sign * 0.02, 0.0, 0.0)
+            self.assertGreater(sign * moves.walk_command(sign * 0.01)[0], 0)
+
+
 class FeedbackWatchdog(unittest.TestCase):
     def test_start_waits_for_fresh_feedback(self):
         for received in (None, 9.0):
