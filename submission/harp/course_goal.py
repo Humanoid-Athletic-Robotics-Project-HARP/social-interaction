@@ -42,6 +42,7 @@ WORLD = "/harp/model/lidar_scene.xml"
 NAV2_START = 60.0     # s for Nav2 to be active (it takes about 20 with STVL)
 SETTLE = 2.0          # s after the handoff before the goal goes out
 TIMEOUT = 240.0       # s for each point, from sending it to Nav2's result
+ARRIVED = 0.5         # m: a SUCCEEDED this far from the point (by Nav2's own pose) is not trusted
 CANCEL_TIMEOUT = 5.0  # s for Nav2 to confirm a cancelled goal has ended
 STATUS = {GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED", GoalStatus.STATUS_ABORTED: "FAILED",
           GoalStatus.STATUS_CANCELED: "CANCELED"}
@@ -129,6 +130,20 @@ def go_to(node, nav, point, deadline):
     return ("TIMEOUT" if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
 
 
+def distance_to(feedback, point):
+    """Distance from Nav2's last reported robot pose to the point (inf without one)."""
+    pose = getattr(getattr(feedback, "current_pose", None), "pose", None)
+    if pose is None:
+        return math.inf
+    return math.hypot(pose.position.x - point[0], pose.position.y - point[1])
+
+
+def arrived(feedback, point):
+    """Trust a SUCCEEDED unless Nav2's own last pose puts the robot clearly elsewhere."""
+    distance = distance_to(feedback, point)
+    return not math.isfinite(distance) or distance <= ARRIVED
+
+
 def follow(node, nav, route, event, waypoint_events):
     """Every point of the route in turn; the goal_result's fields."""
     x, y, yaw = route.waypoints[-1]
@@ -143,6 +158,12 @@ def follow(node, nav, route, event, waypoint_events):
                 event("waypoint_sent", lap=lap, waypoint=waypoint, x=point[0], y=point[1], yaw=point[2])
             began = time.monotonic()
             status, f = go_to(node, nav, point, began + TIMEOUT)
+            while status == "SUCCEEDED" and not arrived(f, point) and time.monotonic() < began + TIMEOUT:
+                # A success the robot's own pose contradicts is not an arrival.
+                event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, point), 2))
+                status, f = go_to(node, nav, point, began + TIMEOUT)
+            if status == "SUCCEEDED" and not arrived(f, point):
+                status = "TIMEOUT"
             recoveries += getattr(f, "number_of_recoveries", 0)
             remaining = getattr(f, "distance_remaining", None)
             if waypoint_events:

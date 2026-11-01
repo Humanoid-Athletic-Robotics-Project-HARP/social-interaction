@@ -35,3 +35,37 @@ class GoalStartup(unittest.TestCase):
             self.assertEqual(course_goal.run(node), 1)
         self.assertEqual(spin.call_args.args[2], course_goal.NAV2_START)
         self.assertIn("CONTROL_NOT_READY", publisher.publish.call_args.args[0].data)
+
+
+def _feedback(x, y):
+    from types import SimpleNamespace
+    pose = SimpleNamespace(position=SimpleNamespace(x=x, y=y))
+    return SimpleNamespace(current_pose=SimpleNamespace(pose=pose), number_of_recoveries=0,
+                           distance_remaining=0.)
+
+
+class StaleSuccess(unittest.TestCase):
+    def test_a_success_far_from_the_waypoint_is_resent_not_accepted(self):
+        # Foxy Nav2 once followed the previous goal's path and reported the next
+        # waypoint reached at once, 2 m away (HIM run 2026-11-01_23-23-20Z).
+        route = route_from_data({"frame": "odom", "waypoints": [[0, 2], [0, 0]], "laps": 1})
+        replies = [("SUCCEEDED", _feedback(0., 2.)),      # waypoint 1, genuinely there
+                   ("SUCCEEDED", _feedback(0., 2.)),      # waypoint 2: stale, still at 1
+                   ("SUCCEEDED", _feedback(.05, .1))]     # waypoint 2 after resending
+        events = []
+        with patch.object(course_goal, "go_to", side_effect=replies) as go:
+            status = course_goal.follow(None, None, route,
+                                        lambda name, **f: events.append((name, f)), True)
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertEqual(go.call_count, 3)
+        stale = [f for name, f in events if name == "stale_success"]
+        self.assertEqual(len(stale), 1)
+        self.assertAlmostEqual(stale[0]["distance"], 2.)
+        result = [f for name, f in events if name == "goal_result"][0]
+        self.assertEqual(result["completed_waypoints"], 2)
+
+    def test_a_success_without_a_reported_pose_is_trusted(self):
+        route = route_from_data({"frame": "odom", "waypoints": [[1, 0]], "laps": 1})
+        with patch.object(course_goal, "go_to", return_value=("SUCCEEDED", None)) as go:
+            status = course_goal.follow(None, None, route, lambda name, **f: None, True)
+        self.assertEqual((status, go.call_count), ("SUCCEEDED", 1))

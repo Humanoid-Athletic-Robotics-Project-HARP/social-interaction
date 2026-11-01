@@ -8,16 +8,23 @@
   checking the lidar is still live.
   server_timeout (ms to wait for a server to accept a request): at Nav2's 10 a
   busy Mac timed out, and every recovery failed at once.
+  A fresh path is planned before following starts: {path} outlives a goal, and a
+  route's next goal sent right after the last one succeeded could be followed
+  along the previous path, whose end the robot already stood on, so Nav2
+  reported the new waypoint reached at once (HIM run 2026-11-01_23-23-20Z).
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
-      <PipelineSequence name="NavigateWithReplanning">
-        <RateController hz="1.0">
-          <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="200"/>
-        </RateController>
-        <FollowPath path="{path}" controller_id="FollowPath" server_timeout="200"/>
-      </PipelineSequence>
+      <Sequence name="PlanThenFollow">
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="200"/>
+        <PipelineSequence name="NavigateWithReplanning">
+          <RateController hz="1.0">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" server_timeout="200"/>
+          </RateController>
+          <FollowPath path="{path}" controller_id="FollowPath" server_timeout="200"/>
+        </PipelineSequence>
+      </Sequence>
       <ReactiveFallback name="RecoveryFallback">
         <GoalUpdated/>
         <Wait wait_duration="3" server_timeout="200"/>
