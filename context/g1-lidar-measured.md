@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-01T21:28:33Z
+  updated: 2026-11-01T21:37:13Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -11,6 +11,8 @@ Measured 2026-11-01 with `testground/lidar/` (robot standing under HARP's harnes
 Baseline captures, on the maintainer's Mac in that worktree's `testground/lidar/captures/`
 (ignored by git, not on GitHub): `standing-60s` (full), `standing-5min-headers`
 (packet headers only), `trial-20s`. Their `report.md` has every number below.
+Live 3D view on PC2: `testground/lidar/lidar_viewer.py` (port 8080; it holds the
+lidar's point port, so only one of it and `record.py` at a time).
 
 **What it is:** a Livox MID-360 (not the newer Mid360s): serial 47MCNAL0039059,
 firmware app 13.18.2.44 (built 2025-04-01), at 192.168.123.120. Its own config: point

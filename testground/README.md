@@ -7,15 +7,17 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
 | Path | Runs on | What |
 |---|---|---|
 | `pc2/probe.sh`, `pc2/topics.py`, `pc2/v4l2_survey.py` | PC2 | Read-only survey: system, installed SDK, network, disk, load, every DDS topic, the cameras' video modes. |
-| `lidar/` | both | The head lidar (a Livox MID-360): what it sends and how well it sees ([lidar/README.md](lidar/README.md)). |
+| `lidar/` | both | The head lidar (a Livox MID-360): recordings, analysis and a live viewer ([lidar/README.md](lidar/README.md)). |
+| `camera/` | PC2 | The head camera (a RealSense D435i) live in a browser ([camera/README.md](camera/README.md)). |
 | `sync.sh` | laptop | Copy the scripts to PC2, pull a test's captures back, or open a shell there. |
 
 ## Rules
 
 - On PC2, work only inside `~/Workspace/testground_social_interaction`; read
   anything else, change nothing else. Ask before creating or changing anything there.
-- Scripts here only read from the robot (they listen; they never send) unless a test
-  says otherwise and the team has agreed to it. An operator owns the robot during a
+- Scripts here only read from the robot (they listen; the camera viewer also asks
+  Unitree's videohub for colour images) unless a test says otherwise and the team has
+  agreed to it. An operator owns the robot during a
   session (power, gantry, remote, stopping: `context/safety.md`). HARP's harness may be
   running on PC2: keep heavy work off it.
 - PC2's login lives in the main checkout's `.env` (`G1_HOST=user@address`), which git

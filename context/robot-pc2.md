@@ -3,14 +3,15 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-01T21:26:09Z
+  updated: 2026-11-01T21:37:01Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
 **Where we may work:** only `~/Workspace/testground_social_interaction` on PC2 (the
 maintainer's rule; ask before creating or changing anything there, and read but never
 change anything else). Our scripts there come from `testground/` via `sync.sh push`,
-not a git clone. Scripts there only listen to the robot.
+not a git clone. Scripts there only listen to the robot (the camera viewer also asks
+Unitree's videohub for colour images, [[g1-head-camera]]).
 
 **Connecting:** PC2 is `unitree@` its Wi-Fi address, kept in the main checkout's `.env`
 (ignored by git; the login is Unitree's default, [[g1-official-docs]]). Agents don't

@@ -9,6 +9,11 @@ saves every packet as it arrives, plus the robot's joints from `rt/lowstate`. On
 laptop, `capture.py` decodes a capture into 100 ms clouds, `report.py` answers the
 questions below and `view.py` shows it in Rerun.
 
+To watch it live instead, `lidar_viewer.py` on PC2 serves a 3D view on port 8080
+(`python3 lidar_viewer.py`, then `http://ADDRESS:8080`). It holds the lidar's point
+port, so stop it before recording. `LIDAR_REPORT.md` is the first look at the stream
+that it came with.
+
 ## Questions, and what answers them
 
 | Question | Answered by |
