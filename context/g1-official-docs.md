@@ -3,15 +3,15 @@ name: g1-official-docs
 description: Read when you need a Unitree G1 developer doc page, or the robot's network address, login and sensors
 metadata:
   type: reference
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-11-01T21:26:09Z
   covers: []
 ---
 
 Index: https://support.unitree.com/home/en/G1_developer. The site renders with JavaScript, so WebFetch returns nothing; use the in-app browser.
 
 **Hardware facts**
-- PC1 runs Unitree's motion control and is closed. PC2 (Jetson Orin NX 16GB) is ours, at `192.168.123.164`, initial login `unitree` / `123`. Unitree deploys no services on it.
-- Head sensors: Livox MID-360 lidar, Intel RealSense D435i depth camera.
+- PC1 runs Unitree's motion control and is closed. PC2 (Jetson Orin NX 16GB) is ours, at `192.168.123.164`, initial login `unitree` / `123`. Unitree does run a few services on it (`/unitree/module/`: `master_service`, the head camera's `videohub_pc4`); what's on ours: [[robot-pc2]].
+- Head sensors: Livox MID-360 lidar ([[g1-lidar-measured]]), Intel RealSense D435i depth camera.
 - Interfaces: DDS (ROS 2-compatible IDL, C++/Python), ROS 2, GStreamer (video).
 
 **Pages** (append to `https://support.unitree.com/home/en/G1_developer/`)

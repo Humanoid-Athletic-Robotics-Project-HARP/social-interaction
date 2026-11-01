@@ -19,6 +19,8 @@
 - [Safety](safety.md) — before a real-robot session, or changing what stops the robot (HIM's harness and its buttons)
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body
 - [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, changing lidar_relay, adding mapping, or borrowing from other G1 stacks
+- [The robot's lidar, measured](g1-lidar-measured.md) — before using the real lidar: what it is, how it reaches PC2, where it's blind
+- [PC2](robot-pc2.md) — before logging in to the robot's Jetson or running anything on it
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack
 - [G1 official docs](g1-official-docs.md) — for a Unitree doc page, or the robot's address, login and sensors
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM

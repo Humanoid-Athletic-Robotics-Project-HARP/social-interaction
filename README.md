@@ -22,6 +22,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
+| `testground/` | Tests on the real robot: read-only scripts run on its Jetson (PC2), their recordings analysed on a laptop ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned team forks of Ultralytics (YOLO26) and BoT-SORT for person-perception evaluation; [checkout instructions](third_party/README.md). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
@@ -73,8 +74,9 @@ unchanged, cloned next to this repo, and keep only our code here.
 - ⬜ Sim: stand before someone crossing reaches the robot's path, not once
   they're in it: a moving-object detector (scans compared in `odom`, the
   points that moved grouped and their speed tracked).
-- 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
-  `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
+- 🟡 Robot: real lidar data in ROS 2, then the same walk. The lidar is
+  recorded and measured on the robot (`testground/lidar/`); next, read its
+  UDP stream to PC2 into ROS 2.
 
 ### Find people and walk up to them
 
@@ -120,8 +122,8 @@ This has to happen before any of the "Robot" boxes above.
     courses without people.
   - ✅ Course tests, their scores and criteria, comparing runs, and each run's
     git commit (`course.py`).
-  - ✅ The robot's lidar into ROS 2 (`harp/lidar_relay.py`, started on the robot):
-    tested in the image against a cloud published the way the robot does.
+  - ⬜ The robot's lidar into ROS 2, from the Livox UDP stream it sends to PC2
+    (decoded in `testground/lidar/capture.py`).
 - 🟡 Stopping from the remote: HARP's harness (double Start damps, double F3
   switches to its recovery policy, D-pad Left + B hands control to us).
   Robot: not yet tried.
@@ -368,8 +370,7 @@ G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./setup.sh --mode dry-run --profile ~/harp_
 G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./submit.sh --mode real --profile ~/harp_joint_profile.json
 ```
 
-The image also brings the head lidar into ROS 2 on
-`/utlidar/cloud_livox_mid360` (`harp/lidar_relay.py`). GR00T balance takes over from Unitree's controller. Once it prints
+GR00T balance takes over from Unitree's controller. Once it prints
 `startup_phase: ready`, press **D-pad Left + B** to hand control to our
 image. **Double Start damps the robot** at any time, and double F3 switches
 to the recovery policy. Before running again, double-press Start, check it

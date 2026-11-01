@@ -1,47 +1,57 @@
 # Testground
 
 Tests on the real G1, one folder per thing being tested. The scripts that touch the
-robot run on PC2 from a clone of this repo; their data comes back over SSH and is
-analysed on a laptop.
+robot run on PC2 (the Jetson) from a copy of this folder; their data comes back over
+SSH and is analysed on a laptop, so it can be studied without the robot.
 
 | Path | Runs on | What |
 |---|---|---|
 | `pc2/probe.sh`, `pc2/topics.py` | PC2 | Read-only survey: system, installed SDK, network, disk, load, every DDS topic. |
-| `lidar/` | both | The head lidar: what it is and how well it sees ([lidar/README.md](lidar/README.md)). |
-| `sync.sh` | laptop | Pull a test's captures from PC2, push a quick fix, or open a shell there. |
+| `lidar/` | both | The head lidar (a Livox MID-360): what it sends and how well it sees ([lidar/README.md](lidar/README.md)). |
+| `sync.sh` | laptop | Copy the scripts to PC2, pull a test's captures back, or open a shell there. |
 
 ## Rules
 
-- On PC2, work only inside `~/workspaces/testground-social-interaction`; read
+- On PC2, work only inside `~/Workspace/testground_social_interaction`; read
   anything else, change nothing else. Ask before creating or changing anything there.
-- Scripts here only read from the robot (they subscribe; they never publish) unless a
-  test says otherwise and the team has agreed to it. An operator owns the robot
-  during a session (power, gantry, remote, stopping: `context/safety.md`).
-- No git credentials on the robot: PC2 only pulls. Data comes back with `sync.sh pull`.
+- Scripts here only read from the robot (they listen; they never send) unless a test
+  says otherwise and the team has agreed to it. An operator owns the robot during a
+  session (power, gantry, remote, stopping: `context/safety.md`). HARP's harness may be
+  running on PC2: keep heavy work off it.
+- PC2's login lives in the main checkout's `.env` (`G1_HOST=user@address`), which git
+  ignores. Never commit it.
 
-## On PC2, once
+## Connecting
 
-The repo is public, so the clone needs no login. Only this folder is checked out:
-
-```bash
-mkdir -p ~/workspaces/testground-social-interaction && cd ~/workspaces/testground-social-interaction
-git clone --filter=blob:none --sparse https://github.com/Humanoid-Athletic-Robotics-Project-HARP/social-interaction.git
-cd social-interaction && git sparse-checkout set testground && git checkout lidar-visualization
-```
-
-Then `testground/pc2/probe.sh` shows whether Unitree's Python SDK (`unitree_sdk2py`,
-`cyclonedds` 0.10.2) is there; the robot scripts need it.
-
-Update with `git pull`. A quick fix mid-session without a commit: `./sync.sh push`
-from the laptop (the clone then shows the changed files as modified; each capture
-records the commit, with `-dirty` when that happened).
-
-## On the laptop
+PC2's Wi-Fi address is in `.env`. One shared connection, opened once with the
+password, lets every later command (and `sync.sh`) reuse it for 8 hours:
 
 ```bash
-cd testground && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+ssh -fN -M -S ~/.ssh/cm-g1 -o ControlPersist=8h unitree@ADDRESS
 ```
 
 ```bash
-G1_HOST=unitree@ADDRESS ./sync.sh pull lidar
+export G1_SSH="-S $HOME/.ssh/cm-g1"
+```
+
+## Using it
+
+From `testground/` on the laptop:
+
+```bash
+./sync.sh push
+```
+
+```bash
+./sync.sh pull lidar
+```
+
+`push` copies the scripts into the folder on PC2 (files already the same there are left
+untouched; nothing is ever deleted). `pull` brings a test's captures back into its
+`captures/` here (ignored by git).
+
+For the analysis tools, once:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```

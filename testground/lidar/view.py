@@ -91,12 +91,12 @@ def main():
 
     imu = cap.imu
     if imu and len(imu["stamp_ns"]):
-        t = (imu["stamp_ns"] - cap.stamp_ns[0]) * 1e-9
+        t = (imu["stamp_ns"] - cap.t0) * 1e-9   # the lidar clock, as the clouds
         plot("imu/accel", t, np.stack([imu["ax"], imu["ay"], imu["az"]], axis=1), ["x", "y", "z"])
         plot("imu/gyro", t, np.stack([imu["gx"], imu["gy"], imu["gz"]], axis=1), ["x", "y", "z"])
     low = cap.lowstate
     if low and len(low["arrival_ns"]):
-        t = (low["arrival_ns"] - cap.arrival_ns[0]) * 1e-9   # no stamp: PC2's arrival time
+        t = (low["arrival_ns"] - cap.packet_arrival_ns[0]) * 1e-9   # no stamp: PC2's arrival
         plot("lowstate/pelvis_rpy", t, np.degrees(np.stack([low["roll"], low["pitch"], low["yaw"]],
                                                            axis=1)), ["roll", "pitch", "yaw"])
         plot("lowstate/waist", t, np.degrees(np.stack([low[f"q{j}"] for j in (12, 13, 14)], axis=1)),

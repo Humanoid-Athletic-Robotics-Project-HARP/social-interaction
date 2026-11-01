@@ -1,162 +1,90 @@
-"""Record the G1's head lidar, the lidar's IMU and the robot's low state on PC2, to
-copy to a laptop and analyse there (report.py, view.py). Read-only: it only subscribes,
-through Unitree's SDK on the robot's DDS domain, as submission/harp/lidar_relay.py
-does; nothing is ever sent to the robot.
+"""Record the G1's head lidar on PC2, exactly as it arrives, to copy to a laptop and
+analyse there (capture.py, report.py, view.py). Read-only: it only listens.
 
-  python3 record.py NAME [--seconds 60] [--note "wall at 2.00 m"]
+The MID-360 pushes Livox SDK2 UDP packets to PC2 (192.168.123.164) by itself, from
+192.168.123.120: points to port 56301 (about 2,080 packets/s, 2.9 MB/s), its IMU to
+56401 (200 Hz) and a status message to 56201 (1 Hz). There is no DDS lidar topic on
+this robot. Only one program can receive each port, so stop any other lidar reader
+(a viewer, livox_ros_driver2) first. Optionally also rt/lowstate over DDS (the
+joints, for the arm and waist pose), through Unitree's SDK, subscribing only.
+
+  python3 record.py NAME [--seconds 60] [--note "wall at 2.00 m"] [--headers-only]
 
 writes captures/NAME/ beside this file:
-  meta.json     what was recorded and how, the cloud's layout, message counts
-  clouds.bin    every cloud's point data as received, back to back
-  clouds.csv    one row per cloud: arrival time (this computer's clock, ns), the
-                robot's stamp (ns), where its bytes are in clouds.bin, its size
-  imu.csv       rt/utlidar/imu_livox_mid360, every sample
+  meta.json     what was recorded and how, packet counts, the kernel's drops
+  udp.bin       every packet: int64 arrival ns (this computer's clock), uint16 port,
+                uint16 length, then the packet's bytes (only the 36-byte header of
+                point packets with --headers-only: about 100 KB/s, for long runs)
   lowstate.csv  rt/lowstate (pelvis IMU and joints), thinned to --lowstate-hz
 
-About 5 MB/s with the full cloud. Python 3.8 (PC2's), unitree_sdk2py and
-cyclonedds 0.10.2 (what ../pc2/probe.sh checks for).
+About 175 MB a minute in full. Python 3.8 (PC2's); runs at low priority beside
+HARP's harness.
 """
 
 import argparse
-import csv
-from dataclasses import dataclass
 import datetime
 import json
+import os
 from pathlib import Path
 import platform
+import select
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import time
 
-import cyclonedds.idl as idl
-import cyclonedds.idl.annotations as annotate
-import cyclonedds.idl.types as types
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
-from unitree_sdk2py.idl.geometry_msgs.msg.dds_ import Quaternion_, Vector3_
-from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
-from unitree_sdk2py.idl.std_msgs.msg.dds_ import Header_
-from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
-
-CLOUD = "rt/utlidar/cloud_livox_mid360"
-IMU = "rt/utlidar/imu_livox_mid360"
-LOWSTATE = "rt/lowstate"
-RATE = 5e6        # bytes/s the full cloud takes on disk, for the space check
-QUIET = 5.0       # s without a cloud before warning
-JOINTS = 35       # motor_state slots in unitree_hg's LowState_ (the G1 uses 29)
+PORTS = {56301: "points", 56401: "imu", 56201: "status"}   # PC2's ends of the lidar's streams
+HEADER = 36          # bytes of Livox SDK2 header on point and IMU packets
+RECORD = struct.Struct("<qHH")   # arrival ns, port, length, before each packet in udp.bin
+RATE = 3e6           # bytes/s in full, for the space check
+JOINTS = 35          # motor_state slots in unitree_hg's LowState_ (the G1 uses 29)
 
 
-# The SDK has no sensor_msgs Imu; this is ROS 2's, under the SDK's naming.
-@dataclass
-@annotate.final
-@annotate.autoid("sequential")
-class Imu_(idl.IdlStruct, typename="sensor_msgs.msg.dds_.Imu_"):
-    header: Header_
-    orientation: Quaternion_
-    orientation_covariance: types.array[types.float64, 9]
-    angular_velocity: Vector3_
-    angular_velocity_covariance: types.array[types.float64, 9]
-    linear_acceleration: Vector3_
-    linear_acceleration_covariance: types.array[types.float64, 9]
+def udp_drops():
+    """Datagrams the kernel dropped per local UDP port (a full receive buffer)."""
+    drops = {}
+    for line in Path("/proc/net/udp").read_text().splitlines()[1:]:
+        cols = line.split()
+        drops[int(cols[1].split(":")[1], 16)] = int(cols[-1])
+    return drops
 
 
-def stamp_ns(header):
-    return header.stamp.sec * 1_000_000_000 + header.stamp.nanosec
+class LowState:
+    """rt/lowstate to lowstate.csv, from the SDK's reader thread."""
 
+    def __init__(self, path, hz, interface, domain):
+        from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
+        from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+        self.file = open(path, "w")
+        self.file.write(",".join(["arrival_ns", "tick", "mode_machine", "qw", "qx", "qy", "qz",
+                                  "gx", "gy", "gz", "ax", "ay", "az", "roll", "pitch", "yaw"]
+                                 + [f"q{i}" for i in range(JOINTS)]) + "\n")
+        self.period = 1e9 / hz
+        self.last = 0
+        self.received = self.kept = 0
+        ChannelFactoryInitialize(domain, interface)
+        self.sub = ChannelSubscriber("rt/lowstate", LowState_)
+        self.sub.Init(self.on_msg, 0)
 
-def table(path, columns):
-    f = open(path, "w", newline="")
-    rows = csv.writer(f)
-    rows.writerow(columns)
-    return f, rows
-
-
-class Recorder:
-    """Writes each topic from its SDK reader's callback, one file each."""
-
-    def __init__(self, folder, lowstate_hz):
-        self.cloud_file = open(folder / "clouds.bin", "wb")
-        self.cloud_csv, self.cloud_rows = table(
-            folder / "clouds.csv", ["arrival_ns", "stamp_ns", "offset", "nbytes", "width", "height"])
-        self.imu_csv, self.imu_rows = table(
-            folder / "imu.csv", ["arrival_ns", "stamp_ns", "qx", "qy", "qz", "qw",
-                                 "gx", "gy", "gz", "ax", "ay", "az"])
-        self.low_csv, self.low_rows = table(
-            folder / "lowstate.csv",
-            ["arrival_ns", "tick", "mode_machine", "qw", "qx", "qy", "qz", "gx", "gy", "gz",
-             "ax", "ay", "az", "roll", "pitch", "yaw"] + [f"q{i}" for i in range(JOINTS)])
-        self.low_period = 1e9 / lowstate_hz
-        self.low_last = 0
-        self.layout = None          # the first cloud's frame and point layout
-        self.layout_changes = 0     # later clouds laid out differently
-        self.first_offset = None    # s, arrival minus the robot's stamp, first cloud
-        self.counts = {"clouds": 0, "points": 0, "imu": 0, "lowstate": 0, "lowstate_kept": 0}
-        self.last_cloud = None      # time.monotonic() of the last cloud
-
-    def on_cloud(self, msg):
+    def on_msg(self, msg):
         arrival = time.time_ns()
-        data = bytes(msg.data)
-        layout = {"frame_id": msg.header.frame_id, "point_step": msg.point_step,
-                  "is_bigendian": msg.is_bigendian, "is_dense": msg.is_dense,
-                  "fields": [{"name": f.name, "offset": f.offset, "datatype": f.datatype,
-                              "count": f.count} for f in msg.fields]}
-        if self.layout is None:
-            self.layout = layout
-            self.first_offset = (arrival - stamp_ns(msg.header)) * 1e-9
-            print(f"First cloud: {msg.width * msg.height} points in {msg.header.frame_id}, fields "
-                  f"{','.join(f.name for f in msg.fields)}, {msg.point_step} bytes a point; the "
-                  f"robot's stamp is {self.first_offset:+.3f} s from this clock.", flush=True)
-        elif layout != self.layout:
-            self.layout_changes += 1
-        offset = self.cloud_file.tell()
-        self.cloud_file.write(data)
-        self.cloud_rows.writerow([arrival, stamp_ns(msg.header), offset, len(data),
-                                  msg.width, msg.height])
-        self.counts["clouds"] += 1
-        self.counts["points"] += msg.width * msg.height
-        self.last_cloud = time.monotonic()
-
-    def on_imu(self, msg):
-        o, w, a = msg.orientation, msg.angular_velocity, msg.linear_acceleration
-        self.imu_rows.writerow([time.time_ns(), stamp_ns(msg.header), o.x, o.y, o.z, o.w,
-                                w.x, w.y, w.z, a.x, a.y, a.z])
-        self.counts["imu"] += 1
-
-    def on_lowstate(self, msg):
-        arrival = time.time_ns()
-        self.counts["lowstate"] += 1
-        if arrival - self.low_last < self.low_period:
+        self.received += 1
+        if arrival - self.last < self.period:
             return
-        self.low_last = arrival
+        self.last = arrival
         imu = msg.imu_state
-        self.low_rows.writerow([arrival, msg.tick, msg.mode_machine] + list(imu.quaternion)
-                               + list(imu.gyroscope) + list(imu.accelerometer) + list(imu.rpy)
-                               + [m.q for m in msg.motor_state])
-        self.counts["lowstate_kept"] += 1
-
-    def flush(self):
-        for f in (self.cloud_file, self.cloud_csv, self.imu_csv, self.low_csv):
-            f.flush()
+        row = ([arrival, msg.tick, msg.mode_machine] + list(imu.quaternion) + list(imu.gyroscope)
+               + list(imu.accelerometer) + list(imu.rpy) + [m.q for m in msg.motor_state])
+        self.file.write(",".join(str(v) for v in row) + "\n")
+        self.kept += 1
 
     def close(self):
-        for f in (self.cloud_file, self.cloud_csv, self.imu_csv, self.low_csv):
-            f.close()
-
-
-def versions():
-    try:
-        from importlib.metadata import version
-    except ImportError:
-        return {}
-    out = {}
-    for name in ("unitree_sdk2py", "cyclonedds", "numpy"):
-        try:
-            out[name] = version(name)
-        except Exception:
-            out[name] = None
-    return out
+        # The SDK's reader first: with it still open the interpreter hangs on the way out.
+        self.sub.Close()
+        self.file.close()
 
 
 def commit(folder):
@@ -182,68 +110,92 @@ def main():
     parser.add_argument("name", help="the capture's folder name, e.g. static-open")
     parser.add_argument("--seconds", type=float, default=60.0, help="how long to record")
     parser.add_argument("--note", default="", help="what the scene was (distances, objects)")
-    parser.add_argument("--interface", default="eth0", help="PC2's interface on the robot network")
-    parser.add_argument("--domain", type=int, default=0)
+    parser.add_argument("--headers-only", action="store_true",
+                        help="keep only point packets' headers (timing and loss, no points)")
+    parser.add_argument("--no-lowstate", action="store_true", help="skip rt/lowstate")
     parser.add_argument("--lowstate-hz", type=float, default=50.0)
+    parser.add_argument("--interface", default="eth0", help="PC2's port on the robot network")
+    parser.add_argument("--domain", type=int, default=0)
     args = parser.parse_args()
 
     folder = Path(__file__).resolve().parent / "captures" / args.name
     if folder.exists():
         sys.exit(f"{folder} already exists; pick another name.")
-    free = shutil.disk_usage(folder.parent.parent).free
-    if free < RATE * args.seconds + 1e9:
-        sys.exit(f"Only {free / 1e9:.1f} GB free; {args.seconds:.0f} s needs about "
-                 f"{RATE * args.seconds / 1e9 + 1:.1f} GB.")
-    folder.mkdir(parents=True)
+    need = (0.1e6 if args.headers_only else RATE) * args.seconds + 1e9
+    if shutil.disk_usage(folder.parent.parent).free < need:
+        sys.exit(f"Not enough disk for {args.seconds:.0f} s.")
+    os.nice(10)   # below HARP's harness
 
+    folder.mkdir(parents=True)
     meta = {"name": args.name, "note": args.note, "started": utc(), "host": socket.gethostname(),
-            "python": platform.python_version(), "versions": versions(),
-            "commit": commit(folder.parent.parent),
-            "interface": args.interface, "domain": args.domain,
-            "topics": {"cloud": CLOUD, "imu": IMU, "lowstate": LOWSTATE},
-            "seconds_requested": args.seconds, "lowstate_hz": args.lowstate_hz}
-    rec = Recorder(folder, args.lowstate_hz)
-    ChannelFactoryInitialize(args.domain, args.interface)
-    subs = []
-    try:
-        for topic, kind, handler in ((CLOUD, PointCloud2_, rec.on_cloud), (IMU, Imu_, rec.on_imu),
-                                     (LOWSTATE, LowState_, rec.on_lowstate)):
-            sub = ChannelSubscriber(topic, kind)
-            sub.Init(handler, 0)
-            subs.append(sub)
-        print(f"Recording {folder} for {args.seconds:.0f} s (Ctrl-C to stop early).", flush=True)
-        signal.signal(signal.SIGTERM, stop)
-        start = time.monotonic()
-        before = dict(rec.counts)
-        warned = False
+            "python": platform.python_version(), "commit": commit(folder.parent.parent),
+            "ports": {str(p): n for p, n in PORTS.items()}, "headers_only": args.headers_only,
+            "seconds_requested": args.seconds}
+    # DDS first: it takes a moment to start, and the lidar's ports must be read from
+    # the moment they open, or the kernel drops packets.
+    low = None
+    if not args.no_lowstate:
         try:
-            while time.monotonic() - start < args.seconds:
-                time.sleep(1.0)
-                rec.flush()
-                c = dict(rec.counts)
-                clouds = c["clouds"] - before["clouds"]
-                points = (c["points"] - before["points"]) // max(1, clouds)
-                print(f"{time.monotonic() - start:4.0f} s  clouds {clouds:2d}/s  {points:6d} points  "
-                      f"imu {c['imu'] - before['imu']:3d}/s  "
-                      f"lowstate {c['lowstate'] - before['lowstate']:3d}/s  "
-                      f"{rec.cloud_file.tell() / 1e6:5.0f} MB", flush=True)
-                before = c
-                since = rec.last_cloud or start
-                if not warned and time.monotonic() - since > QUIET:
-                    print(f"No cloud on {CLOUD} for {QUIET:.0f} s.", flush=True)
-                    warned = True
-        except KeyboardInterrupt:
-            print("Stopped early.", flush=True)
+            low = LowState(folder / "lowstate.csv", args.lowstate_hz, args.interface, args.domain)
+        except Exception as e:
+            print(f"No rt/lowstate ({type(e).__name__}: {e}); recording the lidar only.", flush=True)
+    socks = {}
+    for port in PORTS:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20)
+        try:
+            s.bind(("0.0.0.0", port))
+        except OSError as e:
+            if low is not None:
+                low.close()
+            sys.exit(f"Can't listen on UDP {port} ({e}): another lidar reader is running? "
+                     f"`ss -uanp | grep {port}` shows which.")
+        socks[s] = port
+    meta["receive_buffer"] = next(iter(socks)).getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    drops_before = udp_drops()
+    counts = {name: 0 for name in PORTS.values()}
+    sources = {}
+    out = open(folder / "udp.bin", "wb", buffering=1 << 20)
+    print(f"Recording {folder} for {args.seconds:.0f} s (Ctrl-C to stop early).", flush=True)
+    signal.signal(signal.SIGTERM, stop)
+    start = time.monotonic()
+    tick, before = start + 1.0, dict(counts)
+    try:
+        while time.monotonic() - start < args.seconds:
+            for s in select.select(list(socks), [], [], 0.1)[0]:
+                data, source = s.recvfrom(65535)
+                arrival = time.time_ns()
+                port = socks[s]
+                name = PORTS[port]
+                counts[name] += 1
+                sources[name] = source[0]
+                if args.headers_only and name == "points":
+                    data = data[:HEADER]
+                out.write(RECORD.pack(arrival, port, len(data)))
+                out.write(data)
+            if time.monotonic() >= tick:
+                rates = "  ".join(f"{n} {counts[n] - before[n]:4d}/s" for n in PORTS.values())
+                print(f"{tick - start:4.0f} s  {rates}  {out.tell() / 1e6:6.0f} MB", flush=True)
+                if counts["points"] == before["points"]:
+                    print("No point packets this second.", flush=True)
+                tick, before = tick + 1.0, dict(counts)
+    except KeyboardInterrupt:
+        print("Stopped early.", flush=True)
     finally:
-        # The SDK's readers first: with one still open the interpreter hangs on the way out.
-        for sub in subs:
-            sub.Close()
-        rec.close()
-        meta.update({"ended": utc(), "counts": rec.counts, "layout": rec.layout,
-                     "layout_changes": rec.layout_changes, "first_offset_s": rec.first_offset})
+        if low is not None:
+            low.close()
+        out.close()
+        drops_after = udp_drops()
+        for s in socks:
+            s.close()
+        meta.update({"ended": utc(), "seconds": round(time.monotonic() - start, 3),
+                     "counts": counts, "sources": sources,
+                     "kernel_drops": {PORTS[p]: drops_after.get(p, 0) - drops_before.get(p, 0)
+                                      for p in PORTS},
+                     "lowstate": None if low is None else {"received": low.received, "kept": low.kept,
+                                                           "hz": args.lowstate_hz}})
         (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
-        print(f"Wrote {folder}: {', '.join(f'{k} {v}' for k, v in rec.counts.items())}.",
-              flush=True)
+        print(f"Wrote {folder}: {counts}, kernel drops {meta['kernel_drops']}.", flush=True)
     return 0
 
 
