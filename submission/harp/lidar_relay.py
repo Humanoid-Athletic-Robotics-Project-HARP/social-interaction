@@ -14,6 +14,7 @@ about 50-100 ms late).
   Publishes   /utlidar/cloud_livox_mid360    sensor_msgs/PointCloud2, restamped
 """
 
+import array
 from contextlib import ExitStack
 import os
 import signal
@@ -50,7 +51,7 @@ class LidarRelay(Node):
                       for f in msg.fields]
         out.is_bigendian, out.is_dense = msg.is_bigendian, msg.is_dense
         out.point_step, out.row_step = msg.point_step, msg.row_step
-        out.data = bytes(msg.data)
+        out.data = array.array("B", bytes(msg.data))  # array.array, not bytes: Foxy's rclpy checks bytes one by one (124 ms for 800 KB, 1 ms this way)
         self.pub.publish(out)
         if self.last is None:
             offset = now.nanoseconds * 1e-9 - (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)

@@ -3,7 +3,8 @@
   /odom          nav_msgs/Odometry   odom -> base_link (planar, really a base_footprint)
   /tf            odom -> base_link, and base_link -> livox_frame and
                  d435_depth_optical_frame (the head lidar's and depth camera's real
-                 poses from the joints and IMU, so the floor stays flat in the costmap)
+                 poses from the joints and IMU, so the floor stays flat in the costmap),
+                 and livox_frame -> livox_rear (turned 180 deg, for Nav2's clearing)
   /joint_states  sensor_msgs/JointState  the 29 joints
   /imu           sensor_msgs/Imu     the pelvis IMU
 
@@ -103,7 +104,12 @@ class StatePublisher:
             r = sensor.transform.rotation
             r.x, r.y, r.z, r.w = map(float, quat)
             sensors.append(sensor)
-        self.tf.sendTransform([base] + sensors)
+        rear = TransformStamped()           # fixed: livox_frame turned 180 deg about its z
+        rear.header.stamp = stamp
+        rear.header.frame_id = lidar_mount.FRAME
+        rear.child_frame_id = lidar_mount.REAR_FRAME
+        rear.transform.rotation.z, rear.transform.rotation.w = 1.0, 0.0
+        self.tf.sendTransform([base] + sensors + [rear])
 
     def publish_joints_imu(self, stamp, state):
         joints = JointState()

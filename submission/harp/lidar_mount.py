@@ -12,6 +12,9 @@ PARENT = "torso_link"
 POSITION = np.array([0.0003, 0.0, 0.428434])   # m, in torso_link
 RPY = (math.pi, 0.0511, 0.0)                    # rad, URDF order (fixed axes x, y, z)
 FRAME = "livox_frame"
+# livox_frame turned 180 deg about its z: its +x points back, where the lidar sees, so
+# Nav2's clearing view (centred on +x) can leave out the blind cone ahead
+REAR_FRAME = "livox_rear"
 
 
 def rpy_matrix(r, p, y):

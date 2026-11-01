@@ -92,9 +92,10 @@ controller_server:
 #    see; only things above the lidar (1.21 m) are affected.
 #  - everything else (the blind ring near the feet, beyond 3 m, behind the
 #    arms) fades after voxel_decay, 15 s.
-#  - the lidar's clearing view takes in its blind cone too, so a camera mark
-#    ahead that the camera no longer sees fades in about 2 s, not 15; while in
-#    the camera's view it is marked again every frame.
+#  - the lidar's clearing view leaves out its blind cone (+-50 deg ahead): it reads
+#    the cloud in livox_rear, turned 180 deg, as STVL centres a view on +x. So
+#    what the camera saw ahead, or the lidar off to the side, isn't cleared by a
+#    sensor that can't see it; the camera clears its own view.
 #  - no unknown space: STVL never marks cells free, so with
 #    track_unknown_space the map stayed unknown around the obstacles, the
 #    inflation layer left no cost gradient there (it only spreads its
@@ -147,7 +148,7 @@ local_costmap:
           clear_after_reading: true
         lidar_clearing:
           data_type: PointCloud2
-          topic: /utlidar/cloud_livox_mid360
+          topic: /utlidar/cloud_rear  # the lidar's cloud in livox_rear (+x back)
           marking: false
           clearing: true
           model_type: 1               # 3D lidar
@@ -155,7 +156,7 @@ local_costmap:
           max_z: 3.0                  # the marking range
           vertical_fov_angle: 1.815   # +-52 deg
           vertical_fov_padding: 0.05  # m
-          horizontal_fov_angle: 6.29  # all around
+          horizontal_fov_angle: 4.538 # 260 deg round the back: all but its blind cone ahead
           decay_acceleration: 10.0
           expected_update_rate: 0.0
           observation_persistence: 0.0
@@ -247,7 +248,7 @@ global_costmap:
           clear_after_reading: true
         lidar_clearing:
           data_type: PointCloud2
-          topic: /utlidar/cloud_livox_mid360
+          topic: /utlidar/cloud_rear  # the lidar's cloud in livox_rear (+x back)
           marking: false
           clearing: true
           model_type: 1               # 3D lidar
@@ -255,7 +256,7 @@ global_costmap:
           max_z: 3.0                  # the marking range
           vertical_fov_angle: 1.815   # +-52 deg
           vertical_fov_padding: 0.05  # m
-          horizontal_fov_angle: 6.29  # all around
+          horizontal_fov_angle: 4.538 # 260 deg round the back: all but its blind cone ahead
           decay_acceleration: 10.0
           expected_update_rate: 0.0
           observation_persistence: 0.0

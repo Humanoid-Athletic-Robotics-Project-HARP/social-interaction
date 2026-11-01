@@ -3,7 +3,7 @@ name: g1-official-docs
 description: Read when you need a Unitree G1 developer doc page, or the robot's network address, login and sensors
 metadata:
   type: reference
-  updated: 2026-11-01T21:30:46Z
+  updated: 2026-11-01T22:34:06Z
   covers: []
 ---
 
@@ -12,6 +12,7 @@ Index: https://support.unitree.com/home/en/G1_developer. The site renders with J
 **Hardware facts**
 - PC1 runs Unitree's motion control and is closed. PC2 (Jetson Orin NX 16GB) is ours, at `192.168.123.164`, initial login `unitree` / `123`. Unitree does run a few services on it (`/unitree/module/`: `master_service`, the head camera's `videohub_pc4`); what's on ours: [[robot-pc2]].
 - Head sensors: Livox MID-360 lidar ([[g1-lidar-measured]]), Intel RealSense D435i depth camera ([[g1-head-camera]]).
+- Other sensors (Unitree's spec, and what ours publishes, checked 2026-11-01): a 4-microphone array and a 5 W speaker, used through Unitree's voice service on PC1 ([[g1-builtin-apis]]; PC2 has no microphone of its own); the pelvis IMU and every joint's position and estimated torque in `rt/lowstate`; a second IMU on `rt/secondary_imu` (about 1 kHz); the D435i's and the MID-360's own IMUs; Unitree's leg-and-IMU odometry on `rt/state_estimator/odom_pelvis` (51 Hz; `fusion_odom` silent). The Dex3 hand topics exist but carry nothing on ours. PC2 also has Bluetooth.
 - Interfaces: DDS (ROS 2-compatible IDL, C++/Python), ROS 2, GStreamer (video).
 
 **Pages** (append to `https://support.unitree.com/home/en/G1_developer/`)

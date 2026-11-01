@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-01T22:55:32Z
+  updated: 2026-11-01T23:14:38Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -22,8 +22,8 @@ install attitude all zero (it isn't told it's upside down). Core about 58.6 °C.
 **How it reaches us:** it pushes Livox SDK2 UDP straight to PC2 (192.168.123.164):
 points to port 56301 (2,083 packets/s of 96 points, 1380 bytes: 200,000 points/s,
 2.9 MB/s), IMU to 56401 (200 Hz; gyro rad/s, accelerometer g), status to 56201
-(1 Hz, the parameters above). **No DDS lidar topic exists** ([[robot-pc2]]), so
-`harp/lidar_relay.py` gets nothing on this robot ([[lidar-nav2-research]]). No packets
+(1 Hz, the parameters above). With Unitree's `lidar_driver` service on instead, the
+same data comes over DDS, shareable, and PC2 gets no UDP ([[robot-pc2]]). No packets
 lost over 20–300 s if the reader starts reading as soon as it opens the ports (a
 reader that opens them and then spends a second on setup loses about 5% to the
 kernel's 416 KB buffer). Only one program can hold the ports. Clock: time_type 0, ns
