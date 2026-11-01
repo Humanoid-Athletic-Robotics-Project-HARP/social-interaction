@@ -70,9 +70,9 @@ unchanged, cloned next to this repo, and keep only our code here.
   stands if the lidar goes quiet (`harp/approach_stop.py`), tested with a
   person crossing the robot's path (`crossing`) and one walking toward it
   (`oncoming`).
-- ⬜ Sim: stand before someone crossing reaches the robot's path, not once
-  they're in it: a moving-object detector (scans compared in `odom`, the
-  points that moved grouped and their speed tracked).
+- 🟡 Predict moving obstacles from LiDAR tracks and request slower motion,
+  standing, or a checked sideways escape (`--avoidance predictive`). Planar
+  MuJoCo and local ROS checks; full HIM/GR00T validation remains pending.
 - 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
   `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
 
@@ -251,6 +251,27 @@ world's criteria, in a folder in `runs/` (which git ignores):
 
 ```bash
 python3 submission/course.py one_box
+```
+
+To test predictive avoidance on a Nav2 course or waypoint route:
+
+```bash
+python3 submission/course.py crossing --avoidance predictive --tag predictive
+python3 submission/course.py one_box --route rectangle --avoidance predictive --tag predictive-route
+```
+
+Build the image first. Predictive mode tracks generic LiDAR objects, checks future
+clearance, and publishes `/harp/obstacle_alert` when blocked. The alert is a JSON
+signal for an indicator or speaker consumer. It selects one command filter and
+keeps the route, recorder, GR00T adapter, and harness interfaces.
+Use `--avoidance reactive` for the default approach-stop behavior. Predictive
+mode currently accepts simulator Nav2 routes; use waypoints instead of planned
+straight moves. Model assumptions and validation: [predictive avoidance](context/predictive-avoidance.md).
+
+Run the smaller planar MuJoCo check with the submission Python dependencies:
+
+```bash
+PYTHONPATH=submission python3 submission/test_predictive_sim.py --output runs/predictive-component
 ```
 
 Add `--view` to watch each run live at the address printed: press Start

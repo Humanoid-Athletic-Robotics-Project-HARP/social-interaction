@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-11-01T03:06:03Z
+  updated: 2026-11-01T04:47:05Z
   covers: [submission/**]
 ---
 
@@ -21,6 +21,8 @@ metadata:
 - The lidar must stay out of the policy's process: publishing its 190 KB cloud there made the node miss HIM's 0.2 s deadline (`action_timeout`, HIM's Holosoma caught the robot).
 - HIM's sim Fast DDS profile finds only participants 0-4; with Nav2 we run about ten, and Nav2's bringup hung. `harp/fastdds_profile.py` lists peers for 32 on the same localhost transport, only when HIM's `/fastdds.xml` is set.
 - Foxy Nav2 (0.4.7): `recoveries_server`, `plugin_lib_names` must be listed (the default names a library Foxy doesn't ship), `server_timeout="200"` on each BT action node. Foxy has no Graceful Controller, so `submission/nav2_graceful_controller/` is our port of it (built by the Dockerfile; changes in its `HARP_PATCHES.md`). Settings and results: [[nav2-sim]].
+
+**Predictive filter:** simulator Nav2 tasks can select the tracker/NMPC filter instead of `approach_stop`; selection, alert signals and validation limits are in [[predictive-avoidance]]. The image includes SciPy for its nonlinear solver.
 
 **Course tests:** `python3 submission/course.py NAME [--tag T --repeat N --view]` runs `sim.sh --world` into the main checkout's `runs/` (shared by every worktree, [[worktrees]]) and scores from HIM's `trace.npz` (truth) and `policy.log` (our events and "odom" lines): outcome, pass, time, path, end error, closest, contacts (movers included), recoveries, drift. Container output is only in `policy.log`; nothing else leaves the container. `run.json` records the git commit and branch and whether the tree was dirty (the diff in `git.diff`); `--compare [WORLD]` lists runs by world and tag. Builds and runs wait for each other, one at a time per computer (the sim lock, [[worktrees]]).
 - **Run folders and pruning:** `sim.sh --output DIR` (so every course run) writes `run.json` (made there for a plain `sim.sh` run) with `"sim"`: its arguments, image and image id, `G1_TASK_COMMAND`, HIM's full commit; and the scene HIM loaded minus HIM's G1, in `scene/` (HIM's flat `scene.xml` without `--scene`). Without `--output` the run goes to HIM's own output folder and is left alone. After each run (`sim.sh` once HIM's viewer is closed, `course.py` after scoring and the `--view` replay), and with `course.py --prune [RUN]`: HIM's viewer output goes, and every `trace.npz` but the newest 2 of each world (plain `sim.sh` runs are one group; per tag kept 60 of 69) loses `model` (the compiled scene, 47 MB) and `thrash` (5 MB). It strips only when the scene rebuilt from `scene/` and HIM's G1 at that commit (`git archive`, read-only) matches the trace's (joints, bodies, geom names, types, sizes and poses, mesh vertices); scoring needs only `time` and `qpos`. Runs from before `"sim"` existed got theirs filled in only where the rebuild matched (all 68 on 2026-10-28; `"backfilled": true`). `runs/` went from 3.0 GB to 0.8 GB. `course.py --replay RUN` serves HIM's replay from a copy of the trace with the scene put back (the thrash panel is empty once stripped). Whole runs are never deleted: that's a separate decision. A run goes on for the world's `max_time_s` plus 12 s (`STARTUP`; Nav2 sends the goal about 6 s in) whatever happens, so after the goal GR00T stands, its heading creeping about 0.1°/s.

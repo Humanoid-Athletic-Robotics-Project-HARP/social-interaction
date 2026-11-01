@@ -596,7 +596,27 @@ def watch_live(process, run):
             report.write_bytes(kept)
 
 
-def run_once(name, tag, route=None, view=False):
+def course_task(existing, route=None, avoidance=None):
+    """Preserve the task's independent options when adding a route or avoidance mode."""
+    from harp.avoidance_config import select
+    task = json.loads(existing or "{}")
+    if route is not None or avoidance is not None:
+        if not isinstance(task, dict):
+            task = {}
+        if route is not None:
+            # An explicit route replaces a prior planned move, as it did before
+            # avoidance options existed. Otherwise entrypoint would skip Nav2.
+            task.pop("to", None)
+            task.pop("moves", None)
+            task["route"] = route.data()
+        if avoidance is not None:
+            task["avoidance"] = avoidance
+    text = json.dumps(task)
+    select(text)
+    return text
+
+
+def run_once(name, tag, route=None, view=False, avoidance=None):
     max_time = route_time(route) if route else (world_criteria(name) or {}).get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
@@ -604,7 +624,7 @@ def run_once(name, tag, route=None, view=False):
     env = dict(os.environ)
     if route:
         (run / "route.yaml").write_text(yaml.safe_dump(route.data(), sort_keys=False))
-        env["G1_TASK_COMMAND"] = json.dumps({"route": route.data()})   # for harp/course_goal.py
+    env["G1_TASK_COMMAND"] = course_task(env.get("G1_TASK_COMMAND"), route, avoidance)
     (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
                                                   tag=tag)) + "\n")
     for note in memory_warnings():
@@ -694,6 +714,8 @@ def main():
     parser.add_argument("world", nargs="?", help="a world in submission/worlds")
     parser.add_argument("--tag", help="added to the run folder's name")
     parser.add_argument("--repeat", type=positive, default=1)
+    parser.add_argument("--avoidance", choices=("reactive", "predictive"),
+                        help="Nav2 command filter (default: existing reactive stop)")
     where = parser.add_mutually_exclusive_group()
     where.add_argument("--route", metavar="NAME_OR_FILE", help="a route in submission/routes, or a file")
     where.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
@@ -750,7 +772,7 @@ def main():
 def run_and_score(run, args, route):
     """Run (unless --score) and score one run, print its line, and prune; False if it
     didn't succeed or failed its criteria."""
-    run = run if args.score else run_once(args.world, args.tag, route, args.view)
+    run = run if args.score else run_once(args.world, args.tag, route, args.view, args.avoidance)
     if run is None:
         return False
     s = score(run)

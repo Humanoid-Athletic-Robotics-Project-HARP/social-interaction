@@ -1,0 +1,22 @@
+---
+name: predictive-avoidance
+description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
+metadata:
+  type: reference
+  updated: 2026-11-01T04:47:05Z
+  covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/predictive_avoidance.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/test_predictive_sim.py, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py]
+---
+
+**Selection:** `course.py --avoidance predictive` adds `avoidance` to task JSON, preserving route options. `entrypoint.sh` selects exactly one `/cmd_vel_nav` → `/cmd_vel` filter. Default is `approach_stop`. Predictive mode rejects hardware, missing-world and planned-move combinations before starting producers. Nav2 waypoints support detours; straight-move drift guards deliberately do not. HIM retains motor ownership.
+
+**Observation:** timestamped `odom` transforms compensate robot/head motion. One pending scan retries delayed TF without blocking callbacks. Valid odometry, cloud and Nav2 command receipts and sensor timestamps must remain fresh. Floor/self filtering precedes bounded voxel grouping and gated association. Static returns stay occupied; large surfaces are tiled. Tracks carry IDs, xy, velocity, extent, uncertainty, last-seen time and hit count on `/harp/obstacle_tracks` (JSON, odom frame). Missing tracks coast with growing uncertainty for 2.5 s; expiry is not proof of free space. Losing a nearby track for over 0.5 s latches zero and an alert, even if background scans remain fresh; start a new session after resolving the obscured scene. Occlusion, association swaps and changing visible surfaces remain model limitations.
+
+**Planning:** `predictive_mpc.py` evaluates future body/obstacle separation and minimizes escape effort with nonlinear velocity-block optimization. Generic objects use constant velocity, not human social response. Source relationship: `harp/SFM_NMPC_REFERENCE.md`; this is an independent adaptation, not the upstream C++ Nav2 plugin. Configuration lives in `Config`; software motion/latency assumptions need G1 measurement. A feasible sampled escape remains available if refinement fails. No feasible escape produces zero plus an alert; this does not claim an incoming object cannot hit a stopped robot.
+
+**Integration:** the 5 Hz filter runs outside the policy process, at lower priority. Route success disables output motion; failure latches zero. Sensor/command expiry, malformed inputs and planning overruns request zero. `/harp/obstacle_alert` publishes `{active, reason, stamp}`, on changes and at 1 Hz while active; it is a signal, not an installed horn. `/harp/events` records mode changes. Existing recorder, planned moves, Nav2 planner and HIM remain separate.
+
+**Regression checks:** 91 local tests pass, including real ROS DDS movement/dropout/recovery/failure-latch behavior, delayed stamped TF, missed-occupancy latching and existing movement/recorder/controller tests. Python 3.8 parse checks pass; runtime tests use native Python 3.12/Jazzy.
+
+**Measured component results:** `context/predictive-sim-result.json` records four passing scenarios with source hashes. Open/crossing/head-on reached within 0.1 m; crossing and head-on resumed after avoidance, with minimum surface separation 0.464/0.452 m. The trapped scenario confirms zero plus alert before impact; it does not test survival of an unavoidable collision. Longest observed planner call: 36.3 ms on this host.
+
+**Validation boundary:** `test_predictive_sim.py` uses actual MuJoCo raycasts, a delayed acceleration-limited planar plant, ideal odometry and circular footprints. It tests perception-to-command behavior, not GR00T balance, Foxy/Nav2 orchestration or physical stopping. Native ROS tests use Jazzy. Target Docker/Foxy build and HIM courses require the external harness, recovery model and Docker, absent on Lam's current machine. Reproduce the component check and then the README's predictive crossing/route commands on that target before enabling broader use.
