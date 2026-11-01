@@ -87,7 +87,7 @@ class Adapter(unittest.TestCase):
         self.guard.on_nav(command)
         self.event('goal_sent')
         self.guard.planner = SimpleNamespace(plan=lambda *args: SimpleNamespace(
-            command=(.1, 0, 0), mode='follow', alert=False))
+            command=(.1, 0, 0), mode='follow', alert=False,solver='test',clearance=1.))
 
     def last_command(self):
         message = self.output['/cmd_vel'][-1]
@@ -140,8 +140,10 @@ class Adapter(unittest.TestCase):
             command.linear.x = .2
             self.guard.on_nav(command)
             self.guard.on_timer()
-            self.assertEqual(self.last_command(), (0, 0, 0))
-            self.assertEqual(self.guard.mode, 'lost_obstacle')
+            # Expired geometry remains an explicit obstacle for both route/MPC.
+            tracks = self.guard.planning_tracks(self.guard.scan_stamp)
+            self.assertTrue(any(abs(t.x-1.5) < .1 for t in tracks))
+            self.assertTrue(self.guard.unresolved)
 
     def test_brief_occlusion_keeps_occupancy_without_permanent_latch(self):
         self.fresh_active()
@@ -199,7 +201,7 @@ class Adapter(unittest.TestCase):
 
         def slow(*args):
             self.wall += .2
-            return SimpleNamespace(command=(.1, 0, 0), mode='follow', alert=False)
+            return SimpleNamespace(command=(.1, 0, 0), mode='follow', alert=False,solver='test',clearance=1.)
 
         self.guard.planner = SimpleNamespace(plan=slow)
         self.guard.on_timer()

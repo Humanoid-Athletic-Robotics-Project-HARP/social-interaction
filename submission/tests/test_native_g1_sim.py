@@ -15,6 +15,12 @@ class Verdict(unittest.TestCase):
         trial.min_height = .73
         trial.max_tilt = .12
         trial.modes = {'follow': 1, 'yield': 1}
+        trial.first_meter = 5.
+        trial.crowd_progress = 2.
+        trial.longest_wait = 0.
+        trial.started, trial.finished = 1., 20.
+        trial.minimum_people_separation = 1.
+        trial.goal = (4.,0.)
         return trial
 
     def test_success_requires_every_obstacle_and_stable_contact_free_walking(self):
@@ -25,3 +31,12 @@ class Verdict(unittest.TestCase):
                 trial = self.trial()
                 setattr(trial, key, value)
                 self.assertFalse(trial.report()['passed'])
+
+    def test_waiting_outside_the_crowd_cannot_pass(self):
+        trial = self.trial()
+        trial.crowd = [{}]
+        trial.crowd_progress = .1
+        self.assertFalse(trial.report()['passed'])
+        trial.crowd_progress = 2.
+        trial.longest_wait = 12.
+        self.assertFalse(trial.report()['passed'])

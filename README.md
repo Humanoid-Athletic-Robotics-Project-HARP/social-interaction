@@ -72,7 +72,8 @@ unchanged, cloned next to this repo, and keep only our code here.
   (`oncoming`).
 - 🟡 Predict moving obstacles from LiDAR tracks and request slower motion,
   standing, or a checked sideways escape (`--avoidance predictive`). Planar
-  MuJoCo and local ROS checks; full HIM/GR00T validation remains pending.
+  MuJoCo and local ROS checks, plus native walking G1 crowd trials;
+  full Foxy/HIM validation remains pending.
 - 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
   `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
 
@@ -189,20 +190,23 @@ SSL_CERT_FILE="$(.venv-policy-safety/bin/python -m certifi)" .venv-policy-safety
 
 ### Native walking G1 crowd test (macOS)
 
-Use the retained native Jazzy environment to run the G1 model with GR00T,
-the current LiDAR tracker/avoidance filter, and seven moving obstacles:
+Use the retained native Jazzy environment to run the walking G1, raycast LiDAR,
+tracking and predictive control with seven continuously circulating pedestrians:
 
 ```bash
-PYTHONPATH=submission OPENBLAS_NUM_THREADS=1 /Users/hoanglam/harp/stanford-harp-social-interaction/ros2/.pixi/envs/default/bin/python submission/native_g1_sim.py --obstacles 7 --rviz
+submission/native_g1_sim.sh --obstacles 7 --seed 1 --rviz
 ```
 
-The robot stands up automatically, then a point-goal test driver requests travel
-toward (4, 0). MuJoCo shows the G1 and obstacles; RViz shows LiDAR.
-Use `--obstacles 6` for six movers, `--obstacles 0` for baseline walking, or
-`--headless` for a recorded run without the window. Close MuJoCo or press Ctrl-C
-to stop. Each run records trajectories, events and a verdict under `runs/`.
-The seven-obstacle scenario currently exposes collisions and remains a failing
-regression test. See [native G1 evidence](context/native-g1-result.json).
+The robot stands up automatically and navigates toward (6, 0), beyond the crowd.
+MuJoCo shows the G1; RViz shows LiDAR. Pedestrians change speed and direction,
+pause, and avoid each other. Use `--static-obstacles` to add two pillars,
+`--seed 2` to change pedestrian behavior, or `--crowd adversarial` for three
+pedestrians who do not yield to the robot. `--flow-speed 1.5` increases pedestrian
+speed and acceleration; `--goal 4 0` puts the goal inside their circulation area.
+
+Use `--obstacles 0` for baseline walking or `--headless` for a scored run.
+Close MuJoCo or press Ctrl-C to stop. Each run saves source snapshots, trajectories,
+commands and a verdict under `runs/`. See [crowd test setup and limits](context/native-crowd.md).
 
 
 From this repo, build the image (`submission/submission.tar`, for the robot,

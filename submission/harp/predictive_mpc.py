@@ -26,11 +26,14 @@ class Config:
     acceleration: float = 0.4
     yaw_acceleration: float = 1.0
     robot_radius: float = 0.4
-    margin: float = 0.10
+    margin: float = 0.07
     uncertainty_rate: float = 0.025
     max_tracks: int = 64
     solve_seconds: float = 0.07
     solver_iterations: int = 8
+    tracking_gain: float = 1.0
+    lateral_tracking_gain: float = 1.0
+    max_collision_uncertainty: float = .15
 
 
 @dataclass(frozen=True)
@@ -48,12 +51,16 @@ class Planner:
         self.config = config or Config()
         c = self.config
         vals = [c.period, c.dt, c.horizon, c.speed, c.yaw_speed, c.acceleration,
-                c.yaw_acceleration, c.robot_radius, c.margin, c.solve_seconds]
+                c.yaw_acceleration, c.robot_radius, c.margin, c.solve_seconds,c.max_collision_uncertainty]
         if not all(math.isfinite(v) and v > 0 for v in vals):
             raise ValueError("Planner limits must be finite and positive")
         if not (0 <= c.response_delay <= 1 and 0 <= c.uncertainty_rate <= 1):
             raise ValueError("Invalid delay/uncertainty growth")
-        self.limits = np.array([c.speed, c.speed, c.yaw_speed])
+        if not .5 <= c.tracking_gain <= 1.:
+            raise ValueError('Invalid velocity tracking gain')
+        if not .3 <= c.lateral_tracking_gain <= 1.:
+            raise ValueError('Invalid lateral velocity tracking gain')
+        self.limits = np.array([c.speed, min(c.speed,.4), c.yaw_speed])
         self.accel = np.array([c.acceleration, c.acceleration, c.yaw_acceleration])
         self.steps = int(math.ceil(c.horizon / c.dt))
         self.delay_steps = int(math.ceil(c.response_delay / c.dt))
@@ -63,6 +70,8 @@ class Planner:
         self.times = np.arange(1 + self.delay_steps + self.steps + self.tail_steps) * c.dt
         self.previous = np.zeros(3)
         self.escape_direction = None
+        self.initialized = False
+        self.goal = None
 
     def _blocked(self, clearance=-math.inf, reason="invalid_input"):
         self.previous[:] = 0
@@ -75,18 +84,21 @@ class Planner:
         values[..., :2] *= np.minimum(1.0, limit / np.maximum(norms, 1e-12))
         return values
 
-    def _rollout(self, controls, pose, velocity):
+    def _rollout(self, controls, pose, velocity, brake_after=None):
         """Vectorized acceleration-limited SE(2) dynamics, then a stopping tail."""
         c = self.config
         controls = self._linear_limit(np.asarray(controls, dtype=float).reshape(-1, 3, 3), c.speed)
+        controls = np.clip(controls,-self.limits,self.limits)
         n = len(controls)
         poses = np.tile(pose, (n, 1))
         speeds = np.tile(velocity, (n, 1))
         result = np.empty((n, len(self.times), 2))
         result[:, 0] = poses[:, :2]
-        change = np.clip(controls[:, 0] - velocity, -self.accel*c.period, self.accel*c.period)
+        # Ramp the request from the preceding request. Using measured velocity
+        # here traps a walker at its tiny launch request while its gait starts.
+        change = np.clip(controls[:, 0] - self.previous, -self.accel*c.period, self.accel*c.period)
         change = self._linear_limit(change, c.acceleration*c.period)
-        first = self._linear_limit(np.clip(change + velocity, -self.limits, self.limits), c.speed)
+        first = self._linear_limit(np.clip(change + self.previous, -self.limits, self.limits), c.speed)
         for step in range(1, len(self.times)):
             moving_step = step - self.delay_steps - 1
             if step <= self.delay_steps:
@@ -97,6 +109,21 @@ class Planner:
                 target = first if moving_step * c.dt < c.period else controls[:, block]
             else:
                 target = np.zeros(3)
+            if brake_after is not None and moving_step*c.dt >= brake_after:
+                target = np.zeros(3)
+            target = np.broadcast_to(target,(n,3)).copy()
+            if self.goal is not None and step > self.delay_steps:
+                offset = self.goal-poses[:,:2]
+                distance = np.linalg.norm(offset,axis=-1)
+                co,si = np.cos(poses[:,2]),np.sin(poses[:,2])
+                toward = ((co*target[:,0]-si*target[:,1])*offset[:,0]
+                          +(si*target[:,0]+co*target[:,1])*offset[:,1]) > 0
+                norm = np.linalg.norm(target[:,:2],axis=-1)
+                scale = np.minimum(1.,.5*np.maximum(0.,distance-.1)/np.maximum(norm,1e-9))
+                target[toward,:2] *= scale[toward,None]
+            if step > self.delay_steps:
+                target[..., 0] *= c.tracking_gain
+                target[..., 1] *= c.lateral_tracking_gain
             change = np.clip(target-speeds, -self.accel*c.dt, self.accel*c.dt)
             speeds += self._linear_limit(change, c.acceleration*c.dt)
             mid_yaw = poses[:, 2] + speeds[:, 2]*c.dt/2
@@ -107,12 +134,16 @@ class Planner:
             result[:, step] = poses[:, :2]
         return result, first
 
-    def _clearances(self, paths, objects):
+    def _clearances(self, paths, objects, time_limit=None, recover_margin=False):
         if not len(objects):
             return np.full(len(paths), math.inf)
         c = self.config
+        times = self.times
+        if time_limit is not None:
+            count = max(2,int(time_limit/c.dt)+1)
+            paths, times = paths[:,:count], times[:count]
         # Closest approach during each interval, not only at time samples.
-        future = objects[None, :, :2] + self.times[:, None, None]*objects[None, :, 2:4]
+        future = objects[None, :, :2] + times[:, None, None]*objects[None, :, 2:4]
         relative = paths[:, :, None, :] - future[None, :, :, :]
         a, delta = relative[:, :-1], np.diff(relative, axis=1)
         fraction = np.clip(-np.sum(a*delta, axis=-1) /
@@ -121,41 +152,74 @@ class Planner:
         # Bound curvature/acceleration interpolation error between samples.
         interpolation = (c.acceleration + math.sqrt(2)*c.speed*c.yaw_speed)*c.dt*c.dt
         required = (c.robot_radius + c.margin + interpolation + objects[None, :, 4]
-                    + objects[None, :, 5] + c.uncertainty_rate*self.times[1:, None])
-        clearance = np.min(distance - required[None, :, :], axis=(1, 2))
-        # The stopped terminal pose must also clear the continuing CV ray. Without
-        # this check, backpedalling can keep postponing a head-on impact just past
-        # the horizon until sideways escape becomes impossible.
-        end_relative = relative[:, -1]
-        v = objects[:, 2:4]
-        arrival = np.maximum(0, np.sum(end_relative*v[None, :, :], axis=-1) /
-                             np.maximum(np.sum(v*v, axis=-1), 1e-12))
-        terminal_distance = np.linalg.norm(end_relative-arrival[..., None]*v, axis=-1)
-        terminal_clearance = np.min(terminal_distance-required[-1], axis=-1)
-        return np.minimum(clearance, terminal_clearance)
+                    + np.minimum(objects[None, :, 5],c.max_collision_uncertainty)
+                    + c.uncertainty_rate*times[1:, None])
+        required = required[None,:,:]
+        if recover_margin:
+            # A noisy track can already intrude into the extra forecast margin.
+            # Requiring that margin at t=0 makes every escape impossible. Permit
+            # only this pre-existing debt to decay after the response interval;
+            # the body/observed-shape envelope remains hard throughout.
+            physical = c.robot_radius+interpolation+objects[:,4]
+            initial_distance = np.linalg.norm(relative[:,0],axis=-1)
+            comfort = physical+c.margin+np.minimum(objects[:,5],c.max_collision_uncertainty)
+            debt = np.maximum(0.,comfort[None,:]-initial_distance)
+            debt[initial_distance < physical[None,:]+.02] = 0.
+            decay = np.maximum(0.,1.-np.maximum(0.,times[1:]-c.response_delay-c.period)/1.2)
+            allowance = np.where(debt[:,None,:] > 0,
+                (debt[:,None,:]+c.uncertainty_rate*times[None,1:,None])*decay[None,:,None],0.)
+            required = np.maximum(physical[None,None,:],required-allowance)
+        clearance = np.min(distance - required, axis=(1, 2))
+        if time_limit is not None:
+            return clearance
+        # Replan while travelling: do not reserve the stopped pose against
+        # speculative pedestrian motion beyond the checked horizon/braking tail.
+        return clearance
 
-    def _costs(self, controls, desired):
-        # Energy first for escape; weak route preference and switch penalty break ties.
+    def _costs(self, controls, desired, paths=None):
         controls = np.asarray(controls).reshape(-1, 3, 3)
-        energy = np.mean(np.sum(controls[:, :, :2]**2, axis=-1), axis=-1)
-        route = np.mean(np.sum((controls-desired)**2, axis=-1), axis=-1)
-        switches = np.mean(np.sum(np.diff(controls, axis=1)**2, axis=-1), axis=-1)
-        turn = np.mean(controls[:, :, 2]**2, axis=-1)
+        # Prefer progress and the requested route. Stopping is a candidate, not
+        # a privileged action; sideways passing competes with slowing down.
+        error = np.mean(np.sum((controls-desired)**2, axis=-1), axis=-1)
         continuity = np.sum((controls[:, 0]-self.previous)**2, axis=-1)
-        direction_cost = 0.0
+        backwards = np.maximum(0, -controls[:, 0, :2] @ desired[:2])
+        direction_cost = np.zeros(len(controls))
         if self.escape_direction is not None:
             direction = controls[:, 0, :2]
             direction = direction / np.maximum(np.linalg.norm(direction, axis=-1, keepdims=True), 1e-9)
-            direction_cost = .03 * (1 - direction @ self.escape_direction)
-        return energy + .05*route + .05*switches + .05*turn + .04*continuity + direction_cost
+            direction_cost = .012 * (1-direction @ self.escape_direction)
+        requested = float(np.linalg.norm(desired[:2]))
+        stall = (.15*(1-np.minimum(1.,np.linalg.norm(controls[:,0,:2],axis=-1)/requested))
+                 if requested > .06 else 0.)
+        progress = 0.
+        if paths is not None and self.goal is not None:
+            # Velocity agreement alone can reward a curve that ends up farther
+            # from the goal. Score actual SE(2) rollout progress as well.
+            distances = np.linalg.norm(paths-self.goal[None,None,:],axis=-1)
+            progress = .25*(distances[:,-1]-distances[:,0])
+        return error + .12*continuity + 2*backwards + direction_cost + stall + progress
 
-    def _evaluate(self, controls, pose, velocity, objects):
+    def _urgent_risk(self, paths, objects):
+        """An imminent collision outranks a speculative deeper overlap far away."""
+        if not len(objects):
+            return np.zeros(len(paths))
+        c = self.config
+        future = objects[None,:,:2]+self.times[:,None,None]*objects[None,:,2:4]
+        distance = np.linalg.norm(paths[:,:,None,:]-future[None],axis=-1)
+        envelope = c.robot_radius+c.margin+objects[:,4]+np.minimum(objects[:,5],c.max_collision_uncertainty)+.2
+        overlap = np.maximum(0.,1.-distance/envelope[None,None,:])
+        return 10.*np.max(overlap**2*np.exp(-self.times/1.2)[None,:,None],axis=(1,2))
+
+    def _evaluate(self, controls, pose, velocity, objects, recover_margin=False):
         paths, commands = self._rollout(controls, pose, velocity)
-        return self._clearances(paths, objects), commands
+        return self._clearances(paths, objects,recover_margin=recover_margin), commands
 
-    def plan(self, pose, velocity, desired, tracks, now):
+    def plan(self, pose, velocity, desired, tracks, now, goal=None):
         c = self.config
         try:
+            self.goal = None if goal is None else np.asarray(goal,dtype=float)
+            if self.goal is not None and (self.goal.shape != (2,) or not np.isfinite(self.goal).all()):
+                return self._blocked(reason='invalid_goal')
             pose, velocity, desired = (np.asarray(v, dtype=float) for v in (pose, velocity, desired))
             if any(v.shape != (3,) or not np.isfinite(v).all() for v in (pose, velocity, desired)):
                 return self._blocked()
@@ -172,78 +236,102 @@ class Planner:
         except (TypeError, ValueError, AttributeError):
             return self._blocked()
         desired = self._linear_limit(np.clip(desired, -self.limits, self.limits), c.speed)
+        if not self.initialized:
+            self.previous[:] = self._linear_limit(velocity,c.speed)
+            self.initialized = True
         nominal = np.tile(desired, (3, 1))
         clear, commands = self._evaluate(nominal, pose, velocity, objects)
-        if clear[0] >= 0:
+        if clear[0] >= .12 or not len(objects):
             command = tuple(float(v) for v in commands[0])
             self.previous[:] = command
             self.escape_direction = None
             return Result(command, "follow", False, float(clear[0]))
 
-        # If braking clears the crossing, yielding avoids an unnecessary sideways step.
-        stop = np.zeros((3, 3))
-        stop_clear, _ = self._evaluate(stop, pose, velocity, objects)
-        if stop_clear[0] >= 0:
-            # Test slow forward requests too, highest feasible keeps the route moving.
-            slows = np.array([nominal*s for s in (.75, .5, .25)])
-            slow_clear, slow_commands = self._evaluate(slows, pose, velocity, objects)
-            for i in range(len(slows)):
-                if slow_clear[i] >= 0 and np.linalg.norm(slow_commands[i, :2]) >= .06:
-                    command = tuple(float(v) for v in slow_commands[i])
-                    self.previous[:] = command
-                    return Result(command, "yield", False, float(slow_clear[i]), "slow")
-            self.previous[:] = 0
-            return Result((0.0, 0.0, 0.0), "yield", False, float(stop_clear[0]), "stop")
-
-        # Every direction can be considered; observed geometry determines feasibility.
-        angles = np.arange(32)*2*math.pi/32
-        seeds = []
-        for speed in (.08, .12, .18, .24, .30):
-            speed = min(speed, c.speed)
+        angles = np.arange(24)*2*math.pi/24
+        seeds = [np.zeros((3, 3))]
+        for speed in (c.speed, .7*c.speed, .4*c.speed):
             for angle in angles:
-                seeds.append(np.tile([speed*math.cos(angle), speed*math.sin(angle), 0.0], (3, 1)))
-        seeds = np.array(seeds)
+                candidate = np.array([speed*math.cos(angle),speed*math.sin(angle),0.])
+                seeds.append(np.tile(candidate,(3,1)))
+                seeds.append(np.array([candidate,candidate,desired]))
+                seeds.append(np.array([candidate,desired,desired]))
+            for yaw in (-c.yaw_speed,-.5*c.yaw_speed,.5*c.yaw_speed,c.yaw_speed):
+                curve = np.array([speed,0.,yaw])
+                seeds.append(np.array([curve,curve,desired]))
+        seeds = np.asarray(seeds)
+        seeds = self._linear_limit(np.clip(seeds,-self.limits,self.limits),c.speed)
         clearance, _ = self._evaluate(seeds, pose, velocity, objects)
         valid = np.flatnonzero(clearance >= 0)
+        recover_margin = False
         if not len(valid):
-            return self._blocked(stop_clear[0], "no_feasible_escape")
-        costs = self._costs(seeds, desired)
-        best_index = valid[np.argmin(costs[valid])]
-        best = seeds[best_index].copy()
-        best_cost = costs[best_index]
-        solver = "feasible_seed"
-        deadline = time.monotonic() + c.solve_seconds
-        # Refine the nonlinear velocity blocks; rejected/failed solves never bypass checks.
+            relaxed,_ = self._evaluate(seeds,pose,velocity,objects,recover_margin=True)
+            valid = np.flatnonzero(relaxed >= 0)
+            if len(valid):
+                clearance, recover_margin = relaxed, True
+        if not len(valid):
+            # A distant forecast can reject every constant-velocity continuation.
+            # Evaluate a short action followed by braking, rather than assume
+            # standing is safest. It still needs a clear swept stopping path.
+            braking = seeds.copy()
+            braking[:,1:] = 0.
+            paths, commands = self._rollout(braking,pose,velocity,brake_after=c.period)
+            stopping_time = (c.response_delay+c.period+
+                max(max(c.speed,float(np.linalg.norm(velocity[:2])))/c.acceleration,
+                    max(c.yaw_speed,abs(float(velocity[2])))/c.yaw_acceleration)+2*c.dt)
+            near = self._clearances(paths,objects,time_limit=stopping_time,recover_margin=True)
+            safe = np.flatnonzero(near >= 0)
+            if not len(safe):
+                return self._blocked(float(np.max(clearance)), 'no_feasible_escape')
+            # Do not ignore the forecast that rejected the long continuation:
+            # otherwise a greedy short step walks toward an incoming actor until
+            # escape becomes impossible. Prefer the least long-horizon risk.
+            continuations,_ = self._rollout(seeds,pose,velocity)
+            costs = self._costs(seeds,desired,continuations)-.08*np.minimum(near,1.)+self._urgent_risk(continuations,objects)
+            chosen = safe[np.argmin(costs[safe])]
+            command = commands[chosen]
+            self.previous[:] = command
+            return Result(tuple(float(v) for v in command),'evade',True,
+                          float(near[chosen]),'braking_recovery')
+        # Prefer usable clearance over a mathematically feasible trajectory that
+        # disappears after a centimetre of sensor or gait error.
+        paths,_ = self._rollout(seeds,pose,velocity)
+        costs = self._costs(seeds, desired,paths) + .05/(.1+np.maximum(clearance,0))
+        index = valid[np.argmin(costs[valid])]
+        best, best_cost = seeds[index].copy(), costs[index]
+        solver = 'feasible_seed'
+        deadline = time.monotonic()+c.solve_seconds
         def check_time():
             if time.monotonic() > deadline:
-                raise TimeoutError("MPC refinement budget")
-
+                raise TimeoutError('MPC refinement budget')
         def objective(flat):
             check_time()
-            return float(self._costs(np.tile(flat, (3, 1)), desired)[0])
-
+            paths,_ = self._rollout(flat.reshape(3,3),pose,velocity)
+            near = self._clearances(paths,objects,recover_margin=recover_margin)[0]
+            return float(self._costs(flat.reshape(3,3), desired,paths)[0] + .05/(.1+max(near,0.)))
         def constraint(flat):
             check_time()
-            return float(self._evaluate(np.tile(flat, (3, 1)), pose, velocity, objects)[0][0])
-
+            return float(self._evaluate(flat.reshape(3,3), pose, velocity, objects,recover_margin)[0][0])
         try:
-            # Hold one velocity block across the horizon: optimizing later escape
-            # separately lets a receding controller defer it at every new cycle.
-            solution = minimize(objective, best[0], method="SLSQP",
-                                bounds=[(-v, v) for v in self.limits],
-                                constraints={"type": "ineq", "fun": constraint},
-                                options={"maxiter": c.solver_iterations, "ftol": 1e-4})
-            candidate = np.tile(self._linear_limit(solution.x, c.speed), (3, 1))
-            candidate_clear, _ = self._evaluate(candidate, pose, velocity, objects)
+            solution = minimize(objective, best.ravel(), method='SLSQP',
+                                bounds=[(-v,v) for _ in range(3) for v in self.limits],
+                                constraints={'type':'ineq', 'fun':constraint},
+                                options={'maxiter':c.solver_iterations,'ftol':1e-4})
+            candidate = self._linear_limit(solution.x.reshape(3,3),c.speed)
+            candidate_clear, _ = self._evaluate(candidate, pose, velocity, objects,recover_margin)
             if (solution.success and np.isfinite(candidate).all()
-                    and np.all(np.abs(candidate) <= self.limits+1e-9)
                     and candidate_clear[0] >= 0 and objective(solution.x) <= best_cost):
-                best, solver = candidate, "slsqp"
+                best, solver = candidate, 'slsqp'
         except (TimeoutError, ValueError, FloatingPointError):
-            solver = "feasible_seed_budget"
-        final_clear, command = self._evaluate(best, pose, velocity, objects)
+            solver = 'feasible_seed_budget'
+        final_clear, command = self._evaluate(best, pose, velocity, objects,recover_margin)
         self.previous[:] = command[0]
-        direction = best[0, :2]
-        self.escape_direction = direction / max(np.linalg.norm(direction), 1e-9)
-        return Result(tuple(float(v) for v in command[0]), "evade", False,
-                      float(final_clear[0]), solver)
+        direction = best[0,:2]
+        speed = float(np.linalg.norm(direction))
+        if speed > .06:
+            self.escape_direction = direction/speed
+        # A large change of direction is passing; a near-route slower command yields.
+        cross = abs(direction[0]*desired[1]-direction[1]*desired[0])
+        evade = cross > .04*max(np.linalg.norm(desired[:2]), .01)
+        mode = 'evade' if evade else 'yield'
+        return Result(tuple(float(v) for v in command[0]), mode, recover_margin,
+                      float(final_clear[0]), ('margin_recovery:' if recover_margin else '')+solver)

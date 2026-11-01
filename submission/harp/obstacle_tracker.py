@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 import math
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,7 @@ class Tracker:
     remains necessary: expiry here cannot establish that unobserved space is free.
     """
 
-    def __init__(self, voxel=0.18, padding=0.15, max_age=2.5,
+    def __init__(self, voxel=0.18, padding=0.10, max_age=2.5,
                  max_points=100000, max_cells=4096, max_tracks=128):
         if (not all(math.isfinite(v) for v in (voxel, padding, max_age))
                 or voxel <= 0 or padding < 0 or max_age <= 0
@@ -113,8 +114,13 @@ class Tracker:
             if age <= self.max_age:
                 result.append(replace(track, x=track.x + track.vx * age,
                                       y=track.y + track.vy * age,
-                                      uncertainty=track.uncertainty + 0.3 * age + 0.4 * age * age))
+                                      uncertainty=track.uncertainty + 0.15 * age + 0.05 * age * age))
         return result
+
+    def clear_observed_free(self, ids):
+        """Caller must provide positive ray evidence; elapsed time is insufficient."""
+        ids = set(ids)
+        self._tracks = [t for t in self._tracks if t.id not in ids]
 
     def update(self, points_xy_in_odom, stamp_seconds):
         stamp = float(stamp_seconds)
@@ -124,14 +130,41 @@ class Tracker:
         observations = self._clusters(points_xy_in_odom)
         previous = {t.id: t for t in self._tracks if stamp - t.last_seen <= self.max_age}
         predicted = self.tracks_at(stamp)
-        # Global nearest-pair ordering prevents detection-array order from selecting IDs.
-        pairs = []
-        for track in predicted:
+        # Separate a merged return with the previous motion estimates as seeds.
+        # Every return belongs to a resulting occupied disc, including singletons.
+        points = np.asarray(points_xy_in_odom, dtype=float).reshape(-1, 2)
+        separated = []
+        for center, radius in observations:
+            seeds = [t for t in predicted if t.last_seen == self._stamp and t.hits >= 5
+                     and np.linalg.norm(center-[t.x,t.y]) < radius
+                     and .18 < t.radius < .5]
+            if (len(seeds) >= 2 and radius < 1.3
+                    and any(math.hypot(t.vx,t.vy) > .15 for t in seeds)):
+                local = points[np.linalg.norm(points-center, axis=1) <= radius]
+                centers = np.array([[t.x,t.y] for t in seeds])
+                labels = np.argmin(np.linalg.norm(local[:,None]-centers[None],axis=2),axis=1)
+                for i in range(len(seeds)):
+                    group = local[labels == i]
+                    if len(group):
+                        lo, hi = group.min(axis=0), group.max(axis=0)
+                        separated.append(((lo+hi)/2, float(np.linalg.norm(hi-lo)/2+self.padding)))
+            else:
+                separated.append((center,radius))
+        observations = separated
+        # Match the whole frame jointly, so one locally closest match cannot
+        # steal the only plausible observation from another crossing track.
+        costs = np.full((len(predicted),len(observations)+len(predicted)),1e6)
+        for row,track in enumerate(predicted):
             age = stamp - track.last_seen
+            gate = .35+3.*age
+            costs[row,len(observations)+row] = gate+.3
             for index, (center, radius) in enumerate(observations):
                 distance = float(np.linalg.norm(center - [track.x, track.y]))
-                if distance <= 0.35 + 3.0 * age:
-                    pairs.append((distance, track.id, index))
+                if distance <= gate:
+                    costs[row,index] = distance+.3*abs(radius-track.radius)
+        rows,columns = linear_sum_assignment(costs)
+        pairs = [(costs[row,col],predicted[row].id,col) for row,col in zip(rows,columns)
+                 if col < len(observations) and costs[row,col] < 1e6]
         used_tracks, used_observations = set(), set()
         updated = []
         for _, ident, index in sorted(pairs):
@@ -149,7 +182,7 @@ class Tracker:
                 velocity *= 3.0 / magnitude
             # The filtered center must still enclose the latest observed extent.
             radius = max(radius + float(np.linalg.norm(position - center)), old.radius * 0.95)
-            uncertainty = max(0.08, min(0.5, float(np.linalg.norm(residual)) * 0.5))
+            uncertainty = max(0.05, min(0.5, float(np.linalg.norm(residual)) * 0.5))
             updated.append(Track(ident, float(position[0]), float(position[1]),
                                  float(velocity[0]), float(velocity[1]), radius,
                                  uncertainty, stamp, old.hits + 1))

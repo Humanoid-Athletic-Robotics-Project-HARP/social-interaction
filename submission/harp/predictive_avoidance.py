@@ -5,9 +5,10 @@ ownership. Alerts are JSON signals, ready for a separate speaker/indicator consu
 """
 import json
 import math
+import os
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import numpy as np
 import rclpy
@@ -23,7 +24,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from harp.approach_stop import TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.obstacle_tracker import Tracker
-from harp.predictive_mpc import CONTROL_PERIOD, Planner
+from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner
 
 PERIOD = CONTROL_PERIOD
 TIMEOUT = 0.5
@@ -45,12 +46,47 @@ def transform_points(points, transform):
     return points @ rotation(quat / norm).T + shift
 
 
+def observed_free(track, origin, points):
+    """Multiple measured rays must pass beyond the lost occupancy at two heights.
+
+    Empty space/no returns, background receipt alone and an occluding return
+    cannot certify clearance. This is a sensor-resolution test, not object truth.
+    """
+    delta = points-origin
+    ranges = np.linalg.norm(delta,axis=1)
+    valid = ranges > .1
+    delta, ranges = delta[valid], ranges[valid]
+    if len(ranges) < 10:
+        return False
+    directions = delta/ranges[:,None]
+    # Clear the formerly observed shape; prediction uncertainty is not a new
+    # measured object and must not turn into a permanent wall around the robot.
+    radius = track.radius
+    offsets = [(0,0),(radius,0),(-radius,0),(0,radius),(0,-radius)]
+    for z in (.5, 1.0):
+        for dx,dy in offsets:
+            ray = np.array([track.x+dx,track.y+dy,z])-origin
+            distance = np.linalg.norm(ray)
+            if distance < .6:
+                return False
+            aligned = directions @ (ray/distance) > math.cos(.025)
+            if np.count_nonzero(aligned) < 3 or np.min(ranges[aligned]) < distance+.15:
+                return False
+    return True
+
+
 class PredictiveAvoidance:
     def __init__(self, node, buffer=None):
         self.node = node
         self.tf = buffer if buffer is not None else Buffer(cache_time=Duration(seconds=2.0))
         self.listener = None if buffer is not None else TransformListener(self.tf, node)
-        self.tracker, self.planner = Tracker(), Planner()
+        self.tracker = Tracker()
+        speed = float(os.environ.get('HARP_PREDICTIVE_SPEED', '.3'))
+        if not .05 <= speed <= .6:
+            raise ValueError('predictive speed must be within .05 to .6 m/s')
+        gain = float(os.environ.get('HARP_PREDICTIVE_TRACKING_GAIN','.85'))
+        lateral_gain = float(os.environ.get('HARP_PREDICTIVE_LATERAL_GAIN','.60'))
+        self.planner = Planner(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain))
         self.config = self.planner.config
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
         latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -70,9 +106,12 @@ class PredictiveAvoidance:
         self.odom_stamp = self.scan_stamp = None
         self.desired = (0.0, 0.0, 0.0)
         self.active = self.failed = False
+        self.goal = None
         self.perception_failed = False
         self.last_tracks, self.tracks_stamp = [], None
         self.missing_detail = {}
+        self.unresolved = {}
+        self.surfaces = {}
         self.mode = None
         self.last_alert = -math.inf
         self.alert_active = False
@@ -92,9 +131,11 @@ class PredictiveAvoidance:
                                                             stamp=self.clock()))))
             self.alert_active, self.last_alert = alert, now
 
-    def stop(self, reason, alert=False):
+    def stop(self, reason, alert=False, **fields):
         self.out.publish(Twist())
-        self.status(reason, alert)
+        if hasattr(self.planner,'previous'):
+            self.planner.previous[:] = 0.
+        self.status(reason, alert, **fields)
 
     def on_event(self, msg):
         try:
@@ -106,6 +147,9 @@ class PredictiveAvoidance:
         event = value.get("event")
         if event in ("goal_sent", "waypoint_sent") and not self.failed:
             self.active = True
+            xy = (value.get('x'),value.get('y'))
+            if all(isinstance(v,(float,int)) and math.isfinite(v) for v in xy):
+                self.goal = xy
         elif event == "goal_result":
             self.active = False
             self.failed |= value.get("status") != "SUCCEEDED"
@@ -161,6 +205,7 @@ class PredictiveAvoidance:
             world = self.tf.lookup_transform("odom", FRAME, at)
             body = self.tf.lookup_transform("odom", "base_link", at)
             points = transform_points(points, world)
+            origin = transform_points(np.zeros((1,3)), world)[0]
             base = transform_points(np.zeros((1, 3)), body)[0]
             distance = np.linalg.norm(points[:, :2] - base[:2], axis=1)
             keep = ((points[:, 2] >= 0.15) & (points[:, 2] <= 1.8)
@@ -170,18 +215,89 @@ class PredictiveAvoidance:
             # DDS can deliver a scan before its TF. Retry one bounded pending scan,
             # keeping its original timestamp; the watchdog still holds zero if stale.
             return
-        except (ValueError, TypeError, OverflowError):
+        except (ValueError, TypeError, OverflowError) as error:
             self.pending_cloud = None
             self.scan_receipt = None
-            self.stop("unusable_scan", True)
+            self.stop("unusable_scan", True, message=str(error))
             return
         self.pending_cloud = None
         observed = {t.id for t in tracks if t.last_seen == stamp}
+        candidates = {t.id:t for t in tracks if stamp-t.last_seen > .25}
+        candidates.update(self.unresolved)
+        cleared = {ident for ident,t in candidates.items() if observed_free(t,origin,points)}
+        vectors = points-origin
+        ranges = np.linalg.norm(vectors,axis=1)
+        directions = vectors/np.maximum(ranges[:,None],1e-9)
+        for ident in candidates:
+            if ident not in self.surfaces:
+                continue
+            remaining = []
+            for surface in self.surfaces[ident]:
+                # Match Nav2's footprint clearing for observations now occupied
+                # by the robot itself; elsewhere require measured rays beyond it.
+                if np.linalg.norm(surface[:2]-base[:2]) <= .4:
+                    continue
+                ray = surface[:3]-origin
+                length = np.linalg.norm(ray)
+                aligned = directions@(ray/max(length,1e-9)) > math.cos(.025)
+                if np.count_nonzero(aligned) >= 3 and np.min(ranges[aligned]) > length+.15:
+                    continue
+                remaining.append(surface)
+            self.surfaces[ident] = remaining
+            if not remaining:
+                cleared.add(ident)
+        # Reassociation after a merge can assign a new ID to the same occupied
+        # shape. Retire the old ID only if fresh occupancy fully encloses it;
+        # this transfers occupancy rather than interpreting loss as free space.
+        fresh = [t for t in tracks if t.id in observed]
+        for ident,t in candidates.items():
+            if any(u.id != ident and math.hypot(t.x-u.x,t.y-u.y)+t.radius
+                   <= u.radius+u.uncertainty for u in fresh):
+                cleared.add(ident)
+        self.tracker.clear_observed_free(cleared)
+        tracks = [t for t in tracks if t.id not in cleared]
+        for ident in observed | cleared:
+            self.unresolved.pop(ident,None)
+        self.perception_failed = bool(self.unresolved)
+        observed |= cleared
         self.check_missing(stamp, observed)
         self.last_tracks, self.tracks_stamp = tracks, stamp
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
+        occupied = points[keep]
+        for t in tracks:
+            if t.id not in observed or t.id in cleared:
+                continue
+            returns = occupied[np.linalg.norm(occupied[:,:2]-[t.x,t.y],axis=1) <= t.radius]
+            if not len(returns):
+                continue
+            cells = np.floor(returns[:,:2]/.2).astype(int)
+            _,labels = np.unique(cells,axis=0,return_inverse=True)
+            surfaces = []
+            for label in range(labels.max()+1):
+                group = returns[labels == label]
+                sample = group[np.argmin(abs(group[:,2]-.9))]
+                radius = float(np.max(np.linalg.norm(group[:,:2]-sample[:2],axis=1))+.04)
+                surfaces.append(np.r_[sample,radius])
+            self.surfaces[t.id] = surfaces
+        retained = {t.id for t in tracks}|set(self.unresolved)
+        self.surfaces = {k:v for k,v in self.surfaces.items() if k in retained}
+        tracks = self.planning_tracks(stamp)
         self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp,
                                                    tracks=[asdict(t) for t in tracks]))))
+
+    def planning_tracks(self, stamp):
+        tracks = self.tracker.tracks_at(stamp)
+        present = {t.id for t in tracks}
+        for ident,t in self.unresolved.items():
+            if ident not in present:
+                surfaces = self.surfaces.get(ident)
+                if surfaces:
+                    tracks.extend(replace(t,id=-100000-ident*100-i,x=float(p[0]),y=float(p[1]),
+                        vx=0.,vy=0.,radius=float(p[3]),uncertainty=.05)
+                        for i,p in enumerate(surfaces))
+                else:
+                    tracks.append(replace(t,vx=0.,vy=0.,uncertainty=.35))
+        return tracks
 
     def check_missing(self, stamp, observed=()):
         """Never treat expiration of nearby unseen occupancy as evidence of clearance."""
@@ -196,7 +312,7 @@ class PredictiveAvoidance:
                     stamp - track.last_seen < self.tracker.max_age - PERIOD):
                 continue
             x, y = track.x + track.vx*dt, track.y + track.vy*dt
-            uncertainty = track.uncertainty + 0.3*dt + 0.4*dt*dt
+            uncertainty = track.uncertainty + 0.15*dt + 0.05*dt*dt
             # Whole body plus maximum travel during the planning horizon.
             c = self.config
             reach = c.robot_radius + c.margin + c.speed*c.horizon + track.radius + uncertainty
@@ -204,8 +320,11 @@ class PredictiveAvoidance:
                 self.missing_detail = dict(track_id=track.id, position=[x, y],
                                            radius=track.radius, age=stamp-track.last_seen,
                                            robot=list(self.pose))
+                self.unresolved[track.id] = replace(track,x=x,y=y,uncertainty=uncertainty)
                 self.perception_failed = True
-                return  # Restart/reobserve in a new session; receipt freshness cannot clear this.
+                # Keep this occupied region for planning until positive evidence
+                # clears/reassociates it. An occluded actor need not stop every
+                # direction of travel elsewhere in the observed scene.
 
     def ready(self, now, stamp):
         return (self.pose is not None and all(t is not None and 0 <= now-t <= TIMEOUT
@@ -219,16 +338,15 @@ class PredictiveAvoidance:
             self.stop("route_failed" if self.failed else "idle")
             return
         self.check_missing(stamp)
-        if self.perception_failed:
-            self.out.publish(Twist())
-            self.status("lost_obstacle", True, **self.missing_detail)
-            return
         if not self.ready(now, stamp):
             self.stop("stale_input", True)
             return
         try:
-            result = self.planner.plan(self.pose, self.velocity, self.desired,
-                                       self.tracker.tracks_at(stamp), stamp)
+            # Retain lost geometry as occupancy memory, with a bounded local
+            # spatial margin. Its future velocity is unknown, not a CV estimate
+            # that can be extrapolated forever. Fresh scans still gate all motion.
+            tracks = self.planning_tracks(stamp)
+            result = self.planner.plan(self.pose, self.velocity, self.desired,tracks,stamp,self.goal)
             # A slow solve cannot renew an obsolete movement request.
             if time.monotonic()-now > MAX_SOLVE_TIME or not self.ready(time.monotonic(), self.clock()):
                 self.stop("planning_deadline", True)
@@ -238,7 +356,9 @@ class PredictiveAvoidance:
             msg = Twist()
             msg.linear.x, msg.linear.y, msg.angular.z = map(float, result.command)
             self.out.publish(msg)
-            self.status(result.mode, result.alert)
+            self.status(result.mode, result.alert or bool(self.unresolved), solver=result.solver,
+                        unresolved_tracks=len(self.unresolved),
+                        clearance=(float(result.clearance) if math.isfinite(result.clearance) else None))
         except (ValueError, RuntimeError, FloatingPointError):
             self.stop("planning_failure", True)
 
@@ -252,9 +372,17 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        guard.out.publish(Twist())
+        # SIGINT may already have shut down the ROS context. Do not publish or
+        # shut it down twice (Foxy-compatible; no newer signal-handler API).
+        if rclpy.ok():
+            try:
+                guard.out.publish(Twist())
+            except RuntimeError:
+                if rclpy.ok():
+                    raise
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
     return 0
 
 

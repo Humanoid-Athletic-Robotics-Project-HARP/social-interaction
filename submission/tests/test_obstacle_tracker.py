@@ -41,6 +41,18 @@ class Tracking(unittest.TestCase):
         second = tracker.update(np.vstack((square(3.02, 1), square(2.02, -1)))[::-1], 0.1)
         self.assertEqual([(t.id, t.y) for t in first], [(t.id, t.y) for t in second])
 
+    def test_merge_and_separation_do_not_multiply_ghost_tracks(self):
+        tracker = Tracker()
+        maximum = 0
+        for i in range(100):
+            half_gap = .5+.3*np.cos(i*.08)
+            points = np.vstack((square(2,half_gap),square(2,-half_gap)))
+            tracks = tracker.update(points,i*.1)
+            maximum = max(maximum,len(tracks))
+            for point in points:
+                self.assertTrue(any(np.linalg.norm(point-[t.x,t.y]) <= t.radius for t in tracks))
+        self.assertLessEqual(maximum,4)
+
     def test_occlusion_coasts_and_inflates_before_expiry(self):
         tracker = Tracker()
         for i in range(10):

@@ -14,6 +14,50 @@ def obstacle(x, y, vx=0, vy=0, radius=.2, uncertainty=.03):
 
 
 class PredictiveMpc(unittest.TestCase):
+    def test_existing_forecast_margin_violation_can_escape_but_cannot_remain(self):
+        item = obstacle(.75,0.,uncertainty=.15)
+        planner = Planner()
+        result = planner.plan((0,0,0),(0,0,0),(.25,0,0),[item],0.)
+        self.assertIn('margin_recovery',result.solver)
+        self.assertTrue(result.alert)
+        self.assertGreater(np.linalg.norm(result.command[:2]),.05)
+        self.assertLess(result.command[0],0.)
+        objects = np.array([[item.x,item.y,0.,0.,item.radius,item.uncertainty]])
+        standing = np.zeros((1,len(planner.times),2))
+        self.assertLess(planner._clearances(standing,objects,recover_margin=True)[0],0.)
+
+    def test_margin_recovery_does_not_relax_a_new_incoming_conflict(self):
+        planner = Planner()
+        objects = np.array([[2.,0.,-.5,0.,.2,.15]])
+        standing = np.zeros((1,len(planner.times),2))
+        np.testing.assert_array_equal(planner._clearances(standing,objects),
+            planner._clearances(standing,objects,recover_margin=True))
+        objects[0,:4] = [.5,0.,0.,0.]
+        self.assertLess(planner._clearances(standing,objects,recover_margin=True)[0],0.)
+
+    def test_all_evasive_rollouts_start_from_measured_velocity(self):
+        # Candidate generation must not overwrite the robot's actual starting
+        # motion, including sideways travel and yaw during a passing manoeuvre.
+        measured = np.array([.12,-.17,.25])
+        for item in (obstacle(1.2,0),obstacle(.5,0)):
+            planner = Planner()
+            with patch.object(planner,'_rollout',wraps=planner._rollout) as rollout:
+                planner.plan((0,0,0),measured,(.25,0,0),[item],0.)
+            self.assertGreater(rollout.call_count,1)
+            for call in rollout.call_args_list:
+                np.testing.assert_array_equal(call.args[2],measured)
+
+    def test_request_ramp_builds_even_while_gait_launch_velocity_is_zero(self):
+        planner = Planner()
+        requests = [planner.plan((0,0,0),(0,0,0),(.3,0,0),[],i*.2).command[0]
+                    for i in range(4)]
+        np.testing.assert_allclose(requests,[.08,.16,.24,.3])
+
+    def test_passing_a_stationary_blocker_competes_with_stopping(self):
+        result = Planner().plan((0,0,0),(0,0,0),(.25,0,0),[obstacle(1.2,0)],0.)
+        self.assertGreater(np.linalg.norm(result.command[:2]),.05)
+        self.assertGreaterEqual(result.clearance,0.)
+
     def test_clear_route_passes_acceleration_limited_request(self):
         planner = Planner()
         result = planner.plan((0, 0, 0), (0, 0, 0), (.3, 0, .6), [], 0)
@@ -32,7 +76,7 @@ class PredictiveMpc(unittest.TestCase):
         planner = Planner()
         result = planner.plan((0, 0, 0), (.25, 0, 0), (.25, 0, 0),
                               [obstacle(1.3, -1.5, vy=.4)], 0)
-        self.assertEqual(result.mode, 'yield')
+        self.assertIn(result.mode, ('yield','evade'))
         self.assertGreaterEqual(result.clearance, 0)
         self.assertLess(result.command[0], .25)
         result = planner.plan((0, 0, 0), (0, 0, 0), (.25, 0, 0),
@@ -48,12 +92,21 @@ class PredictiveMpc(unittest.TestCase):
         self.assertGreaterEqual(result.clearance, 0)
         self.assertFalse(result.alert)
 
-    def test_head_on_terminal_check_rejects_merely_postponing_impact(self):
+    def test_head_on_closed_loop_passes_instead_of_postponing_by_backpedalling(self):
         planner = Planner()
-        objects = np.array([[3., 0, -.5, 0, .2, .03]])
-        backward = np.tile([-.3, 0., 0.], (3, 1))
-        clear, _ = planner._evaluate(backward, np.zeros(3), np.zeros(3), objects)
-        self.assertLess(clear[0], 0)
+        pose, velocity = np.zeros(3), np.zeros(3)
+        minimum, lateral = math.inf, 0.
+        for step in range(35):
+            obj = obstacle(3.-.5*step*.2,0.,vx=-.5)
+            result = planner.plan(pose,velocity,(.25,0,0),[obj],step*.2)
+            delta = np.asarray(result.command)-velocity
+            delta[:2] *= min(1.,.08/max(np.linalg.norm(delta[:2]),1e-9))
+            velocity += delta
+            pose[:2] += .2*velocity[:2]
+            minimum = min(minimum,math.hypot(pose[0]-obj.x,pose[1]-obj.y))
+            lateral = max(lateral,abs(pose[1]))
+        self.assertGreater(minimum,.6)
+        self.assertGreater(lateral,.6)
 
     def test_trapped_scene_requests_zero_and_alert(self):
         planner = Planner()

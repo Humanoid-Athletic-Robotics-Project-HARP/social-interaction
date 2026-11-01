@@ -8,6 +8,7 @@
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
 - [Nav2](nav2-sim.md) — before tuning Nav2 or the Graceful port, changing a course, or comparing course results
 - [Predictive avoidance](predictive-avoidance.md) — before testing moving-object tracking, NMPC avoidance or alert signals
+- [Native G1 crowd](native-crowd.md) — before native walking G1 trials or interpreting crowd results
 - [GR00T WBC](gr00t-wbc.md) — when the walking policy comes up: HIM's GR00T walker, its contract and behavior
 - [Planned moves](planned-moves.md) — when changing walks, turns, curves or leg odometry, or needing their accuracy
 - [Waypoint recorder](waypoint-recorder.md) — when capturing destinations or reusing recorded routes
