@@ -40,7 +40,10 @@ class PredictiveMpc(unittest.TestCase):
         self.assertEqual(result.mode,'evade')
         self.assertGreater(abs(result.command[1]),.25)
         self.assertLessEqual(abs(result.command[1]),.4)
-        self.assertGreaterEqual(result.clearance,0.)
+        # A walker's forecast spreads with its speed, so this escape need not be
+        # certifiable; it must then be signalled. Physical separation is
+        # checked in closed loop by test_does_not_freeze_in_front_of_an_incoming_object.
+        self.assertEqual(result.alert, result.clearance < 0)
         # A target step never means teleporting to the target physical speed.
         paths,_ = planner._rollout(np.tile(result.command,(3,1)),np.zeros(3),np.zeros(3))
         speed = np.diff(paths[0],axis=0)/planner.config.dt
@@ -121,10 +124,12 @@ class PredictiveMpc(unittest.TestCase):
         planner = Planner()
         item = obstacle(3, 0, vx=-.5)
         result = planner.plan((0, 0, 0), (.25, 0, 0), (.25, 0, 0), [item], 0)
-        self.assertEqual(result.mode, 'evade')
-        self.assertGreater(abs(result.command[1]), .02)
+        # Clear without alarm, and responding now: slowing (cutting the closing
+        # speed while a sidestep may come late) or sidestepping. The closed-loop
+        # test below checks that it actually passes.
         self.assertGreaterEqual(result.clearance, 0)
         self.assertFalse(result.alert)
+        self.assertTrue(result.command[0] < .25-1e-6 or abs(result.command[1]) > .02)
 
     def test_head_on_closed_loop_passes_instead_of_postponing_by_backpedalling(self):
         planner = Planner()
@@ -186,9 +191,59 @@ class PredictiveMpc(unittest.TestCase):
                 person[:2] += person[2:]*.1
                 minimum = min(minimum,math.hypot(*(person[:2]-pose[:2])))
         # Moves at once, while the actor approaches. Standing would let the
-        # actor's centre pass within 0.0 m of the robot's.
+        # actor's centre pass within 0.0 m of the robot's; contact needs under
+        # 0.5 m (G1 half-width with arms ~0.3 m, plus a 0.2 m person).
         self.assertEqual(modes[:8],['evade']*8)
-        self.assertGreater(minimum,config.robot_radius+.2)
+        self.assertGreater(minimum,.5)
+
+    def test_unreachable_far_objects_do_not_change_the_plan(self):
+        near = [obstacle(1.6,-1.,vy=.4,radius=.25)]
+        wall = [obstacle(9.+.36*i,4.,radius=.23,uncertainty=.05) for i in range(120)]
+        plain = Planner().plan((0,0,0),(.2,0,0),(.3,0,0),near,0.,(4.,0.))
+        crowded = Planner().plan((0,0,0),(.2,0,0),(.3,0,0),near+wall,0.,(4.,0.))
+        self.assertEqual(plain.mode,crowded.mode)
+        np.testing.assert_allclose(plain.command,crowded.command,atol=1e-9)
+
+    def test_static_distance_field_matches_exact_clearance(self):
+        rng = np.random.default_rng(3)
+        angle, reach = rng.uniform(0,2*np.pi,14), rng.uniform(1.,2.6,14)
+        objects = np.column_stack((reach*np.cos(angle), reach*np.sin(angle), np.zeros((14,2)),
+                                   rng.uniform(.1,.3,14), rng.uniform(.03,.2,14)))
+        # Exact swept checks include forecast growth; fixed geometry needs none.
+        planner = Planner(Config(uncertainty_rate=0.))
+        paths,_ = planner._rollout(np.array([np.tile([.3*np.cos(a),.3*np.sin(a),0.],(3,1))
+                                             for a in np.linspace(0,6.2,12)]), np.zeros(3), np.zeros(3))
+        exact = planner._clearances(paths, objects)
+        planner._build_field(objects, np.zeros(3), 3.)
+        field = planner._clearances(paths, np.zeros((0,6)))
+        np.testing.assert_allclose(field, exact, atol=.04)
+        # Conservative wherever it decides anything (not deep inside a body,
+        # where the distance cone's apex is smoothed by interpolation).
+        near = exact > -.1
+        self.assertTrue(near.any())
+        self.assertTrue(np.all(field[near] <= exact[near]+1e-9))
+
+    def test_risk_ranks_penetration_depth_not_encounter_duration(self):
+        planner = Planner()
+        person = np.array([[2.,0.,-.5,0.,.3,.05]])
+        toward,_ = planner._rollout(np.tile([.3,0.,0.],(3,1)),np.zeros(3),np.zeros(3))
+        aside,_ = planner._rollout(np.tile([0.,.3,0.],(3,1)),np.zeros(3),np.zeros(3))
+        # Walking into an oncoming actor shortens the overlap but deepens it.
+        risk = planner._risk(np.vstack((toward,aside)), person)
+        self.assertLess(risk[1], risk[0])
+
+    def test_symmetric_head_on_commits_to_one_side(self):
+        planner = Planner(Config(speed=.5,tracking_gain=.85,lateral_tracking_gain=.6))
+        pose, velocity, sides = np.zeros(3), np.array([.3,0.,0.]), []
+        for tick in range(8):
+            person = obstacle(3.-.7*tick*.2,0.,vx=-.5,radius=.27,uncertainty=.05)
+            result = planner.plan(pose,velocity,(.45,0,0),[person],tick*.2,(6.,0.))
+            if abs(result.command[1]) > .05:
+                sides.append(np.sign(result.command[1]))
+            velocity = np.array(result.command)*[.85,.6,1.]
+            pose[:2] += velocity[:2]*.2
+        self.assertTrue(sides)
+        self.assertEqual(len(set(sides)), 1)
 
     def test_swept_collision_is_detected_between_time_samples(self):
         planner = Planner()
@@ -210,7 +265,8 @@ class PredictiveMpc(unittest.TestCase):
     def test_invalid_and_excessive_inputs_fail_closed(self):
         cases = [([obstacle(math.nan, 0)], (0, 0, 0)),
                  ([obstacle(0, 0, radius=-1)], (0, 0, 0)),
-                 ([obstacle(10, 0)]*65, (0, 0, 0)),
+                 ([obstacle(10, 0)]*1281, (0, 0, 0)),
+                 ([obstacle(1.5, 0)]*161, (0, 0, 0)),
                  ([], (math.inf, 0, 0))]
         for tracks, pose in cases:
             result = Planner().plan(pose, (0, 0, 0), (.25, 0, 0), tracks, 0)

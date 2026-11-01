@@ -152,7 +152,8 @@ def run(name, spec, observer=None):
         "planner_ms_max": round(max(latencies) * 1000, 3),
     }
     if name == "trapped":
-        passed = contacts == 0 and alerts > 0 and "blocked" in modes
+        # Signal, and never call the situation clear; standing is not assumed safe.
+        passed = contacts == 0 and alerts > 0 and "follow" not in modes
     else:
         passed = contacts == 0 and report["goal_error_m"] < .1
         if name == "crossing":

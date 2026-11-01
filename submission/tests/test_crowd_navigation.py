@@ -19,14 +19,14 @@ class CrowdNavigation(unittest.TestCase):
         costs = planner._costs(controls,np.array([.3,0.,.6]),paths)
         self.assertLess(costs[0],costs[1])
 
-    def test_recovery_prioritizes_imminent_threat_over_a_later_deeper_overlap(self):
+    def test_risk_prioritizes_imminent_threat_over_a_later_deeper_overlap(self):
         planner = Planner()
         objects = np.array([[0.,0.,0.,0.,.2,.03]])
         paths = np.zeros((2,len(planner.times),2))
         paths[:,:,0] = 5.
         paths[0,10,0] = .45
         paths[1,40,0] = 0.
-        risk = planner._urgent_risk(paths,objects)
+        risk = planner._risk(paths,objects)
         self.assertGreater(risk[0],risk[1])
 
     def test_prediction_brakes_at_the_goal_instead_of_walking_past_it(self):
@@ -74,6 +74,16 @@ class CrowdNavigation(unittest.TestCase):
     def test_dense_rays_through_former_occupancy_prove_it_cleared(self):
         t = SimpleNamespace(x=2.,y=0.,radius=.25,uncertainty=2.)
         self.assertTrue(observed_free(t,np.array([0,0,1.2]),self.free_rays(t)))
+
+    def test_route_prefers_seen_space_to_an_equal_unseen_detour(self):
+        blocker = [SimpleNamespace(x=2.,y=y,radius=.2,uncertainty=.05,vx=0.,vy=0.)
+                   for y in np.arange(-.6,.61,.3)]
+        occluder = [SimpleNamespace(x=1.,y=1.1,radius=.3,uncertainty=.05,vx=0.,vy=0.),
+                    SimpleNamespace(x=1.,y=-2.6,radius=.3,uncertainty=.05,vx=0.,vy=0.)]
+        # Both detours around the blocker are equally long; the one above lies
+        # in the occluder's shadow, so it is not known to be free.
+        direction = route_direction((0.,0.),(4.,0.),blocker+occluder)
+        self.assertLess(direction[1],0.)
 
     def test_recovery_checks_the_entire_braking_tail(self):
         planner = Planner(Config(speed=.4))

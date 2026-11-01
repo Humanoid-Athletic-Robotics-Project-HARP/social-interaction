@@ -40,3 +40,34 @@ class Verdict(unittest.TestCase):
         trial.crowd_progress = 2.
         trial.longest_wait = 12.
         self.assertFalse(trial.report()['passed'])
+
+
+class Building(unittest.TestCase):
+    def rectangles(self):
+        from native_g1_sim import BUILDING_BLOCKS, BUILDING_WALLS
+        walls = [(((x0+x1)/2,(y0+y1)/2),(max(abs(x1-x0)/2,.075),max(abs(y1-y0)/2,.075)))
+                 for x0,y0,x1,y1 in BUILDING_WALLS]
+        return walls+[((x,y),(hx,hy)) for x,y,hx,hy,_ in BUILDING_BLOCKS]
+
+    def gap(self, point):
+        # Distance from a point to the nearest wall or block surface.
+        best = math.inf
+        for (cx,cy),(hx,hy) in self.rectangles():
+            dx,dy = max(abs(point[0]-cx)-hx,0.),max(abs(point[1]-cy)-hy,0.)
+            best = min(best,math.hypot(dx,dy))
+        return best
+
+    def test_walker_routes_never_pass_through_walls_or_blocks(self):
+        from native_g1_sim import BUILDING_ROUTES
+        for index,(_,route) in enumerate(BUILDING_ROUTES):
+            for (x0,y0),(x1,y1) in zip(route,route[1:]):
+                steps = max(2,int(math.dist((x0,y0),(x1,y1))/.05))
+                for k in range(steps+1):
+                    point = (x0+(x1-x0)*k/steps, y0+(y1-y0)*k/steps)
+                    with self.subTest(walker=index,point=point):
+                        # A 0.20 m capsule must fit; wall repulsion adds margin.
+                        self.assertGreater(self.gap(point),.2)
+
+    def test_start_and_goal_leave_room_for_the_robot(self):
+        for point in ((0.,0.),(9.,0.)):
+            self.assertGreater(self.gap(point),1.)

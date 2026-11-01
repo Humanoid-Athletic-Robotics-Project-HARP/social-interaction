@@ -208,7 +208,6 @@ Use `--obstacles 0` for baseline walking or `--headless` for a scored run.
 Close MuJoCo or press Ctrl-C to stop. Each run saves source snapshots, trajectories,
 commands and a verdict under `runs/`. See [crowd test setup and limits](context/native-crowd.md).
 
-
 From this repo, build the image (`submission/submission.tar`, for the robot,
 and `submission/joint_profile.json`, its joint limits and gains):
 
@@ -283,7 +282,8 @@ python3 submission/course.py one_box --route rectangle --avoidance predictive --
 ```
 
 Build the image first. Predictive mode tracks generic LiDAR objects, checks future
-clearance, and publishes `/harp/obstacle_alert` when blocked. The alert is a JSON
+clearance, and publishes `/harp/obstacle_alert` whenever its chosen motion is not
+certifiably clear or lost occupancy is unresolved. The alert is a JSON
 signal for an indicator or speaker consumer. It selects one command filter and
 keeps the route, recorder, GR00T adapter, and harness interfaces.
 Use `--avoidance reactive` for the default approach-stop behavior. Predictive
@@ -304,7 +304,6 @@ PYTHONPATH=submission OPENBLAS_NUM_THREADS=1 mjpython submission/view_predictive
 
 Use `--scenario crossing` for crossing traffic. This view uses the planar robot
 model. Close the window to exit.
-
 
 Add `--view` to watch each run live at the address printed: press Start
 there (after 2 minutes it starts the run anyway, but the page only shows a

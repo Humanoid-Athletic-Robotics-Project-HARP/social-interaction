@@ -23,7 +23,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from harp.approach_stop import TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
-from harp.obstacle_tracker import Tracker
+from harp.obstacle_tracker import STRUCTURE_ID, Tracker
 from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner
 
 PERIOD = CONTROL_PERIOD
@@ -135,6 +135,7 @@ class PredictiveAvoidance:
         self.out.publish(Twist())
         if hasattr(self.planner,'previous'):
             self.planner.previous[:] = 0.
+            self.planner.escape_direction = None
         self.status(reason, alert, **fields)
 
     def on_event(self, msg):
@@ -207,10 +208,7 @@ class PredictiveAvoidance:
             points = transform_points(points, world)
             origin = transform_points(np.zeros((1,3)), world)[0]
             base = transform_points(np.zeros((1, 3)), body)[0]
-            distance = np.linalg.norm(points[:, :2] - base[:2], axis=1)
-            keep = ((points[:, 2] >= 0.15) & (points[:, 2] <= 1.8)
-                    & (distance > 0.45) & (distance <= 6.0))
-            tracks = self.tracker.update(points[keep, :2], stamp)
+            tracks = self.process_scan(points, origin, base, stamp)
         except TransformException:
             # DDS can deliver a scan before its TF. Retry one bounded pending scan,
             # keeping its original timestamp; the watchdog still holds zero if stale.
@@ -221,13 +219,31 @@ class PredictiveAvoidance:
             self.stop("unusable_scan", True, message=str(error))
             return
         self.pending_cloud = None
+        self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
+        self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp,
+                                                   tracks=[asdict(t) for t in tracks]))))
+
+    def process_scan(self, points, origin, base, stamp):
+        """Odom-frame points, lidar origin and base position -> planning tracks.
+
+        Free of ROS types, so offline harnesses run exactly this pipeline.
+        Raises ValueError (tracker capacity, bad data) without changing memory.
+        """
+        distance = np.linalg.norm(points[:, :2] - base[:2], axis=1)
+        keep = ((points[:, 2] >= 0.15) & (points[:, 2] <= 1.8)
+                & (distance > 0.45) & (distance <= 6.0))
+        tracks = self.tracker.update(points[keep, :2], stamp, origin)
         observed = {t.id for t in tracks if t.last_seen == stamp}
-        candidates = {t.id:t for t in tracks if stamp-t.last_seen > .25}
+        # Static wall tiles cannot approach while unseen, and no ray ever passes
+        # beyond a wall, so they never enter lost-occupancy memory (it grew past
+        # 200 retained cells in a building and stalled planning).
+        candidates = {t.id:t for t in tracks if stamp-t.last_seen > .25 and t.id < STRUCTURE_ID}
         candidates.update(self.unresolved)
         cleared = {ident for ident,t in candidates.items() if observed_free(t,origin,points)}
         vectors = points-origin
         ranges = np.linalg.norm(vectors,axis=1)
         directions = vectors/np.maximum(ranges[:,None],1e-9)
+        fresh = [t for t in tracks if t.id in observed]
         for ident in candidates:
             if ident not in self.surfaces:
                 continue
@@ -236,6 +252,11 @@ class PredictiveAvoidance:
                 # Match Nav2's footprint clearing for observations now occupied
                 # by the robot itself; elsewhere require measured rays beyond it.
                 if np.linalg.norm(surface[:2]-base[:2]) <= .4:
+                    continue
+                # A remembered cell inside fresh occupancy is accounted for by
+                # that observation (for example a wall piece now seen whole).
+                if any(math.hypot(surface[0]-u.x,surface[1]-u.y)+surface[3] <= u.radius
+                       for u in fresh if u.id != ident):
                     continue
                 ray = surface[:3]-origin
                 length = np.linalg.norm(ray)
@@ -249,7 +270,6 @@ class PredictiveAvoidance:
         # Reassociation after a merge can assign a new ID to the same occupied
         # shape. Retire the old ID only if fresh occupancy fully encloses it;
         # this transfers occupancy rather than interpreting loss as free space.
-        fresh = [t for t in tracks if t.id in observed]
         for ident,t in candidates.items():
             if any(u.id != ident and math.hypot(t.x-u.x,t.y-u.y)+t.radius
                    <= u.radius+u.uncertainty for u in fresh):
@@ -262,10 +282,9 @@ class PredictiveAvoidance:
         observed |= cleared
         self.check_missing(stamp, observed)
         self.last_tracks, self.tracks_stamp = tracks, stamp
-        self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
         occupied = points[keep]
         for t in tracks:
-            if t.id not in observed or t.id in cleared:
+            if t.id not in observed or t.id in cleared or t.id >= STRUCTURE_ID:
                 continue
             returns = occupied[np.linalg.norm(occupied[:,:2]-[t.x,t.y],axis=1) <= t.radius]
             if not len(returns):
@@ -281,9 +300,7 @@ class PredictiveAvoidance:
             self.surfaces[t.id] = surfaces
         retained = {t.id for t in tracks}|set(self.unresolved)
         self.surfaces = {k:v for k,v in self.surfaces.items() if k in retained}
-        tracks = self.planning_tracks(stamp)
-        self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp,
-                                                   tracks=[asdict(t) for t in tracks]))))
+        return self.planning_tracks(stamp)
 
     def planning_tracks(self, stamp):
         tracks = self.tracker.tracks_at(stamp)
@@ -308,7 +325,7 @@ class PredictiveAvoidance:
             # A brief occlusion is still represented by the track's expanding
             # occupancy in the planner. Latch before expiry, rather than at the
             # sensor receipt timeout (which also stopped on normal crowd occlusion).
-            if (track.id in observed or
+            if (track.id in observed or track.id >= STRUCTURE_ID or
                     stamp - track.last_seen < self.tracker.max_age - PERIOD):
                 continue
             x, y = track.x + track.vx*dt, track.y + track.vy*dt

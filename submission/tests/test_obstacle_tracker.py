@@ -11,7 +11,80 @@ def square(x, y, half=0.12):
                      for dy in np.linspace(-half, half, 5)])
 
 
+def front(cx, cy, radius, origin, count=24):
+    """Returns from the visible half of a circular body, seen from origin."""
+    away = np.arctan2(cy-origin[1], cx-origin[0])+np.pi
+    angles = away+np.linspace(-np.pi/2, np.pi/2, count)
+    return np.column_stack((cx+radius*np.cos(angles), cy+radius*np.sin(angles)))
+
+
 class Tracking(unittest.TestCase):
+    def test_visible_side_fits_the_body_not_its_sensor_facing_box(self):
+        origin = np.array([0., 0.])
+        track = Tracker().update(front(3., 1., .2, origin), 0., origin)[0]
+        # The returns' bounding box sits ~0.1 m toward the sensor; the fit does not.
+        self.assertLess(np.hypot(track.x-3., track.y-1.), .03)
+        self.assertLess(track.radius, .2+.06+.03)
+        self.assertGreater(track.radius, .2)
+
+    def test_a_new_walkers_velocity_converges_within_a_few_scans(self):
+        tracker, origin = Tracker(), np.array([0., 0.])
+        for step in range(4):
+            t = .1*step
+            track = tracker.update(front(3.+.6*t, 1., .2, origin), t, origin)[0]
+        self.assertAlmostEqual(track.vx, .6, delta=.12)
+        self.assertLess(abs(track.vy), .1)
+
+    def test_a_column_never_inherits_a_passing_walkers_motion(self):
+        tracker, origin = Tracker(), np.array([0., 0.])
+        column = square(3., 0., .2)
+        for step in range(15):
+            tracker.update(column, .1*step, origin)
+        column_id = tracker.tracks_at(.1*14)[0].id
+        # A walker brushes past: their returns merge into the column's component.
+        for step in range(15, 30):
+            t = .1*step
+            walker = front(3.-.6*(t-1.5)+.6, .45, .2, origin)
+            tracks = {k.id: k for k in tracker.update(np.vstack((column, walker)), t, origin)}
+            if column_id in tracks:
+                self.assertLess(np.hypot(tracks[column_id].vx, tracks[column_id].vy), .15)
+
+    def test_a_walker_beside_a_wall_stays_a_moving_object(self):
+        from harp.obstacle_tracker import STRUCTURE_ID
+        tracker, origin = Tracker(), np.array([0., -1.])
+        wall = np.column_stack((np.arange(2., 6., .03), np.full(134, 1.8)))
+        for step in range(45):
+            t = .1*step
+            walker = front(.3+.6*t, 1.5, .2, origin)   # surface ~0.1 m from the wall face
+            tracks = tracker.update(np.vstack((wall, walker)), t, origin)
+        moving = [k for k in tracks if k.id < STRUCTURE_ID and k.last_seen == t
+                  and abs(k.x-(.3+.6*t)) < .3]
+        self.assertEqual(len(moving), 1)
+        self.assertAlmostEqual(moving[0].vx, .6, delta=.15)
+
+    def test_walls_seen_while_walking_stay_static_and_bounded(self):
+        tracker = Tracker()
+        ids, counts = None, []
+        for step in range(60):
+            # A walking robot sees a sliding 12 m window of two hallway walls.
+            x = .1*step
+            wall = np.arange(x-6., x+6., .05)
+            points = np.vstack((np.column_stack((wall, np.full(len(wall), 1.8))),
+                                np.column_stack((wall, np.full(len(wall), -1.8))),
+                                square(x+2., .3*np.sin(step/5.))))
+            tracks = tracker.update(points, .1*step)
+            walls = [t for t in tracks if abs(abs(t.y)-1.8) < .05]
+            self.assertTrue(all(t.vx == t.vy == 0. for t in walls))
+            seen = {t.id for t in walls if t.last_seen == .1*step}
+            if ids is not None:
+                # Re-observed tiles keep their IDs instead of spawning new ones.
+                self.assertTrue(seen & ids)
+            ids = seen
+            counts.append(len(tracks))
+        # Steady while walking: no ID churn accumulating tiles or ghosts.
+        self.assertLessEqual(max(counts[30:])-min(counts[30:]), 6)
+        self.assertEqual(len([t for t in tracks if abs(t.y) < 1.]), 1)
+
     def test_occluded_track_cannot_steal_a_continuously_observed_object(self):
         tracker = Tracker()
         initial = tracker.update(np.vstack((square(2.,0.),square(3.2,0.))),0.)

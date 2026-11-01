@@ -13,6 +13,10 @@ class Selection(unittest.TestCase):
         self.assertEqual(select('{"avoidance":"predictive"}'), "predictive_avoidance")
         self.assertEqual(select('{"moves":[{"walk":1}]}'), "approach_stop")
 
+    def test_unparsable_task_keeps_the_default_filter(self):
+        # Other task readers tolerate bad JSON; startup must not stop on it.
+        self.assertEqual(select("not json", "real", False), "approach_stop")
+
     def test_unsupported_combinations_fail_before_startup(self):
         task = '{"avoidance":"predictive"}'
         for text, mode, world in ((task, "real", True), (task, "sim", False),

@@ -7,6 +7,33 @@ import heapq
 import math
 import numpy as np
 
+UNSEEN_COST = 3.   # extra cost per cell the LiDAR cannot see now (behind observed obstacles)
+
+
+def visible_cells(world, start, tracks, reach=6.):
+    """Cells within lidar range not hidden behind an observed obstacle.
+
+    Unobserved space is not known to be free: a route through a doorway into a
+    room the robot cannot see led into a dead end. This is the current view
+    only, from the same measured tracks the route uses. Only fixed occluders
+    count: a walking person's shadow moves on and is seen again a moment later.
+    """
+    offset = world-start
+    distance = np.linalg.norm(offset, axis=-1)
+    visible = distance <= reach
+    unit = offset/np.maximum(distance, 1e-9)[..., None]
+    for t in tracks:
+        if math.hypot(getattr(t,'vx',0.), getattr(t,'vy',0.)) >= .12:
+            continue
+        center = np.array([t.x, t.y])-start
+        gap = float(np.linalg.norm(center))
+        if gap <= t.radius:
+            continue
+        along = unit @ center
+        across = np.abs(unit[..., 0]*center[1]-unit[..., 1]*center[0])
+        visible &= ~((across < t.radius) & (along > 0) & (distance > gap))
+    return visible
+
 
 def route_direction(start, goal, tracks, resolution=.2):
     start, goal = np.asarray(start,float), np.asarray(goal,float)
@@ -31,6 +58,10 @@ def route_direction(start, goal, tracks, resolution=.2):
             future = np.stack([t.x+vx*arrival,t.y+vy*arrival],axis=-1)
             separation = np.linalg.norm(world-future,axis=-1)
             risk += .8*np.exp(-.5*(separation/max(radius,.2))**2)
+    # The robot may already stand inside an inflated zone (near a wall); let the
+    # search leave it rather than fall back to a straight line to the goal.
+    blocked &= np.linalg.norm(world-start, axis=-1) > .45
+    unseen = ~visible_cells(world, start, tracks)
     begin = tuple(np.rint((start-lower)/resolution).astype(int))
     end = tuple(np.rint((goal-lower)/resolution).astype(int))
     if blocked[end]:
@@ -59,9 +90,22 @@ def route_direction(start, goal, tracks, resolution=.2):
                 continue
             if dx and dy and (blocked[cell[0]+dx,cell[1]] or blocked[cell[0],cell[1]+dy]):
                 continue
-            value = cost[cell]+math.hypot(dx,dy)*(1+risk[nxt])
+            value = cost[cell]+math.hypot(dx,dy)*(1+risk[nxt]+UNSEEN_COST*unseen[nxt])
             if value < cost.get(nxt,math.inf):
                 cost[nxt],parent[nxt] = value,cell
                 heapq.heappush(queue,(value+math.dist(nxt,end),nxt))
     direct = goal-start
     return direct/max(np.linalg.norm(direct),1e-9)  # MPC may find an immediate escape.
+
+
+def route_command(pose, goal, direction, speed):
+    """Body-frame (vx, vy, wz) along the route direction, facing travel until near the goal."""
+    x, y, yaw = pose
+    distance = math.hypot(goal[0]-x, goal[1]-y)
+    v = min(.9*speed, distance*.5)
+    rx, ry = direction
+    vx = v*(math.cos(yaw)*rx+math.sin(yaw)*ry)
+    vy = v*(-math.sin(yaw)*rx+math.cos(yaw)*ry)
+    heading = math.atan2(ry, rx) if distance > .8 else 0.
+    error = math.atan2(math.sin(heading-yaw), math.cos(heading-yaw))
+    return vx, vy, float(np.clip(1.2*error, -.5, .5))

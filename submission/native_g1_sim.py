@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 from collections import deque
 from types import SimpleNamespace
-from harp.local_route import route_direction
+from harp.local_route import route_command, route_direction
 
 import numpy as np
 import rclpy
@@ -34,7 +34,59 @@ HERE = Path(__file__).resolve().parent
 NATIVE_REV = '9ee9255dffece6f5edf106a09c299d13edcb0f63'
 
 
-def world_file(path, count, static_obstacles=False):
+# A 3.6 m hallway (y -1.8..1.8) from the start to an east end wall, with
+# doorways into rooms A/B (north) and C (south), a side corridor going south,
+# a column, a cart, a bench and a bin. Walls are 2 m high, 0.15 m thick.
+BUILDING_WALLS = [  # x0, y0, x1, y1 along the wall's centre line
+    (-2.15, 1.875, 1.4, 1.875), (2.6, 1.875, 6.4, 1.875), (7.6, 1.875, 10.65, 1.875),
+    (-2.15, -1.875, .9, -1.875), (2.1, -1.875, 5.2, -1.875), (7.0, -1.875, 10.65, -1.875),
+    (-2.075, -5.15, -2.075, 5.15), (10.575, -5.15, 10.575, 5.15),
+    (4.5, 1.95, 4.5, 5.0), (-2.15, 5.075, 10.65, 5.075),
+    (-2.15, -5.075, 5.2, -5.075), (7.0, -5.075, 10.65, -5.075),
+    (5.125, -1.95, 5.125, -6.65), (7.075, -1.95, 7.075, -6.65), (5.05, -6.575, 7.15, -6.575)]
+BUILDING_BLOCKS = [  # centre x, y, half x, half y, height
+    (3.6, .9, .2, .2, 2.), (5.7, -1.25, .3, .25, .9), (8.2, -1.5, .6, .2, .45),
+    (.9, 1.45, .18, .18, .8)]
+# Waypoints through doors and along the hallway; people turn back at either end.
+BUILDING_ROUTES = [  # (delay s, route)
+    (3, [(9.5, .35), (-1.3, .35)]),
+    (6, [(-1.3, -.65), (9.5, -.65)]),
+    (1, [(2., 3.6), (2., 1.8), (1.9, 0.), (1.5, -1.8), (1.5, -3.6)]),
+    (4, [(7., 3.6), (7., 1.8), (6.5, 0.), (6.5, -1.2), (6.1, -1.9), (6.1, -5.5)]),
+    (0, [(6.1, -5.5), (6.1, -1.8), (6.6, -.7), (5., -.3), (-1.3, -.3)]),
+    (8, [(9.5, 1.2), (4.4, .3), (2.8, .6), (2., 1.8), (2., 3.6)]),
+    (2, [(1.5, -3.6), (1.5, -1.8), (2.8, -.5), (6.4, .1), (7., 1.8), (7., 3.6)])]
+
+
+def building_parts(count):
+    custom, bodies = [], []
+    for i,(x0,y0,x1,y1) in enumerate(BUILDING_WALLS):
+        half = (max(abs(x1-x0)/2,.075), max(abs(y1-y0)/2,.075))
+        bodies.append(f'<geom name="wall{i}" type="box" size="{half[0]:.3f} {half[1]:.3f} 1" '
+                      f'pos="{(x0+x1)/2:.3f} {(y0+y1)/2:.3f} 1" rgba=".78 .78 .74 1"/>')
+    for i,(x,y,hx,hy,h) in enumerate(BUILDING_BLOCKS):
+        bodies.append(f'<geom name="block{i}" type="box" size="{hx} {hy} {h/2}" '
+                      f'pos="{x} {y} {h/2}" rgba=".2 .4 .8 1"/>')
+    for i,(delay,route) in enumerate(BUILDING_ROUTES[:count]):
+        flat = ' '.join(f'{v}' for point in route for v in point)
+        custom += [f'<numeric name="mover{i}_duration" data="10"/>',
+                   f'<numeric name="mover{i}_delay" data="{delay}"/>',
+                   f'<numeric name="mover{i}_trips" data="1"/>',
+                   f'<numeric name="mover{i}_route" data="{flat}"/>']
+        (x,y),(ex,ey) = route[0],route[-1]
+        bodies.append(f'<body name="mover{i}" mocap="true" pos="{x} {y} 0">'
+                      '<geom type="capsule" size=".20 .5" pos="0 0 .75" rgba="1 .45 .1 1"/>'
+                      '<geom type="sphere" size=".15" pos="0 0 1.5" rgba="1 .7 .4 1"/>'
+                      f'</body><site name="mover{i}_end" pos="{ex} {ey} 0" size=".02"/>')
+    return custom, bodies
+
+
+def world_file(path, count, static_obstacles=False, layout='open'):
+    if layout == 'building':
+        custom, bodies = building_parts(count)
+        path.write_text('\n'.join(['<mujoco model="building"><custom>', *custom,
+                                   '</custom><worldbody>', *bodies, '</worldbody></mujoco>']))
+        return
     # Independent, staggered trajectories; all bodies exist in the physics model.
     paths = [(1.5, -3, 1.5, 3, 12, 0), (2.2, 3, 2.2, -3, 15, 2),
              (3.0, -3, 3.0, 3, 15, 5), (4.5, .0, -2, .0, 20, 6),
@@ -208,16 +260,11 @@ class Trial:
                 if now >= self.next_route:
                     self.route_vector = route_direction((p.x,p.y),self.goal,self.tracks)
                     self.next_route = now+.5
-                speed = min(.9*self.speed, distance*.5)
                 if distance < .25:
                     self.finish('SUCCEEDED')
                 else:
-                    rx, ry = self.route_vector
-                    command.linear.x = speed*(math.cos(yaw)*rx+math.sin(yaw)*ry)
-                    command.linear.y = speed*(-math.sin(yaw)*rx+math.cos(yaw)*ry)
-                    heading = math.atan2(ry,rx) if distance > .8 else 0.
-                    error = math.atan2(math.sin(heading-yaw),math.cos(heading-yaw))
-                    command.angular.z = float(np.clip(1.2*error, -.5, .5))
+                    (command.linear.x, command.linear.y,
+                     command.angular.z) = route_command((p.x,p.y,yaw),self.goal,self.route_vector,self.speed)
                 if now-self.started > self.seconds:
                     self.finish('TIMEOUT')
         if self.finished:
@@ -275,13 +322,21 @@ def main():
     parser.add_argument('--crowd', choices=('mixed','adversarial','legacy'),default='mixed')
     parser.add_argument('--static-obstacles',action='store_true')
     parser.add_argument('--flow-speed',type=float,default=1.,help='pedestrian speed/acceleration multiplier')
-    parser.add_argument('--goal',type=float,nargs=2,default=[6.,0.],help='goal beyond the crowd (x,y) metres')
+    parser.add_argument('--world',choices=('open','building'),default='open',
+                        help='open floor, or a hallway with rooms, doors, blocks and routed walkers')
+    parser.add_argument('--goal',type=float,nargs=2,help='goal (x,y) metres; default (6,0) open, (9,0) building')
     parser.add_argument('--robot-speed',type=float,default=.5)
     args = parser.parse_args()
     if not math.isfinite(args.seconds) or args.seconds <= 0:
         parser.error('--seconds must be positive and finite')
     if not math.isfinite(args.flow_speed) or not .5 <= args.flow_speed <= 2.:
         parser.error('--flow-speed must be within .5 to 2')
+    if args.goal is None:
+        args.goal = [9.,0.] if args.world == 'building' else [6.,0.]
+    if args.world == 'building' and args.static_obstacles:
+        parser.error('--static-obstacles applies to the open world; the building has its own blocks')
+    if args.world == 'building' and args.crowd == 'legacy':
+        parser.error('legacy movers walk straight lines through walls; use mixed or adversarial')
     if not np.isfinite(args.goal).all():
         parser.error('--goal needs finite coordinates')
     if not math.isfinite(args.robot_speed) or not .1 <= args.robot_speed <= .6:
@@ -301,7 +356,7 @@ def main():
     run_dir = args.output or main_repo / 'runs' / datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%SZ_native-g1-seven')
     run_dir.mkdir(parents=True, exist_ok=False)
     world = run_dir / 'world.xml'
-    world_file(world, args.obstacles,args.static_obstacles)
+    world_file(world, args.obstacles,args.static_obstacles,args.world)
     snapshot = run_dir/'source'
     (snapshot/'harp').mkdir(parents=True)
     for p in list((HERE/'harp').glob('*.py'))+[Path(__file__),HERE/'native_crowd_world.py']:
@@ -312,7 +367,7 @@ def main():
     (run_dir/'run.json').write_text(json.dumps(dict(native_source=NATIVE_REV,
         source_hashes=hashes, obstacles=args.obstacles, seconds=args.seconds,
         headless=args.headless, seed=args.seed, crowd=args.crowd,
-        static_obstacles=args.static_obstacles,flow_speed=args.flow_speed,
+        static_obstacles=args.static_obstacles,world=args.world,flow_speed=args.flow_speed,
         goal=args.goal,
         robot_speed=args.robot_speed,
         ros_domain=185, sdk_domain=184), indent=2)+'\n')

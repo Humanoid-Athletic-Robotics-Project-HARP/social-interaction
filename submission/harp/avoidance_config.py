@@ -4,7 +4,10 @@ import os
 
 
 def select(task_text, execution_mode="sim", has_world=True):
-    task = json.loads(task_text or "null")
+    try:
+        task = json.loads(task_text or "null")
+    except ValueError:
+        task = None   # other task readers tolerate bad JSON too; keep the default filter
     mode = task.get("avoidance", "reactive") if isinstance(task, dict) else "reactive"
     if mode not in ("reactive", "predictive"):
         raise ValueError("avoidance must be reactive or predictive")
