@@ -3,7 +3,7 @@ name: g1-head-camera
 description: Read before using the G1's head camera (RealSense D435i) — to see ahead where the lidar is blind, detect people, or record depth or colour on PC2
 metadata:
   type: project
-  updated: 2026-11-01T22:00:56Z
+  updated: 2026-11-01T22:07:14Z
   covers: [testground/pc2/v4l2_survey.py, testground/camera/*]
 ---
 
@@ -24,7 +24,9 @@ won't stream alongside depth that way (EIO): it would need librealsense. Live vi
 revision): `d435_joint` on `torso_link` at (0.0576, 0.0175, 0.4299), pitched down
 0.831 rad (47.6°): 5.7 cm ahead of and 1.8 cm left of the lidar, at its height
 ([[g1-lidar-measured]]). Unitree's `depth_camera_instruction` drawing agrees (axis 42°
-from vertical, 47.6 mm ahead, 462.7 mm above the torso block's bottom). The older
+from vertical, 47.6 mm ahead, 462.7 mm above the torso block's bottom). The
+downward angle is by design (aimed at the hands and the ground ahead), not a fault;
+changing it would mean reworking the head mount. The older
 `g1_29dof.urdf` (in `~/holosoma` on PC2) has z 0.4199. Measured from its own depth (floor fit, robot standing,
 2026-11-01): 1.25 m up, optical axis 56° below horizontal (the torso leans forward).
 About 81% of depth pixels have a value indoors. With Intel's fields of view (depth 87° × 58°,

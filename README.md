@@ -56,6 +56,9 @@ unchanged, cloned next to this repo, and keep only our code here.
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
 - ✅ Sim: a simulated head lidar and obstacle courses (`submission/worlds/`).
+- 🟡 Sim: the sensors as they are on the robot: the lidar nearly blind ahead
+  (its own head), and the head depth camera looking down at the floor ahead,
+  both in Nav2's costmaps (`harp/lidar.py`, `harp/depth_camera.py`).
 - ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) walks every
   course (`course.py`), including the obstacle course with a table, pillars,
   a thin pole and an archway, without touching anything. The robot's own
@@ -84,7 +87,8 @@ unchanged, cloned next to this repo, and keep only our code here.
   away, facing them.
 - ⬜ A person detector on the D435i camera that places people to within
   about 0.3 m, out to 4 m.
-- ⬜ Sim: a camera, or recorded camera data, to test with.
+- 🟡 Sim: a camera to test with: depth only (`harp/depth_camera.py`); colour
+  still needs recorded camera data.
 - ✅ Building block: the curved move to a point and heading.
 - ⬜ Sim, then robot: walk up to a person.
 
@@ -112,12 +116,13 @@ This has to happen before any of the "Robot" boxes above.
     every course.
   - ✅ Turns and curves to a point (`harp/moves.py`): 90° turn 90.2°,
     curve to (1, 1, 45°) within 7 cm and 5°.
-  - ✅ The simulated head lidar and moving people (`harp/lidar.py`,
-    `harp/movers.py`).
+  - ✅ The simulated head lidar and depth camera, as on the robot, and moving
+    people (`harp/lidar.py`, `harp/depth_camera.py`, `harp/movers.py`).
   - ✅ Nav2 with STVL and the Graceful Controller (`nav2/`, our Foxy port in
     `nav2_graceful_controller/`): all six courses succeed, no contacts.
-  - ✅ Standing while someone walks at the robot, and while the lidar is quiet
-    (`harp/approach_stop.py`, between Nav2 and our node): in `oncoming` it
+  - ✅ Standing while someone walks at the robot, seen by the lidar or the head
+    camera, and while the lidar is quiet (`harp/approach_stop.py`, between Nav2
+    and our node): in `oncoming` it
     stands about 6 s and the person passes 0.36 m away; it never stops on the
     courses without people.
   - ✅ Course tests, their scores and criteria, comparing runs, and each run's

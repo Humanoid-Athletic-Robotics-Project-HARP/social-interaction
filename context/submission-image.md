@@ -3,13 +3,13 @@ name: submission-image
 description: Read before changing submission/ (our image for HIM's harness), running a course in HIM's sim, or debugging a run that HIM stopped
 metadata:
   type: reference
-  updated: 2026-11-01T21:26:09Z
+  updated: 2026-11-01T22:25:39Z
   covers: [submission/**]
 ---
 
 `submission/` is our code on top of him-sim2real-management ([[him-sim2real]]): one image, `harp-submission:local` (`build.sh`), plus a thin layer per world (`harp-submission:NAME`, `Dockerfile.world`); a git worktree has its own image names ([[worktrees]]).
 
-**How it fits:** `build.sh` runs HIM's own `containers/examples/prepare.py walker` into `submission/.build/` (ignored) and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. `harp_node.py` subclasses HIM's `client.PolicyNode`: the task velocity is the latest `/cmd_vel` (clipped to 0.6/0.4 m/s, 1 rad/s; zero after 0.5 s), and each state is republished by `harp/state.py` (`/odom`, `/tf`, `/joint_states`, `/imu`). Leg odometry runs on HIM's G1 model (`/harp/model`, MuJoCo 3.2.3, the newest for Python 3.8). The lidar mount is the rev 1.0 URDF's.
+**How it fits:** `build.sh` runs HIM's own `containers/examples/prepare.py walker` into `submission/.build/` (ignored) and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. `harp_node.py` subclasses HIM's `client.PolicyNode`: the task velocity is the latest `/cmd_vel` (clipped to 0.6/0.4 m/s, 1 rad/s; zero after 0.5 s), and each state is republished by `harp/state.py` (`/odom`, `/tf`, `/joint_states`, `/imu`). Leg odometry runs on HIM's G1 model (`/harp/model`, MuJoCo 3.2.3, the newest for Python 3.8). The lidar and depth camera mounts are the rev 1.0 URDF's (`harp/lidar_mount.py`, `harp/camera_mount.py`).
 
 **Waypoint capture:** the read-only recorder and host launcher share the running image's ROS network; export and session limits are in [[waypoint-recorder]].
 
@@ -17,7 +17,7 @@ metadata:
 
 **Worlds** (`submission/worlds/`, criteria in `NAME.yaml`): `stage_world.py` writes HIM's scene (the G1, `safety_floor`, fixed obstacles; movers left out, or HIM would hold them still where they start) and the image's copy with movers. Worlds must be includable next to HIM's G1: defaults go in a named class (`obstacle`), never the top-level default. The comments' "--" breaks XML parsers, so `stage_world.py` strips comments.
 
-**In a world's image** (`entrypoint.sh`): `harp/lidar.py`, Nav2 (`nav2/`), `harp/approach_stop.py` (passes Nav2's `/cmd_vel_nav` on to `/cmd_vel`, or zero while something comes at the robot: [[nav2-sim]]) and `harp/course_goal.py`, each its own process, beside `harp_node.py`, unless a `{"to": ...}` target is given: only one thing drives `/cmd_vel`. They start first, and `harp_node.py` only once Nav2 is configured (`harp/nav2_ready.py`, at most 15 s), so their start-up is over before HIM times our commands ([[sim-deadline-stops]]).
+**In a world's image** (`entrypoint.sh`): `harp/lidar.py` (the head lidar, and the head depth camera from the same state, `harp/depth_camera.py`), Nav2 (`nav2/`), `harp/approach_stop.py` (passes Nav2's `/cmd_vel_nav` on to `/cmd_vel`, or zero while something comes at the robot: [[nav2-sim]]) and `harp/course_goal.py`, each its own process, beside `harp_node.py`, unless a `{"to": ...}` target is given: only one thing drives `/cmd_vel`. They start first, and `harp_node.py` only once Nav2 is configured (`harp/nav2_ready.py`, at most 15 s), so their start-up is over before HIM times our commands ([[sim-deadline-stops]]).
 - The lidar must stay out of the policy's process: publishing its 190 KB cloud there made the node miss HIM's 0.2 s deadline (`action_timeout`, HIM's Holosoma caught the robot).
 - HIM's sim Fast DDS profile finds only participants 0-4; with Nav2 we run about ten, and Nav2's bringup hung. `harp/fastdds_profile.py` lists peers for 32 on the same localhost transport, only when HIM's `/fastdds.xml` is set.
 - Foxy Nav2 (0.4.7): `recoveries_server`, `plugin_lib_names` must be listed (the default names a library Foxy doesn't ship), `server_timeout="200"` on each BT action node. Foxy has no Graceful Controller, so `submission/nav2_graceful_controller/` is our port of it (built by the Dockerfile; changes in its `HARP_PATCHES.md`). Settings and results: [[nav2-sim]].

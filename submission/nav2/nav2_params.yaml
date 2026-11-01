@@ -76,8 +76,11 @@ controller_server:
       # aborting the path. The controller server's failure_tolerance on Jazzy; Foxy's has none.
       failure_tolerance: 0.3
 
-# Both costmaps read the head lidar the same way, through STVL
-# (spatio_temporal_voxel_layer), whose marks fade:
+# Both costmaps read the head lidar and the head depth camera the same way, through
+# STVL (spatio_temporal_voxel_layer), whose marks fade. The lidar is nearly blind
+# within about 50 deg of straight ahead (its own head is in the way); the camera,
+# pitched about 50 deg down, sees there from 0.2 to about 2.7 m out and up to about
+# 0.8 m high 1 m ahead (context/sim-vs-real.md):
 #  - marking: points 0.08-1.8 m above the floor, up to 3 m away. Past 3 m,
 #    torso tilt makes floor points look like obstacles. STVL has no minimum
 #    range, so the robot's own arms get marked, but they are always inside the
@@ -89,6 +92,9 @@ controller_server:
 #    see; only things above the lidar (1.21 m) are affected.
 #  - everything else (the blind ring near the feet, beyond 3 m, behind the
 #    arms) fades after voxel_decay, 15 s.
+#  - the lidar's clearing view takes in its blind cone too, so a camera mark
+#    ahead that the camera no longer sees fades in about 2 s, not 15; while in
+#    the camera's view it is marked again every frame.
 #  - no unknown space: STVL never marks cells free, so with
 #    track_unknown_space the map stayed unknown around the obstacles, the
 #    inflation layer left no cost gradient there (it only spreads its
@@ -123,7 +129,7 @@ local_costmap:
         publish_voxel_map: false
         transform_tolerance: 0.5
         mapping_mode: false
-        observation_sources: lidar_marking lidar_clearing
+        observation_sources: lidar_marking lidar_clearing camera_marking camera_clearing
         lidar_marking:
           data_type: PointCloud2
           topic: /utlidar/cloud_livox_mid360
@@ -150,6 +156,36 @@ local_costmap:
           vertical_fov_angle: 1.815   # +-52 deg
           vertical_fov_padding: 0.05  # m
           horizontal_fov_angle: 6.29  # all around
+          decay_acceleration: 10.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_marking:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: true
+          clearing: false
+          obstacle_range: 3.0
+          min_obstacle_height: 0.08
+          max_obstacle_height: 1.8
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_clearing:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: false
+          clearing: true
+          model_type: 0               # depth camera (optical frame, z forward)
+          min_z: 0.2                  # m along the optical axis: its minimum depth
+          max_z: 3.0                  # the marking range
+          vertical_fov_angle: 1.012   # 58 deg
+          vertical_fov_padding: 0.05  # m
+          horizontal_fov_angle: 1.518 # 87 deg
           decay_acceleration: 10.0
           expected_update_rate: 0.0
           observation_persistence: 0.0
@@ -193,7 +229,7 @@ global_costmap:
         publish_voxel_map: false
         transform_tolerance: 0.5
         mapping_mode: false
-        observation_sources: lidar_marking lidar_clearing
+        observation_sources: lidar_marking lidar_clearing camera_marking camera_clearing
         lidar_marking:
           data_type: PointCloud2
           topic: /utlidar/cloud_livox_mid360
@@ -220,6 +256,36 @@ global_costmap:
           vertical_fov_angle: 1.815   # +-52 deg
           vertical_fov_padding: 0.05  # m
           horizontal_fov_angle: 6.29  # all around
+          decay_acceleration: 10.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_marking:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: true
+          clearing: false
+          obstacle_range: 3.0
+          min_obstacle_height: 0.08
+          max_obstacle_height: 1.8
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_clearing:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: false
+          clearing: true
+          model_type: 0               # depth camera (optical frame, z forward)
+          min_z: 0.2                  # m along the optical axis: its minimum depth
+          max_z: 3.0                  # the marking range
+          vertical_fov_angle: 1.012   # 58 deg
+          vertical_fov_padding: 0.05  # m
+          horizontal_fov_angle: 1.518 # 87 deg
           decay_acceleration: 10.0
           expected_update_rate: 0.0
           observation_persistence: 0.0
