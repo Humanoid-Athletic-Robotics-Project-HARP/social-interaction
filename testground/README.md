@@ -6,7 +6,7 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
 
 | Path | Runs on | What |
 |---|---|---|
-| `pc2/probe.sh`, `pc2/topics.py` | PC2 | Read-only survey: system, installed SDK, network, disk, load, every DDS topic. |
+| `pc2/probe.sh`, `pc2/topics.py`, `pc2/v4l2_survey.py` | PC2 | Read-only survey: system, installed SDK, network, disk, load, every DDS topic, the cameras' video modes. |
 | `lidar/` | both | The head lidar (a Livox MID-360): what it sends and how well it sees ([lidar/README.md](lidar/README.md)). |
 | `sync.sh` | laptop | Copy the scripts to PC2, pull a test's captures back, or open a shell there. |
 
