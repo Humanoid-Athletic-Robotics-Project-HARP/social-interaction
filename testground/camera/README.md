@@ -9,9 +9,10 @@ it can see: `context/g1-head-camera.md`.
   colour device).
 - **Depth**, read straight from `/dev/video0`, coloured by distance; click a point
   for its distance, how far ahead and to the side it is, and its height.
-- **Seen ahead, from above**: the depth as a top-down map, levelled on a floor plane
-  fitted every second, with the lidar's blind cone drawn on it. The fit also gives
-  the camera's real height and pitch.
+- **In front of the robot, seen from above**: the depth as a top-down map (the robot
+  at the bottom, facing up; rings every metre), levelled on a floor plane fitted
+  every second: grey is floor, coloured dots are things sticking up, by height. The
+  fit also gives the camera's real height and pitch.
 
 On PC2, in `~/Workspace/testground_social_interaction/camera`:
 

@@ -13,6 +13,10 @@ Frames
   fitted continuously and the page uses it to level the cloud and to place the
   robot model, so the view stays right whether the robot stands or hangs.
 
+It also shows where the lidar can't see: the directions the robot's own head
+blocks (counted from the live returns, so it is what this lidar really sees) and
+the floor around the feet below its field of view.
+
 Only one process can receive the lidar stream, so stop livox_ros_driver2 or
 any other SDK2 program first.
 """
@@ -33,6 +37,10 @@ POINT_DTYPE = np.dtype([("x", "<i4"), ("y", "<i4"), ("z", "<i4"), ("refl", "u1")
 FLIP = np.array([1.0, -1.0, -1.0], np.float32)
 # URDF: pelvis 0.793 above feet + waist 0.054 + mid360 0.406 above torso
 LIDAR_ABOVE_FEET = 1.253
+# Where the lidar can't see: returns per 5 deg of azimuth, past the robot's own body
+SECTORS = 72
+SELF_RANGE = 0.6      # m: nearer returns hit the robot, they're no view past it
+BLOCKED, SPARSE = 0.15, 0.4   # a sector's returns against the median sector's
 
 
 class PointBuffer:
@@ -69,15 +77,57 @@ class PointBuffer:
         return out
 
 
+def tidy(flags, fill, shortest):
+    """Fill gaps of up to `fill` sectors, then drop runs shorter than `shortest` (circular),
+    so a doorway or a far-off gap doesn't show up as blocked."""
+    flags = flags.copy()
+    n = len(flags)
+    for value, longest in ((False, fill), (True, shortest - 1)):
+        if flags.all() or not flags.any():
+            break
+        start = int(np.argmax(flags != flags[0]))   # begin at a boundary
+        k = 0
+        while k < n:
+            first = flags[(start + k) % n]
+            j = k
+            while j < n and flags[(start + j) % n] == first:
+                j += 1
+            if first == value and j - k <= longest:
+                for m in range(k, j):
+                    flags[(start + m) % n] = not value
+            k = j
+    return flags
+
+
+def runs(flags):
+    """Runs of True sectors as [start, end] deg, joined across +-180."""
+    n, width = len(flags), 360.0 / len(flags)
+    if flags.all():
+        return [[-180.0, 180.0]]
+    first = int(np.argmin(flags))          # start the walk on a False sector
+    out, start = [], None
+    for k in range(n + 1):
+        i = (first + k) % n
+        if flags[i] and start is None:
+            start = k
+        elif not flags[i] and start is not None:
+            a0 = -180.0 + ((first + start) % n) * width
+            out.append([a0, a0 + (k - start) * width])
+            start = None
+    return out
+
+
 class FloorEstimator:
-    """Fits the largest near-horizontal plane below the sensor (RANSAC)."""
+    """Fits the largest near-horizontal plane below the sensor (RANSAC), and counts
+    where the lidar sees past the robot."""
 
     def __init__(self, buf):
         self.buf = buf
         self.lock = threading.Lock()
         self.state = {"normal": [0.0, 0.0, 1.0], "height": LIDAR_ABOVE_FEET, "ok": False,
-                      "inliers": 0, "pps": 0}
+                      "inliers": 0, "pps": 0, "blocked": [], "sparse": [], "floor_from": None}
         self.rng = np.random.default_rng()
+        self.sector_counts = None
 
     def fit(self, pts):
         if len(pts) < 500:
@@ -109,7 +159,26 @@ class FloorEstimator:
         n = np.linalg.svd(inl - c, full_matrices=False)[2][2]
         if n[2] < 0:
             n = -n
-        return n, float(-(n @ c)), len(inl)
+        # how near the robot the floor first shows up (along the floor, from below the lidar)
+        along = np.linalg.norm(inl - np.outer(inl @ n, n), axis=1)
+        return n, float(-(n @ c)), len(inl), float(np.percentile(along, 2))
+
+    def coverage(self, pts):
+        """Blocked and sparse azimuth sectors, from returns past the robot's body."""
+        far = pts[np.linalg.norm(pts, axis=1) > SELF_RANGE]
+        counts = np.histogram(np.degrees(np.arctan2(far[:, 1], far[:, 0])), SECTORS,
+                              (-180, 180))[0].astype(float)
+        if self.sector_counts is None:
+            self.sector_counts = counts
+        else:                      # about ten seconds' memory, so a passer-by doesn't flicker it
+            self.sector_counts = 0.9 * self.sector_counts + 0.1 * counts
+        typical = np.median(self.sector_counts)
+        if typical <= 0:
+            return [], []
+        share = self.sector_counts / typical
+        blocked = tidy(share < BLOCKED, 2, 3)            # 10 deg gaps filled, 15 deg at least
+        sparse = tidy((share < SPARSE) & ~blocked, 1, 2) & ~blocked
+        return runs(blocked), runs(sparse)
 
     def run(self):
         last_count, last_t = self.buf.received, time.monotonic()
@@ -118,18 +187,22 @@ class FloorEstimator:
             now = time.monotonic()
             pps = (self.buf.received - last_count) / (now - last_t)
             last_count, last_t = self.buf.received, now
-            res = self.fit(self.buf.snapshot()[:, :3].astype(np.float64))
+            pts = self.buf.snapshot()[:, :3].astype(np.float64)
+            res = self.fit(pts)
+            blocked, sparse = self.coverage(pts) if len(pts) else ([], [])
             with self.lock:
                 s = self.state
-                s["pps"] = int(pps)
+                s.update(pps=int(pps), blocked=blocked, sparse=sparse)
                 if res is None:
                     continue
-                n, d, cnt = res
+                n, d, cnt, near = res
                 if s["ok"]:  # smooth out frame-to-frame jitter
                     n = 0.7 * np.array(s["normal"]) + 0.3 * n
                     n /= np.linalg.norm(n)
                     d = 0.7 * s["height"] + 0.3 * d
-                s.update(normal=[float(v) for v in n], height=float(d), ok=True, inliers=cnt)
+                    near = 0.7 * (s["floor_from"] or near) + 0.3 * near
+                s.update(normal=[float(v) for v in n], height=float(d), ok=True, inliers=cnt,
+                         floor_from=near)
 
     def json(self):
         with self.lock:
@@ -197,9 +270,14 @@ PAGE = r"""<!doctype html>
     <label class="row"><input type="checkbox" id="hideself"> Hide hits on the robot itself</label>
     <label class="row"><input type="checkbox" id="showrobot"> Show robot model</label>
     <label class="row"><input type="checkbox" id="showguides"> Show distance rings &amp; labels</label>
+    <label class="row"><input type="checkbox" id="showblind"> Show where the lidar can't see</label>
     <label class="row"><input type="checkbox" id="flip"> Swap front/back</label>
     <label class="row"><input type="checkbox" id="pause"> Pause</label>
   </div>
+  <div class="sec muted" id="blindkey"><span style="color:#ff6b6b">Red</span>: directions the robot's own head blocks,
+    measured from what the lidar returns right now. <span style="color:#ffa64d">Orange</span>: it sees only a little there.
+    <span style="color:#ffd060">Yellow disk</span>: floor too close to the feet for the lidar to see.</div>
+  <div id="blindtxt"></div>
   <div class="sec muted">Orange arrow = the robot's front. To check it, stand in front of the robot:
     you should show up near the arrow. If you show up behind the robot, tick "Swap front/back".<br>
     Click a point to measure it. Drag to orbit, right-drag to pan, scroll to zoom.</div>
@@ -320,6 +398,61 @@ const gapLine = line([V(0, 0, 0), V(0, 0, 1)], 0xffb066, true); scene.add(gapLin
 const gapLabel = label('-', {h: 0.09, color: '#ffb066'}); scene.add(gapLabel);
 let gapText = '';
 
+// ---------- where the lidar can't see (measured by the server, /calib) ----------
+const blind = new THREE.Group(); scene.add(blind);
+let blindKey = '';
+function clearGroup(g) {
+  for (const o of [...g.children]) {
+    g.remove(o);
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); }
+  }
+}
+function fan(a0, a1, r0, r1, color, opacity) {   // a floor sector, degrees from the front, + to the left
+  const g = new THREE.RingGeometry(r0, r1, Math.max(4, Math.ceil((a1 - a0) / 3)), 1,
+                                   a0 * Math.PI / 180, (a1 - a0) * Math.PI / 180);
+  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({color, transparent: true, opacity, depthWrite: false,
+                                                        side: THREE.DoubleSide}));
+}
+function where(mid) {                            // a direction in words
+  const a = ((mid + 540) % 360) - 180, b = Math.abs(a);
+  if (b < 25) return 'ahead';
+  if (b > 155) return 'behind';
+  return `${b < 90 ? 'ahead and ' : b > 90 ? 'behind and ' : ''}to the ${a > 0 ? 'left' : 'right'}`;
+}
+function drawBlind() {
+  const c = rig.localToWorld(V(0, 0, 0));
+  blind.position.set(c.x, c.y, 0.006);
+  const show = $('showblind').checked;
+  $('blindkey').hidden = !show;
+  const deg = yaw * 180 / Math.PI;
+  const blocked = (calib.blocked || []).map(([a0, a1]) => [a0 + deg, a1 + deg]);
+  const key = JSON.stringify([show, blocked, calib.sparse, deg, calib.floor_from && calib.floor_from.toFixed(2)]);
+  if (key === blindKey) return;
+  blindKey = key; clearGroup(blind);
+  $('blindtxt').innerHTML = !show ? '' : blocked.length
+    ? 'Can\'t see: ' + blocked.map(([a0, a1]) => `<b>${Math.round(a1 - a0)}&deg; ${where((a0 + a1) / 2)}</b>`).join(', ') + '.'
+    : 'No blocked directions right now.';
+  if (!show) return;
+  for (const [a0, a1] of calib.sparse || []) blind.add(fan(a0 + deg, a1 + deg, 0.3, 8, 0xff9a3c, 0.13));
+  for (const [a0, a1] of blocked) {
+    blind.add(fan(a0, a1, 0.3, 8, 0xff4040, 0.3));
+    if (a1 - a0 < 30) continue;                   // label only the big ones
+    const mid = (a0 + a1) / 2 * Math.PI / 180;
+    const l = label("lidar can't see here", {h: 0.22, color: '#ff8080'});
+    l.position.set(3.4 * Math.cos(mid), 3.4 * Math.sin(mid), 0.2); blind.add(l);
+  }
+  if (calib.floor_from) {
+    const r = calib.floor_from;
+    blind.add(new THREE.Mesh(new THREE.CircleGeometry(r, 64), new THREE.MeshBasicMaterial(
+      {color: 0xffd060, transparent: true, opacity: 0.14, depthWrite: false})));
+    const pts = []; for (let i = 0; i <= 96; i++) { const a = i / 96 * Math.PI * 2; pts.push(V(r * Math.cos(a), r * Math.sin(a), 0.002)); }
+    blind.add(line(pts, 0xffd060));
+    const l = label(`floor unseen within ${r.toFixed(1)} m`, {h: 0.12, color: '#ffd060'});
+    l.position.set(r * Math.cos(-2.3), r * Math.sin(-2.3), 0.12); blind.add(l);
+  }
+}
+
 // ---------- point cloud ----------
 const posArr = new Float32Array(MAX_PTS * 3), colArr = new Float32Array(MAX_PTS * 3);
 const geom = new THREE.BufferGeometry();
@@ -367,6 +500,7 @@ function applyCalib() {
   else if (gap < -0.04) status = `<span class="warn">Model feet sit ${Math.round(-gap * 100)} cm below the floor: the robot is crouched or the floor fit is off.</span>`;
   else status = "Robot's feet are on the floor.";
   $('calibtxt').innerHTML = `LiDAR is ${calib.height.toFixed(2)} m above the floor, tilted ${tilt.toFixed(1)}&deg;.<br>${status}`;
+  drawBlind();
 }
 
 function updateCloud() {
@@ -395,7 +529,8 @@ function updateCloud() {
 }
 
 // ---------- controls ----------
-const settings = {mode: 'h', size: 2, hidefloor: false, hideself: true, showrobot: true, showguides: true, flip: false};
+const settings = {mode: 'h', size: 2, hidefloor: false, hideself: true, showrobot: true, showguides: true,
+                  showblind: true, flip: false};
 for (const [k, d] of Object.entries(settings)) {
   const el = $(k), v = store.get(k, d);
   if (el.type === 'checkbox') el.checked = v; else el.value = v;

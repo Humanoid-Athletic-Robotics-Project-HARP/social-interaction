@@ -13,8 +13,7 @@ Streams
 The page also draws a top-down map of what the depth camera sees ahead. Depth pixels
 become points with nominal intrinsics (Intel's 87 x 58 deg field of view), levelled
 on a floor plane fitted every second, so the page also shows the camera's real
-height and pitch (the URDF says 47.6 deg down from the torso). The lidar's blind cone
-ahead (+-60 deg around the front) is drawn for comparison.
+height and pitch (the URDF says 47.6 deg down from the torso).
 
 Python 3.8 and what PC2 has: numpy, OpenCV, unitree_sdk2py. Runs at low priority
 beside HARP's harness.
@@ -46,7 +45,9 @@ URDF_PITCH = math.degrees(0.8307767239493009)   # d435_joint, down from torso_li
 DEPTH_RANGE = (0.2, 4.0)         # m, the colour scale of the depth image
 MIN_DEPTH = 0.2                  # m, nearer is noise (the D435i's minimum is about 0.2 m)
 STEP = 4                         # depth pixels per point, each way, for the map and floor fit
-MAP_SIZE, MAP_RANGE = 480, 3.0   # px, m ahead shown on the top-down map
+MAP_W, MAP_H, MAP_AHEAD = 640, 480, 3.0   # px, and m ahead, of the top-down map
+OBSTACLE = 0.08                  # m above the floor: higher is something sticking up
+SELF_RADIUS = 0.3                # m around the camera's foot that is the robot itself
 
 
 def fourcc(code):
@@ -263,39 +264,36 @@ class Depth:
         return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
 
     def draw_map(self, ground):
-        s, px = MAP_SIZE, MAP_SIZE / MAP_RANGE
-        img = np.full((s, s, 3), (18, 14, 11), np.uint8)
-        ox, oy = s // 2, s - 20                               # the robot, facing up
-        for r in np.arange(0.5, MAP_RANGE + 0.01, 0.5):
-            cv2.circle(img, (ox, oy), int(r * px), (60, 52, 44), 1, cv2.LINE_AA)
-            cv2.putText(img, f"{r:.1f}", (ox + int(r * px * 0.71) + 3, oy - int(r * px * 0.71)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (140, 120, 100), 1, cv2.LINE_AA)
-        for deg, col in ((60, (60, 110, 200)), (30, (40, 70, 130))):   # the lidar's blind cone
-            for side in (1, -1):
-                a = math.radians(deg * side)
-                end = (int(ox - math.sin(a) * s), int(oy - math.cos(a) * s))
-                cv2.line(img, (ox, oy), end, col, 1, cv2.LINE_AA)
-        cv2.putText(img, "lidar blind +-60 deg", (8, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (60, 110, 200), 1, cv2.LINE_AA)
+        """Top-down, the robot at the bottom facing up: what the depth camera sees ahead."""
+        w, h = MAP_W, MAP_H
+        px = (h - 70) / MAP_AHEAD                  # px per m
+        ox, oy = w // 2, h - 45                    # the robot's centre
+        font, aa = cv2.FONT_HERSHEY_SIMPLEX, cv2.LINE_AA
+        img = np.full((h, w, 3), (18, 14, 11), np.uint8)
+        for r in range(1, int(MAP_AHEAD) + 1):     # rings every metre
+            cv2.circle(img, (ox, oy), int(r * px), (90, 80, 70), 1, aa)
+            cv2.putText(img, f"{r} m", (ox + 6, oy - int(r * px) - 6), font, 0.5, (190, 175, 160), 1, aa)
         ahead, left, height = ground[:, 0], ground[:, 1], ground[:, 2]
-        u = (ox - left * px).astype(int)
-        v = (oy - ahead * px).astype(int)
-        inside = (u >= 0) & (u < s) & (v >= 0) & (v < s)
-        floor = inside & (height < 0.05)
-        img[v[floor], u[floor]] = (90, 90, 90)
-        thing = inside & (height >= 0.05) & (height < 2.0)
-        if not thing.any():
-            cv2.rectangle(img, (ox - 6, oy - 4), (ox + 6, oy + 4), (40, 140, 255), -1)
-            return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
-        order = np.argsort(height[thing])                     # tall drawn last, on top
-        t = np.clip(height[thing][order] / 1.5, 0, 1)
-        colours = cv2.applyColorMap((t * 255).astype(np.uint8).reshape(-1, 1),
-                                    cv2.COLORMAP_TURBO).reshape(-1, 3)
-        for du, dv in ((0, 0), (1, 0), (0, 1), (1, 1)):       # 2x2 dots
-            uu = np.clip(u[thing][order] + du, 0, s - 1)
-            vv = np.clip(v[thing][order] + dv, 0, s - 1)
-            img[vv, uu] = colours
-        cv2.rectangle(img, (ox - 6, oy - 4), (ox + 6, oy + 4), (40, 140, 255), -1)
+        u = np.round(ox - left * px).astype(int)
+        v = np.round(oy - ahead * px).astype(int)
+        inside = (u >= 1) & (u < w - 1) & (v >= 1) & (v < h - 1)
+        floor = inside & (height < OBSTACLE)
+        img[v[floor], u[floor]] = (120, 120, 120)
+        thing = inside & (height >= OBSTACLE) & (height < 2.0)
+        if thing.any():
+            order = np.argsort(height[thing])      # tall drawn last, on top
+            t = 0.3 + 0.7 * np.clip(height[thing][order] / 1.5, 0, 1)
+            colours = cv2.applyColorMap((t * 255).astype(np.uint8).reshape(-1, 1),
+                                        cv2.COLORMAP_VIRIDIS).reshape(-1, 3)
+            for du in (-1, 0, 1):                  # 3x3 dots
+                for dv in (-1, 0, 1):
+                    img[v[thing][order] + dv, u[thing][order] + du] = colours
+        # the robot, seen from above, and its front
+        cv2.ellipse(img, (ox, oy), (int(0.22 * px), int(0.12 * px)), 0, 0, 360, (225, 225, 225), -1, aa)
+        cv2.arrowedLine(img, (ox, oy - int(0.12 * px)), (ox, oy - int(0.45 * px)), (40, 140, 255), 2,
+                        aa, tipLength=0.35)
+        cv2.putText(img, "FRONT", (ox + 10, oy - int(0.36 * px)), font, 0.45, (40, 140, 255), 1, aa)
+        cv2.putText(img, "robot", (ox - 22, oy + int(0.12 * px) + 18), font, 0.45, (225, 225, 225), 1, aa)
         return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
 
     def run(self):
@@ -316,7 +314,8 @@ class Depth:
             centre = depth[depth.shape[0] // 3:2 * depth.shape[0] // 3,
                            depth.shape[1] // 3:2 * depth.shape[1] // 3]
             valid = centre[centre > 0]
-            things = ground[(ground[:, 2] > 0.05) & (ground[:, 2] < 2.0)]
+            things = ground[(ground[:, 2] > OBSTACLE) & (ground[:, 2] < 2.0)]
+            things = things[np.hypot(things[:, 0], things[:, 1]) > SELF_RADIUS]   # not the robot's own arms
             with self.lock:
                 self.depth_jpeg, self.map_jpeg = jpeg, map_jpeg
                 if now - last_t >= 1.0:
@@ -365,6 +364,10 @@ PAGE = r"""<!doctype html>
   .legend{height:8px;margin:0 10px 8px;border-radius:3px;background:linear-gradient(90deg,#7a0403,#f05b12,#e6c42f,#3be08a,#2b8ad8,#30123b)}
   .lab{display:flex;justify-content:space-between;margin:0 10px 8px;font-size:11px;color:var(--muted)}
   #pick{color:var(--accent)}
+  .keys{display:grid;gap:4px;padding:8px 10px 2px;font-size:12px}
+  .keys i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-2px;margin-right:7px}
+  .keys i.hgrad{width:30px;background:linear-gradient(90deg,#31688e,#21918c,#35b779,#90d743,#fde725)}
+  .note{padding:2px 10px 8px;font-size:12px}
   label{cursor:pointer}
 </style></head>
 <body>
@@ -376,9 +379,14 @@ PAGE = r"""<!doctype html>
   <figure><figcaption><b>Depth</b><span id="pick" class="muted">click to measure</span></figcaption>
     <img id="depth" alt="depth image"><div class="legend"></div>
     <div class="lab"><span>0.2 m</span><span>2 m</span><span>4 m+</span></div></figure>
-  <figure><figcaption><b>Seen ahead, from above</b><span id="floortxt" class="muted"></span></figcaption>
-    <img id="map" alt="top-down map">
-    <div class="lab"><span>grey: floor · colour: things, by height (blue low → red 1.5 m)</span><span>rings 0.5 m</span></div></figure>
+  <figure><figcaption><b>In front of the robot, seen from above</b><span class="muted">from the depth camera</span></figcaption>
+    <img id="map" alt="top-down map of what the camera sees in front of the robot">
+    <div class="keys">
+      <span><i style="background:#787878"></i>floor the camera sees</span>
+      <span><i class="hgrad"></i>something sticking up; its colour is its height (0.1 m → 1.5 m)</span>
+      <span><i style="background:#0b0e12;outline:1px solid #2a323c"></i>dark: out of the camera's view</span>
+    </div>
+    <div id="floortxt" class="muted note"></div></figure>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -399,10 +407,10 @@ async function stats() {
     const s = await (await fetch('/stats')).json();
     const parts = [`depth ${s.depth_fps ?? '–'} fps`, `${s.valid ?? '–'}% pixels with depth`];
     if (s.centre != null) parts.push(`centre ${s.centre} m`);
-    if (s.nearest_thing != null) parts.push(`nearest thing ${s.nearest_thing} m away`);
+    if (s.nearest_thing != null) parts.push(`nearest thing in view ${s.nearest_thing} m away`);
     $('stats').textContent = parts.join(' · ');
     $('floortxt').innerHTML = s.floor_ok
-      ? `camera ${s.height.toFixed(2)} m up, looking ${s.pitch.toFixed(1)}&deg; down`
+      ? `Camera measured from the floor: ${s.height.toFixed(2)} m up, looking ${s.pitch.toFixed(1)}&deg; down.`
       : '<span class="warn">floor not found yet: nominal pose</span>';
     $('colourtxt').textContent = s.colour || '';
     $('colourbox').hidden = !s.colour;
