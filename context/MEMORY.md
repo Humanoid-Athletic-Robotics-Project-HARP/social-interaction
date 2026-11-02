@@ -13,6 +13,7 @@
 - [Waypoint recorder](waypoint-recorder.md) — when capturing destinations or reusing recorded routes
 - [HARP safety harness and sim](him-sim2real.md) — before anything touching him-sim2real-management, or to see what the move onto it dropped
 - [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run
+- [Git guidelines](git-guidelines.md) — whenever using git in any way: commits, merges, pull requests
 - [Worktrees](worktrees.md) — before making, using or removing a git worktree, or when two sessions use the sim on one computer
 - [Untracked files](feedback-untracked-files.md) — before deleting files, cleaning a checkout, or removing a worktree or branch
 - [Run logs and views](sim-run-logs.md) — before changing what our image prints, a run's events.jsonl, the Rerun lidar view or replays' people
