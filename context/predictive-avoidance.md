@@ -3,7 +3,7 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-02T22:42:08Z
+  updated: 2026-11-02T23:56:38Z
   covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/predictive_avoidance.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py]
 ---
 
@@ -20,3 +20,5 @@ metadata:
 **Integration:** 5 Hz lower-priority filter, 0.15 s planning deadline, zero on stale/malformed input or planning failure. Route success idles; failure latches zero. `/harp/obstacle_alert` is a JSON signal, not an installed horn. Results: `follow`, `yield`, `evade`, `blocked` (standing ranked best); alert whenever the chosen path is not certifiably clear.
 
 **Checks:** the unit tests (`submission/tests`; live DDS needs `ROS_LOCALHOST_ONLY=1` and a nonzero `ROS_DOMAIN_ID`) and HIM's courses (`course.py`). History: before HIM, the planner was tuned in a native MuJoCo walking-G1 crowd sim and a fast harness on one Mac (Nov 1); both needed the old `ros2/` stack, which main deleted, and were removed on Nov 2 with their result JSONs. Their numbers are in the branch history.
+
+**Status (2026-11-02, HIM only, 0.5 m/s test layers, aware crowd):** with the camera fused (round 10), the building reached the goal in 4/4 runs with the visor off and 2/2 with it on, 0 contacts (lidar only, round 9: 2/6 and 57 contacts); head-on with the visor on kept 0.74 m (lidar only: 0.36 m); crossing and the box route pass. Not yet reliable: about 1 run in 10 ends in a HIM timing abort on this Mac (short of memory), the robot can hover near the goal without Nav2 declaring success, and closest passes to walkers are 0.1–0.37 m against the building's 0.30 m rule, some while the robot stands at the goal. `people_margin` 0.15 m (round 11, 3 runs) finished 3/3 but did not raise the closest pass. Heading reversals 9–16 a minute. Never run on the robot; planning time on the Jetson and the real G1's sidestep response are unmeasured (the gains come from HIM's walker).
