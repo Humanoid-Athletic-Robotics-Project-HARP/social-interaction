@@ -3,7 +3,7 @@ name: seeing-ahead-research
 description: Read when planning how the real robot finds people or avoids obstacles in front of it, given that the lidar is blind ahead and the camera looks down
 metadata:
   type: reference
-  updated: 2026-11-02T00:51:20Z
+  updated: 2026-11-02T21:37:47Z
   covers: []
 ---
 
@@ -31,6 +31,12 @@ colour only works for legs at under 2 m; full bodies and faces (for talking) nee
 level, forward camera. Hardware changes worth asking the team about: that camera, and
 taking the face visor off, which lets the lidar see people ahead (tried 2026-11-02:
 [[g1-face-visor]]; the people plan above assumes it on).
+
+**Design lidar algorithms for the visor off** (the maintainer's call, 2026-11-02): it
+sees ahead, ±38–40° either side, and past about 56° to the sides, with blind wedges
+between ([[g1-face-visor]]). The plan above then becomes: the lidar finds person
+candidates ahead and to the sides out to about 11 m; the camera confirms them by
+their legs within about 2 m before the last part of the approach ([[behavior-loop]]).
 
 **Obstacles ahead.** Add the camera's depth to Nav2 as a second STVL source (covers
 64–88% of the lidar's blind cone out to 2.5 m and the floor at the feet); STVL's
