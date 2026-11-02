@@ -7,24 +7,26 @@
 - [Minimal setup](feedback-minimal-setup.md) — before adding nodes, packages, messages or tooling
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
 - [Nav2](nav2-sim.md) — before tuning Nav2 or the Graceful port, changing a course, or comparing course results
+- [Approach stop](approach-stop.md) — before changing what stands the robot while something comes at it, or holds zero on lost input
 - [GR00T WBC](gr00t-wbc.md) — when the walking policy comes up: HIM's GR00T walker, its contract and behavior
 - [Behavior loop](behavior-loop.md) — before changing the autonomous loop, its stand-in detector or the people world
 - [Planned moves](planned-moves.md) — when changing walks, turns, curves or leg odometry, or needing their accuracy
 - [Waypoint recorder](waypoint-recorder.md) — when capturing destinations or reusing recorded routes
-- [HARP safety harness and sim](him-sim2real.md) — before anything touching him-sim2real-management, or to see what the move onto it dropped
-- [Our submission image](submission-image.md) — before changing submission/, running a course in HIM's sim, or debugging a stopped run
+- [HARP safety harness and sim](him-sim2real.md) — before anything touching him-sim2real-management, or planning the first robot session
+- [Our submission image](submission-image.md) — before changing submission/ (image, entrypoint, worlds) or debugging what runs inside a run
+- [Course runs](course-runs.md) — before running, scoring, watching or replaying sim courses, or walking routes
 - [Git guidelines](git-guidelines.md) — whenever using git in any way: commits, merges, pull requests
 - [Worktrees](worktrees.md) — before making, using or removing a git worktree, or when two sessions use the sim on one computer
 - [Untracked files](feedback-untracked-files.md) — before deleting files, cleaning a checkout, or removing a worktree or branch
 - [Run logs and views](sim-run-logs.md) — before changing what our image prints, a run's events.jsonl, the Rerun lidar view or replays' people
-- [Stalled runs](stalled-runs.md) — when HIM stops a run on a deadline or it ends inconclusive: what to check and do
-- [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline, or before changing how runs are watched or timed
+- [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline or it ends inconclusive: why, what to check and do
 - [Safety](safety.md) — before a real-robot session, or changing what stops the robot (HIM's harness and its buttons)
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body
 - [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, changing lidar_relay, adding mapping, or borrowing from other G1 stacks
 - [The robot's lidar, measured](g1-lidar-measured.md) — before using the real lidar: what it is, how it reaches PC2, where it's blind
 - [Face visor](g1-face-visor.md) — why the lidar is blind ahead with the visor on, and what it sees with it off
 - [PC2](robot-pc2.md) — before logging in to the robot's Jetson or running anything on it
+- [Robot services](robot-services.md) — before reading the robot's sensors or Unitree's services over DDS or ROS 2
 - [The head camera](g1-head-camera.md) — before using the RealSense: what it sees ahead (near and low), how to read it
 - [Lidar + camera](g1-sensor-fusion.md) — before combining the lidar and camera depth: frame, offsets, how well they fit
 - [Sim vs robot sensors](sim-vs-real.md) — before trusting a sim result: what the sim does and does not model of the real sensors, and how to close each gap
@@ -35,5 +37,4 @@
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
 - [Off-robot testing](off-robot-testing.md) — when considering another simulator
 - [RL ideas](rl-ideas.md) — when someone asks about reinforcement learning on the G1
-
 - [Person perception sources](person-perception-sources.md) — before evaluating or updating the pinned detector/tracker forks

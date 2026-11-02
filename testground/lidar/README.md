@@ -4,7 +4,8 @@ What the G1's head lidar sends and how well it sees, measured on our robot. Resu
 `context/g1-lidar-measured.md`.
 
 The MID-360 pushes Livox SDK2 UDP packets straight to PC2 (points, its IMU, a status
-message); there is no DDS lidar topic on this robot. `record.py` runs on PC2 and
+message), unless Unitree's `lidar_driver` service runs, which takes the stream and
+publishes it on DDS instead (`record.py --source dds`). `record.py` runs on PC2 and
 saves every packet as it arrives, plus the robot's joints from `rt/lowstate`. On the
 laptop, `capture.py` decodes a capture into 100 ms clouds, `report.py` answers the
 questions below, `blind_map.py` maps its blind wedge ahead, `visor_model.py` models the

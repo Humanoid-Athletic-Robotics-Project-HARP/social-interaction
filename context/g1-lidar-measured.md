@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-02T00:51:20Z
+  updated: 2026-11-02T22:04:05Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -22,7 +22,8 @@ install attitude all zero (it isn't told it's upside down). Core about 58.6 °C.
 points to port 56301 (2,083 packets/s of 96 points, 1380 bytes: 200,000 points/s,
 2.9 MB/s), IMU to 56401 (200 Hz; gyro rad/s, accelerometer g), status to 56201
 (1 Hz, the parameters above). With Unitree's `lidar_driver` service on instead, the
-same data comes over DDS, shareable, and PC2 gets no UDP ([[robot-pc2]]). No packets
+points and IMU come over DDS, shareable (no status messages, stray returns dropped, some
+clouds lost), and PC2 gets no UDP ([[robot-services]]). No packets
 lost over 20–300 s if the reader starts reading as soon as it opens the ports (a
 reader that opens them and then spends a second on setup loses about 5% to the
 kernel's 416 KB buffer). Only one program can hold the ports. Clock: time_type 0, ns
@@ -32,8 +33,7 @@ late (99%: 4–5 ms, rarely up to 50 ms). About 43% of points are empty (0, 0, 0
 
 **Mount:** officially (`unitree_ros` `g1_29dof_rev_1_0.urdf`, our revision:
 `mode_machine` 5) `mid360_joint` on `torso_link` at (0.0003, 0, 0.4284), roll 180°,
-pitch 2.9°, as `harp/lidar_mount.py` uses (its docstring wrongly says the URDF lacks
-the roll; the older `g1_29dof.urdf` does). Measured: upside down, raw +z points at the floor;
+pitch 2.9°, as `harp/lidar_mount.py` uses (the older `g1_29dof.urdf` has no roll). Measured: upside down, raw +z points at the floor;
 (x, y, z) → (x, −y, −z) gives z up. Standing: the floor is 1.208 m below it, and its
 up direction is 8.9° from the lidar's axis (pitched forward), against the mount's
 2.9° with an upright torso; the pelvis leaned 5.4° forward, which accounts for most of

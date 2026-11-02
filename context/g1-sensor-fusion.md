@@ -3,14 +3,15 @@ name: g1-sensor-fusion
 description: Read before combining the head lidar and the head camera's depth (a fused cloud or costmap, seeing ahead of the robot) — the frame, the offsets, and how well they fit
 metadata:
   type: project
-  updated: 2026-11-01T23:35:54Z
+  updated: 2026-11-02T22:04:05Z
   covers: [testground/hybrid/*]
 ---
 
-**Why:** the lidar is nearly blind in a cone of about 100° ahead and on the floor
-within about 1 m ([[g1-lidar-measured]]); the camera looks down at exactly that
+**Why:** the lidar is blind on the floor within about 1 m, and ahead too with the face
+visor on (a cone of about 120°, −60° to +66°; off, it sees ahead but not the wedges either side:
+[[g1-face-visor]]) ([[g1-lidar-measured]]); the camera looks down at exactly that
 ([[g1-head-camera]]). Together they see all around, near the feet included, except
-far ahead (past about 2.7 m) and anything above about 0.75 m at 1 m ahead.
+far ahead (past about 2.7 m) and anything above about 0.8 m at 1 m ahead.
 
 **How `testground/hybrid/hybrid_viewer.py` puts them together:** one frame with x
 forward, y left, z up, the origin on the floor below the lidar. Each sensor is
@@ -20,8 +21,10 @@ of either mount); the camera is then moved by its offset from the lidar in Unitr
 each shows its newest data (lidar the last 0.3 s, camera the last frame).
 Its tabs also serve the lidar's and the camera's own viewers from the same streams,
 so it is the one program to run when someone wants to watch either sensor.
-With `--source ros` it reads both from ROS 2 topics instead (a lidar `PointCloud2`,
-a depth `Image`) and opens no hardware, so it can run beside whoever owns the sensors.
+With `--source ros` it opens no hardware, so it can run beside whoever owns the sensors:
+the lidar from Unitree's `lidar_driver` on its DDS (`rt/utlidar/cloud_livox_mid360`; a
+`--lidar-topic` not starting `rt/` is read from ROS 2) and depth from a ROS 2 `Image`
+(`depth_node.py`).
 
 **What it showed** (2026-11-01, robot standing indoors):
 - The camera's points fill the lidar's +x gap and meet the lidar's at the cone's

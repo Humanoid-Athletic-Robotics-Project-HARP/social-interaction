@@ -9,7 +9,7 @@ Two sources (--source):
   dds  With lidar_driver on, the lidar sends PC2 nothing and Unitree publishes it on
        its DDS instead, which any number of programs can read:
        rt/utlidar/cloud_livox_mid360 (PointCloud2, about 9.4 Hz) and
-       rt/utlidar/imu_livox_mid360 (context/robot-pc2.md).
+       rt/utlidar/imu_livox_mid360 (context/robot-services.md).
 Either way also rt/lowstate over DDS (the joints, for the arm and waist pose),
 through Unitree's SDK, subscribing only.
 
