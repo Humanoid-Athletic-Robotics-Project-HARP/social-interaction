@@ -1,0 +1,36 @@
+<!-- People where the face visor matters (harp/lidar_mount.py), for the behavior loop
+     (harp/behavior.py; course.py people_ahead runs it, the task is in people_ahead.yaml).
+     person_ahead stands straight ahead, 3.5 m out: only the lidar with the visor off sees
+     them from the start (the camera finds legs only within 2 m). person_wedge stands
+     nearer, 2.5 m out, 49 deg to the left: in the blind wedge between the lidar's window
+     ahead and its view to the side, and outside the camera's colour view, so nobody sees
+     them at first. With the visor off the robot walks up to person_ahead first (the
+     nearer person_wedge would win if it could see them), then finds person_wedge off to
+     its side after the turn away. With the visor on it sees neither at first and wanders.
+     Both stand still (movers, so the stand-in detector harp/sim_people.py sees them:
+     trips 0 keeps one where it starts). How movers work: submission/harp/movers.py.
+     python3 submission/course.py people_ahead -->
+<mujoco>
+  <custom>
+    <numeric name="person_ahead_duration" data="1"/>
+    <numeric name="person_ahead_trips" data="0"/>
+    <numeric name="person_wedge_duration" data="1"/>
+    <numeric name="person_wedge_trips" data="0"/>
+  </custom>
+  <default>
+    <!-- About shoulder-wide and 1.7 m tall, standing just off the floor -->
+    <default class="person">
+      <geom type="cylinder" size="0.25 0.85" pos="0 0 0.86" rgba="0.3 0.4 0.8 1"/>
+    </default>
+  </default>
+  <worldbody>
+    <body name="person_ahead" mocap="true" pos="3.5 0 0">
+      <geom class="person" name="person_ahead"/>
+    </body>
+    <site name="person_ahead_end" pos="3.5 0 0"/>
+    <body name="person_wedge" mocap="true" pos="1.64 1.89 0">
+      <geom class="person" name="person_wedge"/>
+    </body>
+    <site name="person_wedge_end" pos="1.64 1.89 0"/>
+  </worldbody>
+</mujoco>

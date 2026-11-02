@@ -18,6 +18,18 @@ class CourseChecks(unittest.TestCase):
                     bad = dict(summary, **{field: value})
                     self.assertEqual(check(bad, {criterion: 1}), (False, [criterion]))
 
+    def test_first_talk_person_and_time(self):
+        talk = dict(distance_m=1.1, facing_deg=5.0, ended="time", seconds=30.0)
+        summary = dict(outcome="succeeded", seconds=12.0, closest_m=1, contacts=0,
+                       speed_near_people_mps=0, recoveries=None, end_error_m=None,
+                       loop={"talks": [dict(talk, person="ahead"), dict(talk, person="wedge")]})
+        self.assertEqual(check(summary, {"first_talk": "ahead", "max_first_talk_s": 20}), (True, []))
+        self.assertEqual(check(summary, {"first_talk": "wedge", "max_first_talk_s": 10}),
+                         (False, ["max_first_talk_s", "first_talk"]))
+        none = dict(summary, seconds=None, loop={"talks": []})
+        self.assertEqual(check(none, {"first_talk": "ahead", "max_first_talk_s": 20}),
+                         (False, ["max_first_talk_s", "first_talk"]))
+
     def test_route_accepts_the_speed_criterion_used_by_course_scoring(self):
         route = route_from_data({"frame": "odom", "waypoints": [[1, 0]],
                                  "criteria": {"max_speed_near_people_mps": 0.1}})

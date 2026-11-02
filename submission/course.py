@@ -385,6 +385,7 @@ def check(summary, c):
     if c.get("must_succeed") and summary["outcome"] != "succeeded":
         failed.append("must_succeed")
     for key, field, worse in (("max_time_s", "seconds", float.__gt__),
+                              ("max_first_talk_s", "seconds", float.__gt__),
                               ("min_clearance_m", "closest_m", float.__lt__),
                               ("max_contacts", "contacts", float.__gt__),
                               ("max_speed_near_people_mps", "speed_near_people_mps", float.__gt__),
@@ -397,6 +398,8 @@ def check(summary, c):
     talks = (summary.get("loop") or {}).get("talks", [])
     if "min_talks" in c and len(talks) < c["min_talks"]:
         failed.append("min_talks")
+    if "first_talk" in c and (not talks or talks[0]["person"] != c["first_talk"]):
+        failed.append("first_talk")
     low, high = c.get("talk_distance_m", (-math.inf, math.inf))
     if any(t["distance_m"] is None or not low <= t["distance_m"] <= high for t in talks):
         failed.append("talk_distance_m")

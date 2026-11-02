@@ -298,7 +298,13 @@ python3 submission/course.py people
 
 The task is `G1_TASK_COMMAND='{"behavior": {"radius": 2.5}}'`
 (`harp/behavior.py`); `people.yaml` gives it, and checks each talk's
-distance and facing.
+distance and facing. `people_ahead` checks the lidar's view ahead with the face
+visor off: someone straight ahead, 3.5 m out, should be walked up to first, before
+a nearer person standing in the lidar's blind wedge to the side:
+
+```bash
+python3 submission/course.py people_ahead
+```
 
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the

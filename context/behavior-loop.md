@@ -3,8 +3,8 @@ name: behavior-loop
 description: Read before changing the autonomous loop (harp/behavior.py, the stand-in detector harp/sim_people.py, the people world) or replacing its placeholders with a real detector or speech
 metadata:
   type: project
-  updated: 2026-11-02T06:34:55Z
-  covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people.*]
+  updated: 2026-11-02T06:50:31Z
+  covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people*]
 ---
 
 The robot on its own: wander, notice a person, walk up in one curve to about 1 m facing them, "talk", turn 180° away, then the loop again (the maintainer's design, 2026-10-30). One node, `harp/behavior.py`, started by `entrypoint.sh` for `G1_TASK_COMMAND` `{"behavior": {...}}` in place of `course_goal.py`; it drives only through Nav2, so `approach_stop.py` still stands between Nav2 and our node ([[nav2-sim]]). It reuses `course_goal.py`'s Nav2 client (`go_to` with an `interrupt`, which cancels the goal). Its states, settings and events are in its docstring.
@@ -23,7 +23,7 @@ The robot on its own: wander, notice a person, walk up in one curve to about 1 m
 
 **Robot:** not yet: `entrypoint.sh` starts the loop only in a world's image in the sim, like Nav2 and `approach_stop.py`, which haven't run on the robot ([[nav2-sim]], [[safety]]); our image can't read the depth camera there either ([[sim-vs-real]]). On the robot the loop would start after D-pad Left + B (HIM's handover).
 
-**Scoring:** `course.py people` (the task is in `people.yaml`): summary `loop` with each talk's true distance to that person and facing error (medians over its first 3 s, before anyone leaves) and how it ended, wander goals, people noticed, farthest from the start; `min_talks`, `talk_distance_m`, `max_talk_facing_deg` criteria. Events carry no sim time, so each is timed by the last `odom`/`timing` line before it (within 1 s).
+**Scoring:** `course.py people` (the task is in `people.yaml`): summary `loop` with each talk's true distance to that person and facing error (medians over its first 3 s, before anyone leaves) and how it ended, wander goals, people noticed, farthest from the start; `min_talks`, `talk_distance_m`, `max_talk_facing_deg`, `first_talk` (who) and `max_first_talk_s` (from the loop's start) criteria. `people_ahead` tests the visor-off view (its xml says how): it fails `first_talk` with the visor on, by design. Events carry no sim time, so each is timed by the last `odom`/`timing` line before it (within 1 s).
 
 **Results, visor off** (2026-11-02, `runs/2026-11-02_06-25-39Z_sim_people_visor-off`, passed): two wander legs, then person_a (noticed at 2.9 m) and person_b (3.2 m); talks at 1.10–1.12 m, facing within 6°; person_a's ended as they walked off (18.5 s), person_b's at 30 s; then three wander legs without meeting person_c before the 150 s ended; 0 contacts, closest 0.46 m, drift 2.5 cm.
 
