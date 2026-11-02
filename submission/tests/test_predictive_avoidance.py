@@ -145,6 +145,47 @@ class Adapter(unittest.TestCase):
             self.assertTrue(any(abs(t.x-1.5) < .1 for t in tracks))
             self.assertTrue(self.guard.unresolved)
 
+    HEIGHTS = (.5, .98, 1., 1.02, 1.4)   # dense near 1 m, as a real scan's rings
+
+    def corner(self):
+        """A wall end: an L of returns, compact and not thin, so tracked as an object."""
+        return ([[1.5, y, z] for y in np.arange(0., .51, .02) for z in self.HEIGHTS]
+                + [[x, .5, z] for x in np.arange(1.52, 1.91, .02) for z in self.HEIGHTS])
+
+    def lose_object_then_scan(self, points):
+        """Track the corner, lose it past the tracker's memory, then scan points."""
+        self.fresh_active()
+        for _ in range(2):
+            self.stamp += .1
+            self.guard.on_cloud(self.cloud(self.corner()))
+        self.stamp += 2.4
+        self.wall += 2.4
+        self.guard.on_cloud(self.cloud([[2, 0, 0]]))
+        self.guard.on_odom(self.odom())
+        self.guard.on_timer()
+        self.assertTrue(self.guard.unresolved)
+        self.stamp += .1
+        self.wall += .1
+        self.guard.on_cloud(self.cloud(points))
+
+    def wall_to_corner(self):
+        """The same corner seen again, now with the wall it ends (a long, tiled component)."""
+        return self.corner() + [[1.5, y, z] for y in np.arange(-1.5, 0., .02) for z in self.HEIGHTS]
+
+    def test_remembered_occupancy_measured_again_is_no_longer_unseen(self):
+        # Wall ends and block corners were tracked as objects and lost when people passed
+        # in front. No ray can pass beyond a wall, so about 30 stayed remembered in the
+        # building at 0.5 m/s, each a phantom obstacle on the wall. Returns measured at
+        # the remembered spot, with nothing in front, mean it is observed again.
+        self.lose_object_then_scan(self.wall_to_corner())
+        self.assertFalse(self.guard.unresolved)
+
+    def test_remembered_occupancy_behind_a_nearer_return_stays(self):
+        # Something nearer on the same rays: the remembered spot is still unseen.
+        self.lose_object_then_scan(self.wall_to_corner() + [[.9, y, z] for y in np.arange(-.1, .66, .02)
+                                                             for z in self.HEIGHTS])
+        self.assertTrue(self.guard.unresolved)
+
     def test_brief_occlusion_keeps_occupancy_without_permanent_latch(self):
         self.fresh_active()
         self.stamp += .1
@@ -354,6 +395,17 @@ class StaticCloud(unittest.TestCase):
         self.assertEqual(keep.tolist(), [False, True, True, True, True])
         message = cloud_message(PointCloud2().header, points[keep])
         np.testing.assert_allclose(xyz(message), points[keep], atol=1e-6)
+
+    def test_the_robots_own_body_never_reaches_nav2(self):
+        # HIM's lidar sees the torso and arms up to 0.42 m away, just past Nav2's 0.4 m
+        # footprint. Marked and inflated, they boxed in the robot's own cell, so Nav2's
+        # planner found no path from anywhere ("failed to create plan").
+        from harp.predictive_avoidance import SELF_RADIUS, static_mask
+        base = np.array([5., 2.])
+        points = base + np.array([[.42, 0.], [0., -.3], [.6, 0.], [-1., 0.]])
+        keep = static_mask(points, [], 2., base)
+        self.assertEqual(keep.tolist(), [False, False, True, True])
+        self.assertGreater(SELF_RADIUS, .42)
 
 if __name__ == '__main__':
     unittest.main()

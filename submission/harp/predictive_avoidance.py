@@ -36,6 +36,7 @@ MAX_SOLVE_TIME = 0.15
 STATIC_TOPIC = "/harp/static_cloud"
 MOVING_SPEED = .15   # m/s: a fresh track at least this fast is left out of STATIC_TOPIC
 MOVING_SIZE = .7     # m: larger tracks (a merged blob, a wall piece) always stay in it
+SELF_RADIUS = .45    # m from base_link: the robot's own torso and arms (seen up to 0.42 m)
 
 
 def seconds(stamp):
@@ -52,13 +53,17 @@ def transform_points(points, transform):
     return points @ rotation(quat / norm).T + shift
 
 
-def static_mask(points_xy, tracks, stamp):
-    """Returns not on an object seen moving in this scan (a person, a trolley).
+def static_mask(points_xy, tracks, stamp, base_xy=None):
+    """Returns not on an object seen moving in this scan (a person, a trolley), nor on
+    the robot itself (within SELF_RADIUS of base_xy).
 
     Only compact, freshly observed, moving tracks are removed: anything standing,
-    unseen or large stays, so Nav2 still plans around it.
+    unseen or large stays, so Nav2 still plans around it. The robot's own returns lie
+    just past Nav2's footprint; marked and inflated, they enclosed its start cell.
     """
     keep = np.ones(len(points_xy), bool)
+    if base_xy is not None:
+        keep &= np.hypot(points_xy[:, 0]-base_xy[0], points_xy[:, 1]-base_xy[1]) > SELF_RADIUS
     for t in tracks:
         if (t.id < STRUCTURE_ID and t.last_seen == stamp and t.radius < MOVING_SIZE
                 and math.hypot(t.vx, t.vy) >= MOVING_SPEED):
@@ -253,7 +258,7 @@ class PredictiveAvoidance:
         self.pending_cloud = None
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
         self.static_out.publish(cloud_message(cloud.header,
-                                              local[static_mask(points[:, :2], self.last_tracks, stamp)]))
+                                              local[static_mask(points[:, :2], self.last_tracks, stamp, base[:2])]))
         self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp,
                                                    tracks=[asdict(t) for t in tracks]))))
 
@@ -265,7 +270,7 @@ class PredictiveAvoidance:
         """
         distance = np.linalg.norm(points[:, :2] - base[:2], axis=1)
         keep = ((points[:, 2] >= 0.15) & (points[:, 2] <= 1.8)
-                & (distance > 0.45) & (distance <= 6.0))
+                & (distance > SELF_RADIUS) & (distance <= 6.0))
         tracks = self.tracker.update(points[keep, :2], stamp, origin)
         observed = {t.id for t in tracks if t.last_seen == stamp}
         # Static wall tiles cannot approach while unseen, and no ray ever passes
@@ -296,6 +301,12 @@ class PredictiveAvoidance:
                 length = np.linalg.norm(ray)
                 aligned = directions@(ray/max(length,1e-9)) > math.cos(.025)
                 if np.count_nonzero(aligned) >= 3 and np.min(ranges[aligned]) > length+.15:
+                    continue
+                # Returns within the cell itself, nothing in front: it is observed again and
+                # this scan's tracks hold whatever is there. Rays never pass beyond a wall
+                # end or block corner, so without this such pieces stayed remembered.
+                if (np.count_nonzero(aligned) >= 3
+                        and np.min(ranges[aligned]) >= length-surface[3]-.05):
                     continue
                 remaining.append(surface)
             self.surfaces[ident] = remaining
