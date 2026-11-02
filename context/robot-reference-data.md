@@ -3,7 +3,7 @@ name: robot-reference-data
 description: Read when you need real recordings of the G1's lidar or camera (to check the sim, tune perception offline, or once the robot is out of reach) — what exists, where, and what's still missing
 metadata:
   type: project
-  updated: 2026-11-01T23:45:05Z
+  updated: 2026-11-02T00:51:20Z
   covers: [testground/lidar/record.py, testground/camera/record_camera.py]
 ---
 
@@ -11,9 +11,17 @@ metadata:
 repo, HIM's checkout and `models/`; not in git), copied from the worktree's ignored
 `testground/*/captures/`; PC2 also keeps its originals in
 `~/Workspace/testground_social_interaction/*/captures/`. Not yet on any shared drive:
-one disk. About 410 MB.
+one disk. About 730 MB. Each session's captures go in a dated folder beside the earlier
+ones (`2026-11-02/lidar/`, `2026-11-02/camera/`); the undated `lidar/` and `camera/` are 2026-11-01's.
 
-**What exists** (all 2026-11-01, robot standing indoors, the room as it was, nobody placed):
+**2026-11-02** (face visor off, robot standing, the room as it was, nobody placed;
+`lidar_driver` on):
+- `lidar/visor-off-standing-60s`: 60 s from `lidar_driver` over DDS (371 clouds of about
+  20,000 points, its IMU, `rt/lowstate`). Results: [[g1-face-visor]].
+- `camera/visor-off-standing-60s`, recorded at the same time: 923 depth frames (15 fps,
+  from `depth_node.py`), but only 42 colour frames (29 videohub requests failed).
+
+**2026-11-01** (robot standing indoors, the room as it was, nobody placed; visor on):
 - `lidar/standing-60s`: 60 s of the raw lidar stream (every point, its IMU and status)
   and `rt/lowstate` at 50 Hz. `lidar/standing-5min-headers`: 5 min of packet timing.
   `lidar/trial-20s`, `trial-5s`: recorder checks. `lidar/dds-trial-20s`: 20 s from Unitree's

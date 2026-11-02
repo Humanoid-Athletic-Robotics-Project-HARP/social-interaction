@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-02T00:34:07Z
+  updated: 2026-11-02T00:51:20Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -51,7 +51,7 @@ about 25° below straight ahead. +x is the front (URDF, and the forward-facing c
 exactly that gap: [[g1-sensor-fusion]]), so the robot can't see what's in front of it
 with the lidar; the head camera has to. Not a setting: its FOV windows are off
 (`fov_cfg_en` 0) and these captures are its raw UDP, with no Unitree software in between.
-The cause is the face visor, and what removing it would open: [[g1-face-visor]].
+All of this is with the face visor on; with it off the lidar sees ahead: [[g1-face-visor]].
 About 290 returns a cloud within 0.7 m (shoulders and
 arms at the sides, as near as 0.09 m). After 1 s the pattern has filled about 62% of
 its 1° cells, then barely more (the blocked part never fills).

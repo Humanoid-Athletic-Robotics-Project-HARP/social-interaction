@@ -3,7 +3,7 @@ name: seeing-ahead-research
 description: Read when planning how the real robot finds people or avoids obstacles in front of it, given that the lidar is blind ahead and the camera looks down
 metadata:
   type: reference
-  updated: 2026-11-02T00:34:07Z
+  updated: 2026-11-02T00:51:20Z
   covers: []
 ---
 
@@ -29,7 +29,8 @@ TakShimoda/2D_lidar_person_detection); PointPillars person models (m300-percepti
 NVIDIA ros2_tao_pointpillars), which need retraining for our lidar. YOLO on the D435i's
 colour only works for legs at under 2 m; full bodies and faces (for talking) need a
 level, forward camera. Hardware changes worth asking the team about: that camera, and
-taking the face visor off, which would let the lidar see people ahead ([[g1-face-visor]]).
+taking the face visor off, which lets the lidar see people ahead (tried 2026-11-02:
+[[g1-face-visor]]; the people plan above assumes it on).
 
 **Obstacles ahead.** Add the camera's depth to Nav2 as a second STVL source (covers
 64–88% of the lidar's blind cone out to 2.5 m and the floor at the feet); STVL's
@@ -45,7 +46,7 @@ camera's 2.7 m.
 
 **Open questions on the robot** (2026-11-02; what's already known: [[robot-pc2]],
 [[g1-official-docs]]): why `lidar_driver` loses clouds over DDS (load, or itself:
-record with nothing else running) and whether it filters returns ahead; the D435i's
+record with nothing else running); the D435i's
 own intrinsics and whether its IMU works on the Jetson; `unitree_slam` (off: a map and
 global pose for free?) and `state_estimator`'s odometry against ours; the voice
 service and microphones (`vui_service`, for talking); what `videohub_pc4_chest`'s
