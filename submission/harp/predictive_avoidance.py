@@ -142,7 +142,8 @@ class PredictiveAvoidance:
         self.planner = Planner(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain,
             cooperative=os.environ.get('HARP_PREDICTIVE_COOPERATIVE', '1') != '0',
             smoothing=os.environ.get('HARP_PREDICTIVE_SMOOTHING', '1') != '0',
-            heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1'))
+            heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1',
+            people_margin=float(os.environ.get('HARP_PREDICTIVE_PEOPLE_MARGIN', '0'))))
         self.moved = set()   # ids of tracks seen moving: people, still people when they pause
         self.responsiveness = Responsiveness()   # who gives way: the planner's forecast credit
         self.config = self.planner.config

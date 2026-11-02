@@ -103,6 +103,25 @@ class Heading(unittest.TestCase):
             check(wrong, 0, (heading, wrong, len(turns)))
 
 
+class PeopleMargin(unittest.TestCase):
+    def test_moving_objects_get_the_extra_margin_and_walls_do_not(self):
+        plain, spaced = Planner(Config(speed=.5)), Planner(Config(speed=.5, people_margin=.15))
+        controls = np.tile([.4, 0., 0.], (1, 3, 1))
+        person = np.array([[2., .9, -.3, 0., .25, .03, 0.]])
+        for planner in (plain, spaced):
+            planner.paths, _ = planner._rollout(controls, np.zeros(3), np.zeros(3))
+        gap = plain._clearances(plain.paths, person)[0] - spaced._clearances(spaced.paths, person)[0]
+        self.assertAlmostEqual(gap, .15, places=6)
+        for planner in (plain, spaced):
+            planner._build_field(np.array([[2., .9, 0., 0., .2, .03, 0.]]), np.zeros(3), 3.)
+        self.assertAlmostEqual(plain._clearances(plain.paths, np.zeros((0, 7)))[0],
+                               spaced._clearances(spaced.paths, np.zeros((0, 7)))[0], places=6)
+
+    def test_invalid_people_margin_rejected(self):
+        with self.assertRaises(ValueError):
+            Planner(Config(people_margin=-.1))
+
+
 class Responsiveness_(unittest.TestCase):
     def scans(self, credit, walk, steps=8):
         """A walker 3.5 m ahead of a standing robot, its velocity at each scan from walk."""

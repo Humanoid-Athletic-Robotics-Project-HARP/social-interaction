@@ -83,6 +83,10 @@ class Config:
     yaw_acceleration: float = 1.0
     robot_radius: float = 0.4
     margin: float = 0.07
+    # Extra soft clearance kept from moving objects only (people's personal space), not walls:
+    # the building's rule is 0.30 m from people, and the margin alone left about 0.2 m. The body
+    # stays a hard limit; HARP_PREDICTIVE_PEOPLE_MARGIN in the image.
+    people_margin: float = 0.0
     uncertainty_rate: float = 0.025
     # Extra forecast spread per m/s of an object's own speed: a walker can turn
     # or stop, a standing one hardly drifts. Comfort-margin (soft) only.
@@ -127,6 +131,8 @@ class Planner:
                 c.yaw_acceleration, c.robot_radius, c.margin, c.solve_seconds,c.max_collision_uncertainty]
         if not all(math.isfinite(v) and v > 0 for v in vals):
             raise ValueError("Planner limits must be finite and positive")
+        if not 0 <= c.people_margin <= .4:
+            raise ValueError('Invalid people margin')
         if not (0 <= c.response_delay <= 1 and 0 <= c.uncertainty_rate <= 1
                 and 0 <= c.speed_spread <= 1):
             raise ValueError("Invalid delay/uncertainty growth")
@@ -371,7 +377,7 @@ class Planner:
         if not len(objects):
             return clearance
         distance, relative = approach or self._approach(paths, objects, times)
-        required = (c.robot_radius + c.margin + interpolation + objects[None, :, 4]
+        required = (c.robot_radius + c.margin + c.people_margin + interpolation + objects[None, :, 4]
                     + np.minimum(objects[None, :, 5],c.max_collision_uncertainty)
                     + self._growth(objects)[None, :]*times[1:, None])
         required = required[None,:,:]
@@ -382,7 +388,7 @@ class Planner:
             # the body/observed-shape envelope remains hard throughout.
             physical = c.robot_radius+interpolation+objects[:,4]
             initial_distance = np.linalg.norm(relative[:,0],axis=-1)
-            comfort = physical+c.margin+np.minimum(objects[:,5],c.max_collision_uncertainty)
+            comfort = physical+c.margin+c.people_margin+np.minimum(objects[:,5],c.max_collision_uncertainty)
             debt = np.maximum(0.,comfort[None,:]-initial_distance)
             debt[initial_distance < physical[None,:]+.02] = 0.
             decay = np.maximum(0.,1.-np.maximum(0.,times[1:]-c.response_delay-c.period)/RECOVERY_TIME)
@@ -443,7 +449,7 @@ class Planner:
             if distance is None:
                 distance, _ = self._approach(paths, objects, self.times)
             physical = c.robot_radius+objects[:, 4]
-            spread = (physical+c.margin+np.minimum(objects[:, 5], c.max_collision_uncertainty)
+            spread = (physical+c.margin+c.people_margin+np.minimum(objects[:, 5], c.max_collision_uncertainty)
                       + self._growth(objects)[None, :]*times[:, None])
             credit = self._credit(objects, times)
             body = np.maximum(body, np.max(physical[None, :]-credit-distance, axis=2))
@@ -542,7 +548,7 @@ class Planner:
             span = self.times[-1]
             reach = ((max(float(np.linalg.norm(velocity[:2])), c.speed)
                       + np.linalg.norm(objects[:, 2:4], axis=1))*span
-                     + c.robot_radius + c.margin + objects[:, 4]
+                     + c.robot_radius + c.margin + c.people_margin + objects[:, 4]
                      + np.minimum(objects[:, 5], c.max_collision_uncertainty)
                      + self._growth(objects)*span + c.acceleration*c.dt*c.dt + .2)
             near = np.linalg.norm(objects[:, :2]-pose[:2], axis=1) <= reach
