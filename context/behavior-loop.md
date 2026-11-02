@@ -3,7 +3,7 @@ name: behavior-loop
 description: Read before changing the autonomous loop (harp/behavior.py, the stand-in detector harp/sim_people.py, the people world) or replacing its placeholders with a real detector or speech
 metadata:
   type: project
-  updated: 2026-11-02T06:50:31Z
+  updated: 2026-11-02T07:42:58Z
   covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people*]
 ---
 
@@ -26,5 +26,7 @@ The robot on its own: wander, notice a person, walk up in one curve to about 1 m
 **Scoring:** `course.py people` (the task is in `people.yaml`): summary `loop` with each talk's true distance to that person and facing error (medians over its first 3 s, before anyone leaves) and how it ended, wander goals, people noticed, farthest from the start; `min_talks`, `talk_distance_m`, `max_talk_facing_deg`, `first_talk` (who) and `max_first_talk_s` (from the loop's start) criteria. `people_ahead` tests the visor-off view (its xml says how): it fails `first_talk` with the visor on, by design. Events carry no sim time, so each is timed by the last `odom`/`timing` line before it (within 1 s).
 
 **Results, visor off** (2026-11-02, `runs/2026-11-02_06-25-39Z_sim_people_visor-off`, passed): two wander legs, then person_a (noticed at 2.9 m) and person_b (3.2 m); talks at 1.10–1.12 m, facing within 6°; person_a's ended as they walked off (18.5 s), person_b's at 30 s; then three wander legs without meeting person_c before the 150 s ended; 0 contacts, closest 0.46 m, drift 2.5 cm.
+
+**people_ahead** (2026-11-02): visor off (`runs/2026-11-02_07-37-45Z_sim_people_ahead_visor-off-3`) passed: person_ahead noticed at 3.43 m as the loop started, talk at 1.17 m 11.5 s in; after the turn away person_wedge noticed at 2.0 m, talk at 1.13 m; 0 contacts, closest 0.47 m. Visor on (`runs/2026-11-02_07-40-19Z_sim_people_ahead_visor-on`) failed only `first_talk`, as meant: person_wedge first, noticed 1.7 s in once the first wander leg turned the robot. With HIM's live viewer a run was stopped during the second turn (`inconclusive`): run it without `--view` on the 16 GB Mac.
 
 **Results, visor on** (2026-11-02, `runs/2026-11-02_06-02-47Z_sim_people_loop-real-sensors`, 150 s, passed, before the visor setting: lidar finding people only past 60°): one wander leg, then all three people, each first seen by the lidar off to the side at 3.0–4.0 m; talks at 1.09–1.19 m, facing within 7°; person_a's ended as they walked off (22 s), person_b's at 30 s, person_c's when the run ended; turns away about 6 s; 0 contacts, closest 0.40 m, drift 2 cm. In `people` everyone starts just over 4 m away (the lidar would otherwise find them at once), and person_a, the first met with this seed, walks off at a fixed time (movers can't react): someone first noticed near the 4 m edge can change the order between runs (an earlier layout met person_a too late). Run it without `--view` on the 16 GB Mac: with HIM's live viewer, 3 of 5 runs lost their trace at the end ([[sim-deadline-stops]]).
