@@ -56,9 +56,11 @@ unchanged, cloned next to this repo, and keep only our code here.
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
 - ✅ Sim: a simulated head lidar and obstacle courses (`submission/worlds/`).
-- 🟡 Sim: the sensors as they are on the robot: the lidar nearly blind ahead
-  (its own head), and the head depth camera looking down at the floor ahead,
-  both in Nav2's costmaps (`harp/lidar.py`, `harp/depth_camera.py`).
+- 🟡 Sim: the sensors as they are on the robot: the lidar's view around the
+  front as its head leaves it, with the face visor off or on
+  (`harp/lidar_mount.py`'s `VISOR`, off by default), and the head depth camera
+  looking down at the floor ahead, both in Nav2's costmaps (`harp/lidar.py`,
+  `harp/depth_camera.py`).
 - ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) walks every
   course (`course.py`), including the obstacle course with a table, pillars,
   a thin pole and an archway, without touching anything. The robot's own
@@ -286,8 +288,9 @@ where it started, walks up to anyone standing still it notices, stops
 facing them, "talks" (the line it would say goes to `policy.log`) until they
 walk away or 30 s pass, turns around, then carries on. Until there is a
 person detector, the people come from a stand-in that finds them where the
-robot's sensors could: off to the sides by the lidar, and ahead only within
-about 2 m by the downward-looking camera (`harp/sim_people.py`):
+robot's sensors could: by the lidar wherever its head leaves it a view (with the
+face visor on, only off to the sides), and by the downward-looking camera
+within about 2 m ahead (`harp/sim_people.py`):
 
 ```bash
 python3 submission/course.py people

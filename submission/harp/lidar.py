@@ -5,15 +5,16 @@ rays (MuJoCo's mj_multiRay) through its own copy of the world
 (/harp/model/lidar_scene.xml, from submission/sim.sh --world), with the robot
 posed from /safety/policy_state (the sim's true pose: this is the sensor, not
 odometry), and publishes the hits as a PointCloud2 in the lidar's own frame, and the
-same cloud turned 180 deg (lidar_mount.REAR_FRAME) for Nav2's clearing view, which
-must leave out the blind cone ahead (nav2_params.yaml).
+same cloud turned 180 deg (lidar_mount.REAR_FRAME) for Nav2's clearing view behind,
+which must leave out where its head blinds it (nav2_params.yaml).
 
 Like the real one (measured on our robot: context/g1-lidar-measured.md): 360 deg
 around and -7 to +52 deg up in its own frame, mounted upside down (so it looks from
 7 deg up to about 50 deg down), 10 Hz, nothing nearer than 0.1 m or past 40 m, about
-2 cm of range noise, about 15% of points without an echo. **Nearly blind ahead:**
-the head in front of it lets through only about 3% of the rays within 30 deg of
-straight ahead and 15% at 30 to 60 deg (BLIND), as the real one returns. Its rays
+2 cm of range noise, about 15% of points without an echo. **Its head's shadow**
+(lidar_mount.sees, by lidar_mount.VISOR): with the face visor off, a window about
+40 deg either side of straight ahead (narrower looking down), then blind out to about
+60 deg each side; with it on, nothing within about 60 deg of straight ahead. Its rays
 are spread at random over the field of view and cast a slice at each state, about
 every 20 ms, so like Livox's wandering pattern no two scans repeat, and like the real
 one a scan's points are from 100 ms of motion, smeared while the robot turns (no
@@ -22,7 +23,7 @@ of view.
 
 The robot's own body is in the cloud, as on the real robot: the shoulders and
 arms show up as points and shadow what is behind them. The head's own geoms (part of
-torso_link) are skipped; BLIND stands in for them. Moving obstacles (movers.py) exist
+torso_link) are skipped; lidar_mount.sees stands in for them. Moving obstacles (movers.py) exist
 only here. The camera casts at its own CAMERA_PERIOD from the same states.
 
 It is a separate process from harp_node because publishing a 190 KB cloud
@@ -45,14 +46,10 @@ from harp import camera_mount, depth_camera, lidar_mount
 from harp.events import Events, latched
 from harp.movers import Movers
 
-ELEVATION = (-7.0, 52.0)   # deg, in the lidar's frame
 RAYS_PER_S = 200_000         # the real MID-360's points a second, no-echo ones included
 MIN_RANGE, MAX_RANGE = 0.1, 40.0   # m
 RANGE_NOISE = 0.02   # m, 1 sigma
-DROPOUT = 0.15       # share of points without an echo, outside the blind cone (measured)
-# (deg from straight ahead, share of rays kept): the real lidar's returns ahead, against
-# the median direction's (testground/lidar captures standing-60s, 2026-11-01)
-BLIND = ((30.0, 0.03), (60.0, 0.15))
+DROPOUT = 0.15       # share of points without an echo where the head leaves it open (measured)
 CAMERA_TOPIC = depth_camera.TOPIC
 PERIOD = 0.1         # s of sim time between scans
 CAMERA_PERIOD = 1 / 15   # s of sim time between camera frames (the robot's at 15 fps)
@@ -82,6 +79,7 @@ class SimLidar:
         self.camera = depth_camera.DepthCamera(self.model, self.rng)
         self.camera_pub = node.create_publisher(PointCloud2, CAMERA_TOPIC, 10)
         print(depth_camera.describe(), flush=True)
+        print(f"Sim lidar: face visor {'on' if lidar_mount.VISOR else 'off'}", flush=True)
         self.events = Events(node, "lidar")
         node.create_subscription(String, "/harp/events", self.on_event, latched())
         node.create_subscription(String, "/safety/policy_state", self.on_state,
@@ -130,13 +128,9 @@ class SimLidar:
         Call after mj_kinematics for this state."""
         m, d = self.model, self.data
         az = self.rng.uniform(-np.pi, np.pi, n)
-        el = np.radians(self.rng.uniform(ELEVATION[0], ELEVATION[1], n))
+        el = np.radians(self.rng.uniform(*lidar_mount.ELEVATION, n))
         rays = np.stack([np.cos(el) * np.cos(az), np.cos(el) * np.sin(az), np.sin(el)], axis=1)
-        in_torso = rays @ self.mount.T
-        ahead = np.abs(np.degrees(np.arctan2(in_torso[:, 1], in_torso[:, 0])))
-        share = np.ones(n)   # by the ray's angle from straight ahead
-        for limit, kept in reversed(BLIND):
-            share[ahead < limit] = kept
+        open_ = lidar_mount.sees(rays @ self.mount.T)
         torso = d.xmat[self.torso].reshape(3, 3)
         origin = d.xpos[self.torso] + torso @ lidar_mount.POSITION
         geomid, dist = np.zeros(n, dtype=np.int32), np.zeros(n)
@@ -144,7 +138,7 @@ class SimLidar:
                            self.torso, geomid, dist, n, MAX_RANGE)
         hit = geomid >= 0   # -1: nothing within MAX_RANGE
         dist = dist + self.rng.normal(0.0, RANGE_NOISE, n)
-        keep = hit & (dist > MIN_RANGE) & (self.rng.random(n) < share * (1.0 - DROPOUT))
+        keep = hit & open_ & (dist > MIN_RANGE) & (self.rng.random(n) > DROPOUT)
         return rays[keep] * dist[keep, None]
 
     def publish(self, pub, frame, points):

@@ -3,7 +3,7 @@ name: g1-face-visor
 description: Read when the lidar's view ahead comes up, before putting the G1's face visor back on or taking it off, or before changing the lidar's mount height or the sim's blind cone
 metadata:
   type: project
-  updated: 2026-11-02T00:51:20Z
+  updated: 2026-11-02T06:34:55Z
   covers: [submission/harp/lidar_mount.py, testground/lidar/visor_model.py]
 ---
 
@@ -26,6 +26,10 @@ and the floor from about 1.4 m ahead.
 its top and the lidar's glass dome just below it (中邮证券 G1 teardown, pp. 30–31, with a
 Unitree side drawing showing the visor in front of both sensors). No official removal
 procedure found. Livox's Mid-360 manual: nothing, glass included, may sit in its view.
+
+**In the sim:** `harp/lidar_mount.py` (`VISOR`, off by default; `VIEW`, `sees`) is
+the head's shadow fitted to both maps, used by the sim lidar, the stand-in person
+detector and Nav2's clearing views ([[sim-vs-real]]). Set `VISOR` to the robot's state.
 
 **The model** (`testground/lidar/visor_model.py`, not yet run in its committed form;
 the numbers are from the scratch version it came from): Unitree's `head_link.STL` (no

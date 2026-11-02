@@ -21,9 +21,9 @@ and stands until neither has held for CLEAR s. It also stands while
 no usable scan, speed feedback or live lidar transform has arrived within
 LIDAR_TIMEOUT s, including startup (Nav2 on Foxy walks on with a dead lidar).
 
-The lidar is nearly blind within about 50 deg of straight ahead (the head is in its
-way: context/sim-vs-real.md), so beyond about 0.6 m it sees nothing of the strip. The
-head depth camera, pitched down, sees it from about 0.3 to 2.7 m, but only low: a
+The lidar's head blinds it around the front (harp/lidar_mount.py): with the face visor
+off it sees the strip from about 1 m out; with it on, nothing of it beyond about 0.6 m.
+The head depth camera, pitched down, sees it from about 0.3 to 2.7 m, but only low: a
 person's legs, up to about 0.3 m high 2 m ahead. So each scan's nearest point is the
 nearer of the lidar's and the latest camera frame's (CAMERA_AGE), the camera's taken
 from CAMERA_MIN_Z up. The lidar stays the required input; without the camera the rule

@@ -6,14 +6,17 @@ it is at that sim time, from the same copy of the world as the simulated lidar
 (/harp/model/lidar_scene.xml) and its mover_start events, and the robot's true pose
 from /safety/policy_state. Each PERIOD of sim time it publishes the people the robot's
 real sensors could find (context/g1-head-camera.md, context/seeing-ahead-research.md):
-  - lidar: more than LIDAR_BLIND off the nose (the face visor blinds it ahead), out to
-    LIDAR_RANGE, with a level ray from the lidar reaching them first;
+  - lidar: a point on their body (BODY above the floor) in a direction its head leaves
+    open (harp/lidar_mount.sees: with the face visor off, ahead and out past about 60 deg
+    to the sides; with it on, only past about 60 deg), within LIDAR_RANGE, with a ray from
+    the lidar reaching them first;
   - camera: the D435i is pitched about 48 deg down (harp/camera_mount.py), so it sees a
     person ahead only by their legs: a point LEGS above the floor at their centre inside
     its colour view (COLOUR_FOV, where a detector would run, narrower than depth), within
     CAMERA_RANGE, with a ray from the camera reaching them first.
-So people ahead are found only within about 2 m, and others off to the sides. Each is
-placed with NOISE.
+So with the visor on, people ahead are found only within about 2 m, and others off to
+the sides; with it off, ahead too, but not in the wedges either side. Each is placed
+with NOISE.
 
 /harp/people, JSON on std_msgs/String, every frame, people or not:
   {"frame": "base_link", "people": [{"id": "person", "x": 2.1, "y": -0.4, "seen_by": "lidar"}]}
@@ -37,8 +40,8 @@ from harp.movers import Movers
 
 SCENE = "/harp/model/lidar_scene.xml"
 PERIOD = 0.2      # s of sim time between frames (detectors run at about 5-15 Hz)
-LIDAR_BLIND = 60.0   # deg each side of the nose where the lidar finds nobody (visor on)
 LIDAR_RANGE = 11.0   # m: where the lidar still finds a person indoors
+BODY = (0.6, 1.0, 1.4)   # m above the floor: points on a person the lidar may see
 LEGS = (0.1, 0.4, 0.7)   # m above the floor: points on a person the camera may see
 COLOUR_FOV = (69.0, 42.0)   # deg across and down: the D435i's colour camera
 CAMERA_RANGE = 2.0   # m: a detector finds people by their legs only this near
@@ -53,6 +56,7 @@ class SimPeople:
         self.data = mujoco.MjData(self.model)
         self.movers = Movers(self.model)
         self.torso = self.model.body(lidar_mount.PARENT).id
+        self.mount = lidar_mount.rotation()
         self.bodies = {self.model.body_mocapid[b]: b for b in range(self.model.nbody)
                        if self.model.body_mocapid[b] >= 0}
         self.rng = np.random.default_rng()
@@ -95,8 +99,8 @@ class SimPeople:
             at, body = self.data.mocap_pos[mocap], self.bodies[mocap]
             dx, dy = at[:2] - robot
             x, y = c * dx + s * dy, -s * dx + c * dy
-            if (abs(math.degrees(math.atan2(y, x))) > LIDAR_BLIND and math.hypot(x, y) <= LIDAR_RANGE
-                    and self.in_sight(lidar, np.array([at[0], at[1], lidar[2]]), body)):
+            if math.hypot(x, y) <= LIDAR_RANGE and any(
+                    self.lidar_sees(lidar, torso, np.array([at[0], at[1], at[2] + h]), body) for h in BODY):
                 by = "lidar"
             elif any(self.in_view(camera, optical, np.array([at[0], at[1], h]))
                      and self.in_sight(camera, np.array([at[0], at[1], h]), body) for h in LEGS):
@@ -107,6 +111,15 @@ class SimPeople:
             people.append({"id": self.movers.names[i], "x": round(float(x), 3), "y": round(float(y), 3),
                            "seen_by": by})
         return people
+
+    def lidar_sees(self, lidar, torso, point, body):
+        """True if the point (on the person) is in the lidar's field of view, where its head
+        leaves it open, and nothing is in the way."""
+        in_torso = torso.T @ (point - lidar)
+        x, y, z = self.mount.T @ in_torso
+        elevation = math.degrees(math.atan2(z, math.hypot(x, y)))
+        return (lidar_mount.ELEVATION[0] <= elevation <= lidar_mount.ELEVATION[1]
+                and lidar_mount.sees(in_torso)[0] and self.in_sight(lidar, point, body))
 
     @staticmethod
     def in_view(camera, optical, point):
