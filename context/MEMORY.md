@@ -35,6 +35,9 @@
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack
 - [G1 official docs](g1-official-docs.md) — for a Unitree doc page, or the robot's address, login and sensors
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
+- [Listening](listening.md) — before working on how the robot hears people: mic, turn end, speech-to-text
+- [Talking](talking.md) — before working on what the robot says, the speech processes' placement, or their handshake with behavior.py
+- [Speech research](speech-research.md) — when choosing a piece of the speech stack: options, speeds, other G1 projects
 - [Off-robot testing](off-robot-testing.md) — when considering another simulator
 - [RL ideas](rl-ideas.md) — when someone asks about reinforcement learning on the G1
 - [Person perception sources](person-perception-sources.md) — before evaluating or updating the pinned detector/tracker forks
