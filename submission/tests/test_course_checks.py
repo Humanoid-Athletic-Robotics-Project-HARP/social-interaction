@@ -121,3 +121,17 @@ class RouteMovers(unittest.TestCase):
         # crossing.xml: 6 m from y=-3 in 5 s, once, starting at 4 s.
         np.testing.assert_allclose(poses[:, 7:10], [[2.5, -3, 0], [2.5, 0, 0], [2.5, 3, 0]])
         np.testing.assert_array_equal(poses[:, 10], 1.)
+
+
+class Pruning(unittest.TestCase):
+    def test_a_trace_cut_short_is_left_alone_and_pruning_goes_on(self):
+        # HIM's sim stopping mid-write (plant_error) left a trace that isn't a zip; pruning
+        # every run after each course then failed on it.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            (run / "trace.npz").write_bytes(b"PK\x03\x04 cut short")
+            self.assertIsNone(course.saved_model(run))
+            self.assertTrue(course.strip(run))
+            self.assertEqual((run / "trace.npz").read_bytes(), b"PK\x03\x04 cut short")

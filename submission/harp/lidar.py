@@ -14,14 +14,18 @@ nothing smears while the robot walks.
 
 The robot's own body is in the cloud, as on the real robot: the shoulders and
 arms show up as points and shadow what is behind them. The head shell around
-the lidar is skipped. Moving obstacles (movers.py) exist only here.
+the lidar is skipped. Moving obstacles (movers.py) exist only here: scripted, or with
+the task's "crowd": "aware" (course.py --crowd aware), giving way to the robot's true pose.
 
 It is a separate process from harp_node because publishing a 190 KB cloud
 from inside the policy's process made it miss HIM's 0.2 s command deadline.
-Events go to /harp/events: mover_start (mover, starts_at) when a mover sets off.
+Events go to /harp/events: mover_start (mover, starts_at) when a mover sets off. An aware
+crowd also prints, for scoring and the replay (not on /harp/events): crowd (its movers) at
+start, then movers (t, xy: where each is) every scan.
 """
 
 import json
+import os
 import sys
 
 import mujoco
@@ -32,7 +36,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header, String
 
 from harp import lidar_mount
-from harp.movers import Movers
+from harp.movers import AwareMovers, Movers, crowd_event, crowd_mode, path_event
 
 ELEVATION = (-7.0, 52.0)   # deg, in the lidar's frame
 H_STEP, V_STEP = 0.75, 1.5   # deg between rays: 480 x 40 = 19,200, about one real frame
@@ -55,7 +59,11 @@ class SimLidar:
         self.node = node
         self.model = mujoco.MjModel.from_xml_path(str(scene))
         self.data = mujoco.MjData(self.model)
-        self.movers = Movers(self.model)
+        aware = crowd_mode(os.environ.get("G1_TASK_COMMAND", "")) == "aware"
+        self.movers = (AwareMovers if aware else Movers)(self.model)
+        self.aware = aware and bool(self.movers.names)
+        if self.aware:
+            print(json.dumps(crowd_event(self.movers.names)), flush=True)
         self.torso = self.model.body(lidar_mount.PARENT).id
         self.mount = lidar_mount.rotation()
         azimuth = np.radians(np.arange(-180.0, 180.0, H_STEP))
@@ -93,6 +101,8 @@ class SimLidar:
         qpos = np.concatenate([state["position"], state["quat"], state["q"]])
         self.data.qpos[:len(qpos)] = qpos
         self.movers.apply(self.data, t)
+        if self.aware:
+            print(json.dumps(path_event(t, self.movers.positions)), flush=True)
         self.publish(self.cast())
 
     def cast(self):

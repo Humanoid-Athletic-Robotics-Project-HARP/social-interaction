@@ -25,6 +25,27 @@ class Selection(unittest.TestCase):
             with self.assertRaises(ValueError):
                 select(text, mode, world)
 
+    def test_an_aware_crowd_is_for_simulator_worlds_only(self):
+        from harp.movers import crowd_mode
+        self.assertEqual(crowd_mode(""), "scripted")
+        self.assertEqual(crowd_mode('{"crowd":"aware"}'), "aware")
+        self.assertEqual(select('{"crowd":"aware","avoidance":"predictive"}'), "predictive_avoidance")
+        for text, mode, world in (('{"crowd":"typo"}', "sim", True),
+                                  ('{"crowd":"aware"}', "real", True),
+                                  ('{"crowd":"aware"}', "sim", False)):
+            with self.assertRaises(ValueError):
+                select(text, mode, world)
+
+    def test_course_adds_the_crowd_and_keeps_the_other_options(self):
+        route = route_from_data({"frame":"odom", "waypoints":[[1,2]]})
+        task = json.loads(course_task('{"avoidance":"predictive"}', route, crowd="aware"))
+        self.assertEqual((task["crowd"], task["avoidance"]), ("aware", "predictive"))
+        self.assertEqual(task["route"]["waypoints"][0][:2], [1, 2])
+        self.assertEqual(json.loads(course_task(json.dumps(task), crowd="scripted"))["crowd"],
+                         "scripted")
+        with self.assertRaises(ValueError):
+            course_task("", crowd="typo")
+
     def test_route_and_predictive_option_survive_together(self):
         route = route_from_data({"frame":"odom", "waypoints":[[1,2]], "laps":2})
         task = json.loads(course_task('{"avoidance":"predictive"}', route))

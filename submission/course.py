@@ -21,11 +21,14 @@ output: events and the once-a-second "odom" lines), and our summary.json:
   seconds, recoveries   from course_goal's goal_result
   path_m, end_error_m   from the true pose (end: distance from the goal site)
   closest_m, contacts   true distance from the robot's body to every obstacle,
-                        movers included (replayed from their mover_start events;
-                        HIM's physics never sees movers, so these are the only contacts)
+                        movers included (replayed from their mover_start events, or for
+                        an aware crowd from the paths the lidar logged; HIM's physics
+                        never sees movers, so these are the only contacts)
   speed_near_people_mps  the robot's fastest true speed while a mover within PEOPLE_NEAR
                         was coming closer (harp/approach_stop.py should have it standing)
   drift_m    leg odometry against the truth at the last "odom" line
+  crowd      scripted, or aware: --crowd aware has the world's movers give way to the
+             robot (harp/movers.py AwareMovers) instead of keeping to their routes
 A route (--route NAME_OR_FILE from submission/routes, or --waypoint X Y [HEADING] for
 each point; --laps N, harp/route.py) replaces the world's goal: the run folder keeps
 it as route.yaml, the end error is from its last point, passed uses its criteria (none:
@@ -48,7 +51,7 @@ scene/ (HIM's G1 read at HIM's commit) matches the one in the trace. Runs from b
 run.json kept a scene get theirs filled in the same way. --replay RUN serves HIM's replay
 with the scene put back, from a copy of the trace; a stripped run's thrash panel is empty.
 HIM's live viewer never shows movers (only our lidar sees them); the replay does, walking
-where scoring placed them.
+where scoring placed them (an aware crowd: where the lidar logged them).
 Each run, with its scoring and pruning, and --prune and --score hold checkout.py's
 machine-wide lock: one build or sim at a time, waiting for whoever holds it.
 
@@ -70,6 +73,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import checkout  # beside this file
@@ -107,7 +111,7 @@ except ImportError:
 
 sys.path.insert(0, str(HERE))
 import stage_world  # noqa: E402
-from harp.movers import Movers, obstacle_geoms  # noqa: E402
+from harp.movers import CROWDS, Movers, logged_path, obstacle_geoms  # noqa: E402
 from harp.route import route_from_data  # noqa: E402
 
 SCENES = checkout.STAGE / "scenes"
@@ -129,13 +133,14 @@ def read_log(run):
     return events, odom
 
 
-def clearance(world, trace, movers_started):
+def clearance(world, trace, movers_started, path=None):
     """From the truth: the closest robot-to-obstacle distance, how many separate contacts,
     and the robot's fastest speed (over SPEED_WINDOW samples) while a mover nearer than
-    PEOPLE_NEAR was coming closer (None without movers)."""
+    PEOPLE_NEAR was coming closer (None without movers). path: an aware crowd's logged
+    paths (logged_path), which the movers then follow."""
     model = mujoco.MjModel.from_xml_path(str(world))
     data = mujoco.MjData(model)
-    movers = Movers(model, started=movers_started)
+    movers = Movers(model, started=movers_started, path=path)
     obstacles = obstacle_geoms(model)
     body = [g for g in range(model.ngeom)
             if model.geom_bodyid[g] > 0 and model.body_mocapid[model.geom_bodyid[g]] < 0
@@ -174,6 +179,7 @@ def score(run):
     events, odom = read_log(run)
     result = next((e for e in events if e.get("event") == "goal_result"), None)
     started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
+    logged = logged_path(events)
     route = load_route(run / "route.yaml") if (run / "route.yaml").is_file() else None
 
     stage_world.main(name, MODEL, SCENES)
@@ -182,7 +188,7 @@ def score(run):
             else mujoco.MjModel.from_xml_path(str(world)).site("goal").pos[:2])
     xy = trace["qpos"][:, :2]
     path = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
-    closest, contacts, near_speed = clearance(world, trace, started)
+    closest, contacts, near_speed = clearance(world, trace, started, logged)
     drift = (round(float(np.hypot(*(np.array(odom[-1]["legs"][:2]) - odom[-1]["truth"][:2]))), 3)
              if odom else None)
 
@@ -201,7 +207,7 @@ def score(run):
         "seconds": result and result["seconds"], "recoveries": result and result["recoveries"],
         "path_m": round(path, 2), "end_error_m": round(float(np.linalg.norm(xy[-1] - goal)), 3),
         "closest_m": closest, "contacts": contacts, "speed_near_people_mps": near_speed,
-        "drift_m": drift,
+        "drift_m": drift, "crowd": "scripted" if logged is None else "aware",
     }
     if route:
         summary["route"] = {"waypoints": len(route.waypoints) * route.laps, "laps": route.laps,
@@ -370,8 +376,14 @@ def same_model(a, b):
 
 
 def saved_model(run):
-    """The compiled scene HIM saved in the run's trace, or None once stripped."""
-    with np.load(run / "trace.npz") as trace:
+    """The compiled scene HIM saved in the run's trace, or None once stripped (or if the
+    trace can't be read: HIM's sim stopped while writing it, say; then it is left as it is)."""
+    try:
+        trace = np.load(run / "trace.npz")
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        print(f"{run.name}: can't read trace.npz ({e}); leaving it as it is", flush=True)
+        return None
+    with trace:
         if "model" not in trace.files:
             return None
         return mujoco.MjModel.from_binary_path("scene.mjb", {"scene.mjb": trace["model"].tobytes()})
@@ -598,11 +610,11 @@ def watch_live(process, run):
             report.write_bytes(kept)
 
 
-def course_task(existing, route=None, avoidance=None):
-    """Preserve the task's independent options when adding a route or avoidance mode."""
+def course_task(existing, route=None, avoidance=None, crowd=None):
+    """Preserve the task's independent options when adding a route, avoidance mode or crowd."""
     from harp.avoidance_config import select
     task = json.loads(existing or "{}")
-    if route is not None or avoidance is not None:
+    if route is not None or avoidance is not None or crowd is not None:
         if not isinstance(task, dict):
             task = {}
         if route is not None:
@@ -613,12 +625,14 @@ def course_task(existing, route=None, avoidance=None):
             task["route"] = route.data()
         if avoidance is not None:
             task["avoidance"] = avoidance
+        if crowd is not None:
+            task["crowd"] = crowd
     text = json.dumps(task)
     select(text)
     return text
 
 
-def run_once(name, tag, route=None, view=False, avoidance=None):
+def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None):
     max_time = route_time(route) if route else (world_criteria(name) or {}).get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
@@ -626,7 +640,7 @@ def run_once(name, tag, route=None, view=False, avoidance=None):
     env = dict(os.environ)
     if route:
         (run / "route.yaml").write_text(yaml.safe_dump(route.data(), sort_keys=False))
-    env["G1_TASK_COMMAND"] = course_task(env.get("G1_TASK_COMMAND"), route, avoidance)
+    env["G1_TASK_COMMAND"] = course_task(env.get("G1_TASK_COMMAND"), route, avoidance, crowd)
     (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
                                                   tag=tag)) + "\n")
     for note in memory_warnings():
@@ -673,7 +687,7 @@ def replay_movers(run, qpos, times):
         events = []
     started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
     movers_model = mujoco.MjModel.from_xml_path(str(SCENES / (name + "_all.xml")))
-    movers = Movers(movers_model, started=started)
+    movers = Movers(movers_model, started=started, path=logged_path(events))
     if not movers.mocap:
         return None
     model = mujoco.MjModel.from_xml_path(str(SCENES / (name + "_replay.xml")))
@@ -757,6 +771,9 @@ def main():
     parser.add_argument("--repeat", type=positive, default=1)
     parser.add_argument("--avoidance", choices=("reactive", "predictive"),
                         help="Nav2 command filter (default: existing reactive stop)")
+    parser.add_argument("--crowd", choices=CROWDS,
+                        help="the world's movers: scripted routes (default), or aware: they "
+                             "give way to the robot")
     where = parser.add_mutually_exclusive_group()
     where.add_argument("--route", metavar="NAME_OR_FILE", help="a route in submission/routes, or a file")
     where.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
@@ -813,7 +830,8 @@ def main():
 def run_and_score(run, args, route):
     """Run (unless --score) and score one run, print its line, and prune; False if it
     didn't succeed or failed its criteria."""
-    run = run if args.score else run_once(args.world, args.tag, route, args.view, args.avoidance)
+    run = run if args.score else run_once(args.world, args.tag, route, args.view, args.avoidance,
+                                          args.crowd)
     if run is None:
         return False
     s = score(run)

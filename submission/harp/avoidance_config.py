@@ -1,6 +1,9 @@
-"""Select exactly one command filter from the existing task JSON."""
+"""Select exactly one command filter from the existing task JSON, and check the task's
+crowd (harp/movers.py) before anything starts."""
 import json
 import os
+
+from harp.movers import crowd_mode
 
 
 def select(task_text, execution_mode="sim", has_world=True):
@@ -8,6 +11,8 @@ def select(task_text, execution_mode="sim", has_world=True):
         task = json.loads(task_text or "null")
     except ValueError:
         task = None   # other task readers tolerate bad JSON too; keep the default filter
+    if crowd_mode(task_text) == "aware" and (execution_mode != "sim" or not has_world):
+        raise ValueError("an aware crowd needs a simulator world")
     mode = task.get("avoidance", "reactive") if isinstance(task, dict) else "reactive"
     if mode not in ("reactive", "predictive"):
         raise ValueError("avoidance must be reactive or predictive")
