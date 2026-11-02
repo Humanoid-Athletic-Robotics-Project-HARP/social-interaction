@@ -148,6 +148,19 @@ class Pruning(unittest.TestCase):
             self.assertTrue(course.strip(run))
             self.assertEqual((run / "trace.npz").read_bytes(), b"PK\x03\x04 cut short")
 
+    def test_a_cut_off_trace_is_reported_not_scored(self):
+        # HIM writes trace.npz last, under its report deadline; on a Mac short of memory it
+        # came out cut off after a route had finished, and scoring crashed the whole course.
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            (run / "trace.npz").write_bytes(b"PK\x03\x04 cut short")
+            with patch.object(course, "score") as score:
+                self.assertFalse(course.run_and_score(run, SimpleNamespace(score=True), None))
+            score.assert_not_called()
+
 
 class ReplayScene(unittest.TestCase):
     def test_the_replay_marks_the_goal_and_shows_the_floor_plan_through_walls(self):

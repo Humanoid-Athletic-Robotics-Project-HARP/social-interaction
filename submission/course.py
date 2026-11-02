@@ -1011,6 +1011,13 @@ def run_and_score(run, args, route):
                                           args.crowd)
     if run is None:
         return False
+    try:
+        np.load(run / "trace.npz").close()
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        # HIM writes the trace last, under its report deadline: a Mac short of memory or a
+        # stopped plant can leave it cut off ([[sim-deadline-stops]]), with nothing to score.
+        print(f"{run.name}: not scored, HIM's trace.npz can't be read ({e})", flush=True)
+        return False
     s = score(run)
     verdict = {True: "PASS", False: "FAIL " + ",".join(s["failed_checks"]), None: "-"}[s["passed"]]
     print(f"{run.name}: {s['outcome']} ({s['him_status']}) {verdict}  "
