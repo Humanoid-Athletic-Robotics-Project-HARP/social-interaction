@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run HARP's image in him-sim2real-management's simulator, with the walker's joint profile.
 # Usage: submission/sim.sh [--world NAME] [--no-view] [its flags, e.g. --seconds 20 --output DIR]
-# It opens HIM's browser viewer (--view) unless --no-view: press Start there to run, and
-# Ctrl-C closes the page afterwards. --world NAME loads submission/worlds/NAME.xml: its
+# It opens HIM's browser viewer (--view) unless --no-view, and starts the run at once, as
+# its Start would (press Start on the page to watch from the first frame); Ctrl-C closes
+# the page afterwards. --world NAME loads submission/worlds/NAME.xml: its
 # scene into HIM's sim, and the world with its movers into an image layer
 # (harp-submission:NAME, or harp-submission-WORKTREE:NAME in a git worktree) for our lidar.
 # Build first with submission/build.sh. Uses desktop_sim.sh on macOS and sim.sh on Linux.
@@ -85,6 +86,21 @@ fi
 # file (9>&-), so nothing it leaves running can hold the lock after this script.
 trap ':' INT
 status=0
+# HIM's launcher waits for the flag its page's Start writes (view/start in its output
+# folder); write it once the page is up (HIM's live-view.log, made after the page), so a
+# run never waits for someone to be watching.
+if ((${#view[@]})); then
+  started="$(mktemp)"
+  ( dir="${out:-$him/containers/sim/output}"
+    for _ in $(seq 1200); do
+      if [[ "$dir/live-view.log" -nt "$started" ]]; then
+        touch "$dir/view/start"
+        break
+      fi
+      sleep 0.5
+    done
+    rm -f "$started" ) 9>&- &
+fi
 "$him/$launcher" --image "$image" ${args[@]+"${args[@]}"} 9>&- || status=$?
 trap - INT
 [[ -z "$out" ]] || python3 "$here/course.py" --prune "$out" || true

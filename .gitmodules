@@ -1,0 +1,6 @@
+[submodule "third_party/ultralytics"]
+	path = third_party/ultralytics
+	url = https://github.com/Humanoid-Athletic-Robotics-Project-HARP/ultralytics.git
+[submodule "third_party/BoT-SORT"]
+	path = third_party/BoT-SORT
+	url = https://github.com/Humanoid-Athletic-Robotics-Project-HARP/BoT-SORT.git

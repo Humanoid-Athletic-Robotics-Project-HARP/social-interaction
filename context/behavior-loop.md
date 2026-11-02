@@ -3,7 +3,7 @@ name: behavior-loop
 description: Read before changing the autonomous loop (harp/behavior.py, the stand-in detector harp/sim_people.py, the people world) or replacing its placeholders with a real detector or speech
 metadata:
   type: project
-  updated: 2026-10-30T23:58:58Z
+  updated: 2026-11-02T05:52:32Z
   covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people.*]
 ---
 
@@ -20,7 +20,7 @@ The robot on its own: wander, notice a person, walk up in one curve to about 1 m
 - The turn away is a Nav2 goal where the robot stands, heading flipped: the Graceful Controller only turns within `goal_dist_tolerance`, so nothing but Nav2 drives. The next wander point is any point; only the turn is required.
 - Not walked up to again for 120 s (by id). A real tracker's ids may not last that long.
 
-**Robot:** the mode starts Nav2, `approach_stop.py` and the loop on the robot too (with `lidar_relay.py`), after D-pad Left + B. Never run there yet: Nav2 has not run on real lidar ([[nav2-sim]], [[safety]]).
+**Robot:** not yet: `entrypoint.sh` starts the loop only in a world's image in the sim, like Nav2 and `approach_stop.py`, which haven't run on the robot ([[nav2-sim]], [[safety]]); our image can't read the depth camera there either ([[sim-vs-real]]). On the robot the loop would start after D-pad Left + B (HIM's handover).
 
 **Scoring:** `course.py people` (the task is in `people.yaml`): summary `loop` with each talk's true distance to that person and facing error (medians over its first 3 s, before anyone leaves) and how it ended, wander goals, people noticed, farthest from the start; `min_talks`, `talk_distance_m`, `max_talk_facing_deg` criteria. Events carry no sim time, so each is timed by the last `odom`/`timing` line before it (within 1 s).
 
