@@ -7,7 +7,7 @@ The MID-360 pushes Livox SDK2 UDP packets straight to PC2 (points, its IMU, a st
 message); there is no DDS lidar topic on this robot. `record.py` runs on PC2 and
 saves every packet as it arrives, plus the robot's joints from `rt/lowstate`. On the
 laptop, `capture.py` decodes a capture into 100 ms clouds, `report.py` answers the
-questions below and `view.py` shows it in Rerun.
+questions below, `blind_map.py` maps what blocks it ahead and `view.py` shows it in Rerun.
 
 To watch it live instead, `lidar_viewer.py` on PC2 serves a 3D view on port 8080
 (`python3 lidar_viewer.py`, then `http://ADDRESS:8080`), with the directions the
@@ -23,6 +23,7 @@ that it came with.
 | Which lidar, which firmware, how it's configured | report: The lidar (its status messages) |
 | How fast, and is anything lost | report: The stream, Timing |
 | Field of view, how fast the scan fills in, where it's blind | report: Range and field of view, Returns by direction |
+| What blocks it ahead: the camera, the face plate | `blind_map.py` (any capture; again after a change to the head) |
 | Mount: upside down? height, tilt | report: Floor and mount, Lidar IMU |
 | Which way is the robot's front in the lidar's frame | `person-front-2m`: where the person shows up in `view.py` |
 | The blind ring near the feet | report: Floor (`floor-box-*`) |
@@ -74,12 +75,16 @@ cd lidar && ../.venv/bin/python report.py captures/standing-60s
 ```
 
 ```bash
+../.venv/bin/python blind_map.py captures/standing-60s
+```
+
+```bash
 ../.venv/bin/python view.py captures/standing-60s --accumulate 10
 ```
 
 `--box` is in `torso_link` (x forward, y left, z up, by the assumed mount); find the
 target's box in `view.py` first. The report is also saved as `report.md` in the
-capture's folder.
+capture's folder; `blind_map.py` saves `blind_map.md` and `blind_map.svg` there.
 
 ## A capture
 

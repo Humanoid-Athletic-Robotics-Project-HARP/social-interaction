@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-01T23:45:05Z
+  updated: 2026-11-02T00:19:33Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -43,10 +43,20 @@ about 2°/s on z at rest (the pelvis IMU 0.2°/s): subtract a bias before using 
 **What it sees:** returns from −7° to +52° in its frame (about 7° above the horizon to
 52° below), out to about 11 m in the lab. The floor first shows up 0.8–0.9 m out.
 **Nearly blind in a cone around +x**: within ±30° of +x only 0.3% of returns, 30–60°
-about 1.5% each side, every other 30° sector 8–15%; 56° of azimuth gets nothing. Very
-likely the head shell. +x is the front (URDF, and the forward-facing camera fills
+about 1.5% each side, every other 30° sector 8–15%. Mapped (`testground/lidar/blind_map.py`):
+from about −60° to +66° of torso azimuth it sees nothing real at any elevation it scans (+6° to −48°).
+Its few returns there are stray, likely reflections inside the head: reflectivity 0–1
+(real surfaces at that range: median 11), at a near-constant 1.27–1.45 m, in a ring
+about 25° below straight ahead. +x is the front (URDF, and the forward-facing camera fills
 exactly that gap: [[g1-sensor-fusion]]), so the robot can't see what's in front of it
-with the lidar; the head camera has to. About 290 returns a cloud within 0.7 m (shoulders and
+with the lidar; the head camera has to. Not a setting: its FOV windows are off
+(`fov_cfg_en` 0) and these captures are its raw UDP, with no Unitree software in between.
+Cause, from Unitree's URDF: the D435i's body sits 5–6 cm in front of the lidar but
+covers only about ±50° by +6° to −16° (torso frame), 29% of the wedge. The rest, out
+to about ±60° and down to −48°, is something else in front: most likely the face plate (unchecked;
+Unitree's head mesh is a closed shell, so it can't show this). Removing the plate could
+open the cone below −16° (floor to about 4 m ahead, low obstacles), not the band behind
+the camera, where people's bodies are. About 290 returns a cloud within 0.7 m (shoulders and
 arms at the sides, as near as 0.09 m). After 1 s the pattern has filled about 62% of
 its 1° cells, then barely more (the blocked part never fills).
 

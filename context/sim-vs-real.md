@@ -3,7 +3,7 @@ name: sim-vs-real
 description: Read before trusting a sim result, especially anything ahead of the robot, or before changing the sim's lidar or camera, Nav2's sensors, approach_stop or person detection — what the sim models of the real G1's sensors, what it doesn't, and how to close each gap
 metadata:
   type: project
-  updated: 2026-11-01T23:41:47Z
+  updated: 2026-11-02T00:14:53Z
   covers: [submission/harp/lidar.py, submission/harp/depth_camera.py, submission/harp/camera_mount.py, submission/harp/lidar_mount.py, submission/harp/lidar_relay.py, submission/harp/approach_stop.py, submission/nav2/nav2_params.yaml]
 ---
 
@@ -29,9 +29,9 @@ against: [[robot-reference-data]].
    the real one about 6° (not under GR00T yet): the sim camera sees the floor to about
    3.3 m, the robot's 2.7 m, so seeing ahead is optimistic. Measure the lean on the first
    GR00T run on the robot; if still about 6°, add the difference to the sim mounts.
-2. **Blind cone by elevation.** The sim keeps the same share at every elevation; the
-   robot's few returns ahead are floor about 1.2 m out (low rays get under the face).
-   Measure per elevation from a capture (`testground/lidar/`), make `BLIND` 2-D.
+2. **Blind cone returns.** The sim keeps 3% and 15% of its true returns ahead (`BLIND`);
+   the robot's are all stray, at every elevation ([[g1-lidar-measured]]), so the sim is
+   optimistic: `BLIND` should drop every return within about ±60° of ahead.
 3. **Camera dropout and detail.** Sim: 106 × 60 rays, random holes; robot: 848 × 480,
    holes in patches (edges, dark, shiny, glass, sunlight). Thin or dark things may vanish
    on the robot but not in the sim. Denser grid; holes by surface or edge.

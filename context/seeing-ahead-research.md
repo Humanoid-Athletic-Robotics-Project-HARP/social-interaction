@@ -3,7 +3,7 @@ name: seeing-ahead-research
 description: Read when planning how the real robot finds people or avoids obstacles in front of it, given that the lidar is blind ahead and the camera looks down
 metadata:
   type: reference
-  updated: 2026-11-01T23:52:53Z
+  updated: 2026-11-02T00:08:32Z
   covers: []
 ---
 
@@ -15,7 +15,8 @@ Research 2026-11-01, not yet tried. The constraints: [[sim-vs-real]].
 - Camera, straight ahead only: legs up to 0.79 m at 1 m, 0.33 m at 2 m, nothing
   past 2.7 m. Never a face; leaning the torso back 20° wouldn't show one either.
 - Nobody published a G1 blind-cone measurement or a forward add-on camera that we
-  found; Unitree's `videohub_pc4_chest` hints at a chest-camera option on some G1s.
+  found (English, Chinese and GitHub code, 2026-11-01; Unitree's lidar pages give no
+  field of view or blind area); Unitree's `videohub_pc4_chest` hints at a chest-camera option on some G1s.
 
 **People: a plan that fits the sensors.** Notice and track people with the lidar
 (they are off to the side or behind most of the time); approach on a curve that keeps
