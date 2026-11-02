@@ -3,7 +3,7 @@ name: behavior-loop
 description: Read before changing the autonomous loop (harp/behavior.py, the stand-in detector harp/sim_people.py, the people world) or replacing its placeholders with a real detector or speech
 metadata:
   type: project
-  updated: 2026-11-02T20:10:35Z
+  updated: 2026-11-02T20:11:17Z
   covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people*]
 ---
 
@@ -19,7 +19,7 @@ The robot on its own, once put down (the maintainer's design): find a person; if
 - Wander points are in front of the robot (`MIN_LEG`–`MAX_LEG`, within `FRONT` of its heading), so it walks on ahead, and after a turn away, on away from the person. They stay within `radius` of the start in `odom`, so it doesn't walk off: at the edge, facing out, the cone widens until a point fits; from outside (after walking up to someone beyond it) it heads back to the start. There is no map, so a point can land in an obstacle; Nav2 then fails or times out (60 s) and the next point is taken. A seed (`people.yaml`) makes the points repeat between runs.
 - The approach goal is 0.85 m from the person's centre: the goal checker (0.25 m, 20°) stops the robot as it comes within reach, so it ends about 1.1 m away (a 1 m goal ended 1.16–1.32 m). The goal stays 0.6 m from their surface, outside Nav2's lethal 0.4 m (`robot_radius`), so NavFn plans to it.
 - The turn away is a Nav2 goal where the robot stands, heading flipped: the Graceful Controller only turns within `goal_dist_tolerance`, so nothing but Nav2 drives.
-- Open: Nav2 can report `SUCCEEDED` at once for a goal sent right after another finished (a wander goal 1.15 m away, 0.05 s, once in `runs/2026-11-02_20-03-13Z_sim_people_wander-ahead`), likely the controller briefly following the old path, which ends where the robot stands. Harmless for wander (the next point follows); for an approach goal it would start the talk from where it stood.
+- Nav2 can report `SUCCEEDED` at once for a goal sent right after another finished (a wander goal 1.15 m away, 0.05 s, once in `runs/2026-11-02_20-03-13Z_sim_people_wander-ahead`), likely the controller briefly following the old path, which ends where the robot stands. For an approach goal that would start the talk from where it stood, so `Behavior.go` sends a goal again when Nav2 calls it reached with the robot over 0.4 m or 30° from it (a `resend` event).
 - Not walked up to again for 120 s (by id). A real tracker's ids may not last that long.
 
 **Robot:** not yet: `entrypoint.sh` starts the loop only in a world's image in the sim, like Nav2 and `approach_stop.py`, which haven't run on the robot ([[nav2-sim]], [[safety]]); our image can't read the depth camera there either ([[sim-vs-real]]). On the robot the loop would start after D-pad Left + B (HIM's handover).

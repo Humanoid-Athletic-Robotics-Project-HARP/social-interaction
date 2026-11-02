@@ -34,7 +34,8 @@ Events on /harp/events (source "behavior"): loop_start (radius, seed, home),
 wander_goal (x, y, yaw), wander_result (status, seconds), noticed (person, x, y,
 distance), approach_goal (person, x, y, yaw), approach_result (person, status,
 seconds), talk (person, line, distance), talk_done (person, ended: left or time,
-seconds), turn_away (yaw), turn_result (status, seconds); error
+seconds), turn_away (yaw), turn_result (status, seconds); resend (x, y, yaw, off, turn) when
+Nav2 called a goal reached with the robot off m and turn deg from it; error
 (message) if it stops.
 """
 
@@ -72,6 +73,8 @@ STAND_OFF = 0.85  # m from the person's centre to the robot's goal: the goal che
 REAIM = 0.5       # m a person may move from where it aims before it aims again
 REAIMS = 3        # times it aims again before giving up on someone
 TURN_TIME = 30.0  # s for the turn away after a talk
+ARRIVED = 0.4     # m from a goal Nav2 calls reached beyond which it's sent again (the goal
+ARRIVED_DEG = 30.0   # checker's 0.25 m and 20 deg, with room for the robot settling)
 TALK = 30.0       # s at most it talks with someone (placeholder for them saying goodbye)
 GONE = 2.0        # s out of sight after which the person has left
 LEFT = 2.0        # m away after which the person has left
@@ -157,6 +160,22 @@ class Behavior:
                 self.talk(person)
                 self.turn_away()
 
+    def go(self, goal, deadline, interrupt=None):
+        """course_goal.go_to's status, but a goal Nav2 calls reached while the robot is over
+        ARRIVED m or ARRIVED_DEG from it is sent again (Nav2 can end a goal sent right after
+        another at once), until the deadline."""
+        while True:
+            status, _ = go_to(self.node, self.nav, goal, deadline, interrupt)
+            x, y, yaw = self.pose
+            off = math.dist((x, y), goal[:2])
+            turn = abs(math.degrees(math.atan2(math.sin(math.radians(goal[2]) - yaw),
+                                               math.cos(math.radians(goal[2]) - yaw))))
+            if (status != "SUCCEEDED" or (off <= ARRIVED and turn <= ARRIVED_DEG)
+                    or time.monotonic() >= deadline):
+                return status
+            self.event("resend", x=round(goal[0], 2), y=round(goal[1], 2), yaw=round(goal[2], 1),
+                       off=round(off, 2), turn=round(turn, 1))
+
     def wander(self, home):
         """One wander goal, cut short as soon as someone is worth walking up to."""
         x, y = self.pose[:2]
@@ -164,8 +183,7 @@ class Behavior:
         heading = math.degrees(math.atan2(point[1] - y, point[0] - x))
         self.event("wander_goal", x=round(point[0], 2), y=round(point[1], 2), yaw=round(heading, 1))
         began = time.monotonic()
-        status, _ = go_to(self.node, self.nav, (*point, heading), began + WANDER_TIME,
-                          lambda: self.someone() is not None)
+        status = self.go((*point, heading), began + WANDER_TIME, lambda: self.someone() is not None)
         self.event("wander_result", status=status, seconds=round(time.monotonic() - began, 1))
 
     def approach(self, person):
@@ -186,7 +204,7 @@ class Behavior:
                 now = self.where(person)
                 return now is not None and math.dist(now, aim) > REAIM
 
-            status, _ = go_to(self.node, self.nav, (*goal, heading), began + APPROACH_TIME, moved)
+            status = self.go((*goal, heading), began + APPROACH_TIME, moved)
             self.event("approach_result", person=person, status=status,
                        seconds=round(time.monotonic() - began, 1))
             aim = self.where(person)
@@ -221,7 +239,7 @@ class Behavior:
         heading = math.degrees(math.atan2(-math.sin(yaw), -math.cos(yaw)))
         self.event("turn_away", yaw=round(heading, 1))
         began = time.monotonic()
-        status, _ = go_to(self.node, self.nav, (x, y, heading), began + TURN_TIME)
+        status = self.go((x, y, heading), began + TURN_TIME)
         self.event("turn_result", status=status, seconds=round(time.monotonic() - began, 1))
 
 
