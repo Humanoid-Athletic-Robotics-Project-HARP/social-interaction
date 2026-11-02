@@ -23,10 +23,10 @@ import sys
 import mujoco
 import numpy as np
 import rclpy
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
-from harp import lidar_mount
+from harp import events, lidar_mount
 from harp.leg_odometry import yaw_of
 from harp.movers import Movers
 
@@ -49,8 +49,7 @@ class SimPeople:
                        if self.model.body_mocapid[b] >= 0}
         self.rng = np.random.default_rng()
         self.pub = node.create_publisher(String, "/harp/people", 10)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        node.create_subscription(String, "/harp/events", self.on_event, latched)
+        node.create_subscription(String, events.TOPIC, self.on_event, events.latched())
         node.create_subscription(String, "/safety/policy_state", self.on_state,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.next_frame = 0.0

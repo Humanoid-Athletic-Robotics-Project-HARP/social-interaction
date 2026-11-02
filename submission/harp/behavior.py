@@ -47,9 +47,9 @@ import rclpy
 from nav_msgs.msg import Odometry
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
+from harp import events
 from harp.course_goal import NAV2_START, SETTLE, go_to, is_control_ready, spin_until, wait_for_active
 from harp.leg_odometry import yaw_of
 
@@ -77,21 +77,15 @@ class Behavior:
     def __init__(self, node, radius=RADIUS, seed=None):
         self.node, self.radius, self.seed = node, radius, seed
         self.random = random.Random(seed)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.events = node.create_publisher(String, "/harp/events", latched)
+        self.event = events.Events(node, "behavior")
         self.ready = False
-        node.create_subscription(String, "/harp/events", self.on_event, latched)
+        node.create_subscription(String, events.TOPIC, self.on_event, events.latched())
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(String, "/harp/people", self.on_people, 10)
         self.pose = None          # x, y, yaw in odom
         self.tracks = {}          # person id -> deque of (monotonic s, x, y in odom)
         self.talked = {}          # person id -> monotonic s of the last talk
         self.nav = ActionClient(node, NavigateToPose, "navigate_to_pose")
-
-    def event(self, name, **fields):
-        text = json.dumps({"source": "behavior", "event": name, **fields})
-        self.events.publish(String(data=text))
-        print(text, flush=True)
 
     def on_event(self, msg):
         self.ready = self.ready or is_control_ready(msg.data)
@@ -143,7 +137,9 @@ class Behavior:
         if not wait_for_active(self.node, "bt_navigator", NAV2_START):
             self.event("error", message="Nav2 not active")
             return 1
-        spin_until(self.node, lambda: self.ready and self.pose is not None)
+        if not spin_until(self.node, lambda: self.ready and self.pose is not None, NAV2_START):
+            self.event("error", message="control not handed over")
+            return 1
         spin_until(self.node, lambda: False, SETTLE)
         home = self.pose[:2]
         self.event("loop_start", radius=self.radius, seed=self.seed,
