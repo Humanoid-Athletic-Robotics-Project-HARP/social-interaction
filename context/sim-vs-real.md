@@ -3,7 +3,7 @@ name: sim-vs-real
 description: Read before trusting a sim result, especially anything ahead of the robot, or before changing the sim's lidar or camera, Nav2's sensors, approach_stop or person detection — what the sim models of the real G1's sensors, what it doesn't, and how to close each gap
 metadata:
   type: project
-  updated: 2026-11-02T00:51:20Z
+  updated: 2026-11-02T02:46:39Z
   covers: [submission/harp/lidar.py, submission/harp/depth_camera.py, submission/harp/camera_mount.py, submission/harp/lidar_mount.py, submission/harp/lidar_relay.py, submission/harp/approach_stop.py, submission/nav2/nav2_params.yaml]
 ---
 

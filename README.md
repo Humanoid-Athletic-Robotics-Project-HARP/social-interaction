@@ -301,10 +301,11 @@ python3 submission/course.py --events RUN_FOLDER
 
 To see what the robot sees (its lidar, where it thinks it is and where it
 really is, the people, Nav2's costmap and plan, and the events), in
-[Rerun](https://rerun.io), set it up once from the repo's top folder:
+[Rerun](https://rerun.io), set up `testground/`'s analysis tools once
+(`testground/README.md`):
 
 ```bash
-python3 -m venv .venv-view && .venv-view/bin/pip install rerun-sdk==0.39.0
+cd testground && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 Then start this before a run and open the address it prints; it shows each

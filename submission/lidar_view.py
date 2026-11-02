@@ -12,9 +12,9 @@ is the sim's truth (the pelvis, the people, the fixed obstacles) and /world/odom
 Nav2 sees (leg odometry, the cloud, the costmap, the plan, the goal), drawn as if odom
 were the world: the gap between the two robots is the drift.
 
-Needs Rerun (rerun-sdk) in .venv-view beside this checkout or the main checkout; it
-re-executes itself there:
-  python3 -m venv .venv-view && .venv-view/bin/pip install rerun-sdk==0.39.0
+Needs Rerun, from testground's analysis tools (testground/.venv, in this checkout or the
+main checkout; it re-executes itself there). Once, in testground/:
+  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 """
 
 import argparse
@@ -33,7 +33,7 @@ import checkout  # beside this file
 CONTAINER = "g1-desktop-sim-submission-1"   # HIM's Compose project and service
 GRPC_PORT, WEB_PORT = 9876, 9090
 MEMORY = "500MB"      # the viewer drops the oldest data past this
-VENVS = [checkout.TOP / ".venv-view", checkout.MAIN / ".venv-view"]
+VENVS = [checkout.TOP / "testground/.venv", checkout.MAIN / "testground/.venv"]
 
 try:
     import numpy as np
@@ -42,8 +42,8 @@ try:
 except ImportError:
     python = next((v / "bin/python" for v in VENVS if (v / "bin/python").is_file()), None)
     if python is None or Path(sys.prefix).resolve() == python.parents[1].resolve():
-        raise SystemExit("Needs Rerun in .venv-view: python3 -m venv .venv-view && "
-                         ".venv-view/bin/pip install rerun-sdk==0.39.0")
+        raise SystemExit("Needs Rerun in testground/.venv: cd testground && python3 -m venv "
+                         ".venv && .venv/bin/pip install -r requirements.txt")
     os.execv(str(python), [str(python), __file__, *sys.argv[1:]])
 
 

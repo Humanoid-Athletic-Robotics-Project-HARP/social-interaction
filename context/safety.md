@@ -3,7 +3,7 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-11-01T03:05:25Z
+  updated: 2026-11-02T02:46:39Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
