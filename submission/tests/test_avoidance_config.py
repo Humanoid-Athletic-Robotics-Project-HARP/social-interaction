@@ -44,5 +44,42 @@ class Selection(unittest.TestCase):
             self.assertEqual(task['avoidance'], mode)
 
 
+
+class Nav2Overrides(unittest.TestCase):
+    def launch(self):
+        import importlib.util
+        from pathlib import Path
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "nav2_launch", Path(__file__).resolve().parents[1] / "nav2/nav2.launch.py")
+            launch = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(launch)
+        except ImportError:
+            self.skipTest("requires ROS 2 launch")
+        return launch
+
+    def test_only_predictive_avoidance_changes_nav2(self):
+        import yaml
+        from harp.predictive_avoidance import STATIC_TOPIC
+        launch = self.launch()
+        for other in ("approach_stop", None):
+            self.assertEqual(launch.parameters_for(other), launch.PARAMS)
+        with open(launch.parameters_for("predictive_avoidance")) as source:
+            params = yaml.safe_load(source)
+        self.assertTrue(params["controller_server"]["ros__parameters"]["FollowPath"]
+                        ["follow_when_blocked"])
+        self.assertEqual(launch.STATIC_TOPIC, STATIC_TOPIC)
+        for costmap in ("local_costmap", "global_costmap"):
+            layer = params[costmap][costmap]["ros__parameters"]["stvl_layer"]
+            # Marks from the cloud without moving objects; clearing from the raw lidar.
+            self.assertEqual(layer["lidar_marking"]["topic"], STATIC_TOPIC)
+            self.assertEqual(layer["lidar_clearing"]["topic"], "/utlidar/cloud_livox_mid360")
+        # Never set in the shared file: on Foxy its controller_server entry beats a
+        # launch override (a /** entry), as follow_when_blocked: false there did in HIM.
+        with open(launch.PARAMS) as source:
+            shared = yaml.safe_load(source)
+        self.assertNotIn("follow_when_blocked",
+                         shared["controller_server"]["ros__parameters"]["FollowPath"])
+
 if __name__ == '__main__':
     unittest.main()

@@ -337,5 +337,23 @@ class RosTransport(unittest.TestCase):
         self.assert_stays_zero()
 
 
+
+class StaticCloud(unittest.TestCase):
+    def test_only_returns_on_objects_seen_moving_leave_the_cloud_for_nav2(self):
+        from harp.obstacle_tracker import STRUCTURE_ID, Track
+        from harp.predictive_avoidance import cloud_message, static_mask
+        from harp.approach_stop import xyz
+        stamp = 2.
+        tracks = [Track(1, 0., 0., .5, 0., .3, .05, stamp, 9),      # walking, seen now
+                  Track(2, 3., 0., 0., 0., .3, .05, stamp, 9),      # standing
+                  Track(3, 6., 0., .5, 0., .3, .05, stamp-.3, 9),   # walking, unseen now
+                  Track(4, 9., 0., .5, 0., .9, .05, stamp, 9),      # large: merged or a wall
+                  Track(STRUCTURE_ID, 12., 0., 0., 0., .2, .05, stamp, 9)]
+        points = np.array([[x, .1, .5] for x in (0., 3., 6., 9., 12.)])
+        keep = static_mask(points[:, :2], tracks, stamp)
+        self.assertEqual(keep.tolist(), [False, True, True, True, True])
+        message = cloud_message(PointCloud2().header, points[keep])
+        np.testing.assert_allclose(xyz(message), points[keep], atol=1e-6)
+
 if __name__ == '__main__':
     unittest.main()

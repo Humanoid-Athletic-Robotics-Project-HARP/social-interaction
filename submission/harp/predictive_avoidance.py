@@ -2,6 +2,9 @@
 
 This process replaces approach_stop; it never runs beside it. HIM keeps motor
 ownership. Alerts are JSON signals, ready for a separate speaker/indicator consumer.
+It also republishes each scan without the returns of moving objects on STATIC_TOPIC,
+which Nav2's costmaps mark from in this mode (nav2.launch.py): Nav2 plans around
+fixed things, and moving ones are this filter's alone.
 """
 import json
 import math
@@ -17,7 +20,7 @@ from nav_msgs.msg import Odometry
 from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -30,6 +33,9 @@ PERIOD = CONTROL_PERIOD
 TIMEOUT = 0.5
 MAX_SCAN_AGE = 0.35
 MAX_SOLVE_TIME = 0.15
+STATIC_TOPIC = "/harp/static_cloud"
+MOVING_SPEED = .15   # m/s: a fresh track at least this fast is left out of STATIC_TOPIC
+MOVING_SIZE = .7     # m: larger tracks (a merged blob, a wall piece) always stay in it
 
 
 def seconds(stamp):
@@ -44,6 +50,30 @@ def transform_points(points, transform):
     if not np.isfinite(shift).all() or not np.isfinite(norm) or norm < 1e-6:
         raise ValueError("invalid transform")
     return points @ rotation(quat / norm).T + shift
+
+
+def static_mask(points_xy, tracks, stamp):
+    """Returns not on an object seen moving in this scan (a person, a trolley).
+
+    Only compact, freshly observed, moving tracks are removed: anything standing,
+    unseen or large stays, so Nav2 still plans around it.
+    """
+    keep = np.ones(len(points_xy), bool)
+    for t in tracks:
+        if (t.id < STRUCTURE_ID and t.last_seen == stamp and t.radius < MOVING_SIZE
+                and math.hypot(t.vx, t.vy) >= MOVING_SPEED):
+            keep &= np.hypot(points_xy[:, 0]-t.x, points_xy[:, 1]-t.y) > t.radius+.05
+    return keep
+
+
+def cloud_message(header, points):
+    """A PointCloud2 of float32 x, y, z under header (the scan's frame and stamp)."""
+    message = PointCloud2(header=header, height=1, width=len(points), is_bigendian=False,
+                          point_step=12, row_step=12*len(points), is_dense=True)
+    message.fields = [PointField(name=n, offset=4*i, datatype=PointField.FLOAT32, count=1)
+                      for i, n in enumerate("xyz")]
+    message.data = np.asarray(points, dtype="<f4").tobytes()
+    return message
 
 
 def observed_free(track, origin, points):
@@ -93,6 +123,8 @@ class PredictiveAvoidance:
         self.events = node.create_publisher(String, "/harp/events", latched)
         self.alerts = node.create_publisher(String, "/harp/obstacle_alert", 10)
         self.tracks_out = node.create_publisher(String, "/harp/obstacle_tracks", 10)
+        self.static_out = node.create_publisher(
+            PointCloud2, STATIC_TOPIC, QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         node.create_subscription(String, "/harp/events", self.on_event, latched)
         node.create_subscription(Twist, "/cmd_vel_nav", self.on_nav, 10)
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
@@ -197,15 +229,15 @@ class PredictiveAvoidance:
         try:
             if cloud.width * cloud.height > 100000:
                 raise ValueError("cloud exceeds input limit")
-            points = xyz(cloud)
-            points = points[np.isfinite(points).all(axis=1)]
-            if not len(points):
+            local = xyz(cloud)
+            local = local[np.isfinite(local).all(axis=1)]
+            if not len(local):
                 raise ValueError("empty cloud")
             at = Time.from_msg(cloud.header.stamp)
             # Both transforms use observation time, including the moving head mount.
             world = self.tf.lookup_transform("odom", FRAME, at)
             body = self.tf.lookup_transform("odom", "base_link", at)
-            points = transform_points(points, world)
+            points = transform_points(local, world)
             origin = transform_points(np.zeros((1,3)), world)[0]
             base = transform_points(np.zeros((1, 3)), body)[0]
             tracks = self.process_scan(points, origin, base, stamp)
@@ -220,6 +252,8 @@ class PredictiveAvoidance:
             return
         self.pending_cloud = None
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
+        self.static_out.publish(cloud_message(cloud.header,
+                                              local[static_mask(points[:, :2], self.last_tracks, stamp)]))
         self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp,
                                                    tracks=[asdict(t) for t in tracks]))))
 

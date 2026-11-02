@@ -15,7 +15,12 @@ It walks in a straight line at a constant speed, back and forth:
     Without it, the mover starts at sim time 0.
   - an optional numeric <body>_trips: how many one-way walks before it stops
     where it is (1 = start to end once). Without it, it never stops.
-Each numeric holds one finite number: duration positive, delay and trips not negative.
+  - an optional numeric <body>_route, x0 y0 x1 y1 ...: instead of a straight
+    line, it walks these points in turn (through doors, along a hallway) at a
+    constant speed, one way in <body>_duration, and turns back at either end.
+    The site <body>_end is then optional (the last point).
+Each other numeric holds one finite number: duration positive, delay and trips not negative.
+Movers never react to the robot, so a course can replay them exactly.
 
   <custom>
     <numeric name="person_duration" data="5"/>
@@ -43,18 +48,19 @@ START_DISTANCE = 0.3   # m the pelvis has to move from where it started
 class Movers:
     def __init__(self, model, started=None):
         """started: {name: sim time} from mover_start events, to replay a run."""
-        self.names, self.mocap, self.start, self.end = [], [], [], []
+        self.names, self.mocap, self.start, self.end, self.routes = [], [], [], [], []
         self.duration, self.delay, self.trips = [], [], []
         for b in range(model.nbody):
             if model.body_mocapid[b] < 0:
                 continue
             name = model.body(b).name
+            route = optional_route(model, name + "_route")
             try:
-                end = model.site(name + "_end").id
+                end = model.site_pos[model.site(name + "_end").id].copy() if route is None else None
                 duration = numeric(model, name + "_duration")
             except KeyError:
-                raise SystemExit(f"Mover {name} needs a site {name}_end and a numeric "
-                                 f"{name}_duration (see submission/harp/movers.py)")
+                raise SystemExit(f"Mover {name} needs a site {name}_end (or a {name}_route) and a "
+                                 f"numeric {name}_duration (see submission/harp/movers.py)")
             if duration <= 0:
                 raise SystemExit(f"Mover {name}_duration must be positive")
             delay, trips = optional(model, name + "_delay"), optional(model, name + "_trips")
@@ -63,8 +69,16 @@ class Movers:
                     raise SystemExit(f"Mover {name}_{suffix} must not be negative")
             self.names.append(name)
             self.mocap.append(model.body_mocapid[b])
-            self.start.append(model.body_pos[b].copy())
-            self.end.append(model.site_pos[end].copy())
+            start = model.body_pos[b].copy()
+            if route is not None:
+                # Straight lines between the body's position and each route point.
+                points = np.vstack((start[:2], route))
+                self.routes.append((points, np.r_[0., np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]))
+                end = np.r_[points[-1], start[2]]
+            else:
+                self.routes.append(None)
+            self.start.append(start)
+            self.end.append(end)
             self.duration.append(duration)
             self.delay.append(delay)
             self.trips.append(trips)
@@ -101,7 +115,15 @@ class Movers:
                 legs = min(legs, self.trips[i])
             phase = legs % 2.0
             share = phase if phase <= 1.0 else 2.0 - phase   # out, then back
-            data.mocap_pos[mocap] = self.start[i] + share * (self.end[i] - self.start[i])
+            if self.routes[i] is None:
+                data.mocap_pos[mocap] = self.start[i] + share * (self.end[i] - self.start[i])
+            else:
+                points, along = self.routes[i]
+                s = share * along[-1]
+                k = min(int(np.searchsorted(along, s, side="right")) - 1, len(points) - 2)
+                f = (s - along[k]) / max(along[k + 1] - along[k], 1e-9)
+                data.mocap_pos[mocap][:2] = points[k] + f * (points[k + 1] - points[k])
+                data.mocap_pos[mocap][2] = self.start[i][2]
 
 
 def numeric(model, name):
@@ -110,6 +132,19 @@ def numeric(model, name):
     if model.numeric_size[i] != 1 or not math.isfinite(value):
         raise SystemExit(f"Mover {name} must hold one finite number")
     return value
+
+
+def optional_route(model, name):
+    """An even number of finite coordinates, at least one point, or None if absent."""
+    try:
+        i = model.numeric(name).id
+    except KeyError:
+        return None
+    adr, size = model.numeric_adr[i], model.numeric_size[i]
+    values = np.asarray(model.numeric_data[adr:adr + size], dtype=float)
+    if size < 2 or size % 2 or not np.isfinite(values).all():
+        raise SystemExit(f"Mover {name} must hold x y pairs of finite numbers")
+    return values.reshape(-1, 2)
 
 
 def optional(model, name):

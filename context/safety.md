@@ -20,7 +20,7 @@ Normal straight-walk and turn speed ramps ([[planned-moves]]) never delay the ta
 
 **Gap:** a lost lidar doesn't stop Nav2 on Foxy: nothing in it acts on a stale costmap. In the sim's course runs `harp/approach_stop.py` holds zero from startup until usable lidar, its live transform and speed feedback arrive, and on 0.5 s without any of these receipts; failed route results latch zero until a new session ([[nav2-sim]]); on the robot nothing does yet.
 
-**Predictive simulation mode:** the optional filter also checks cloud timestamps and observation-time transforms, command freshness and planning deadlines, and disables motion after route completion. It remains simulator-only; see [[predictive-avoidance]].
+**Predictive simulation mode:** the optional filter also checks cloud timestamps and observation-time transforms, command freshness and planning deadlines, and disables motion after route completion. In this mode Nav2's controller no longer stops for a blocked trajectory (`follow_when_blocked`), so the filter is the only check against moving objects downstream of Nav2; that is one reason it remains simulator-only; see [[predictive-avoidance]].
 
 **To check on the robot:** what `wireless_remote` reads with the remote off or out of range (if all zeros, the remote can't stop it then; only the laptop and HIM's deadlines can), and whether anything else reacts to HIM's button gestures.
 

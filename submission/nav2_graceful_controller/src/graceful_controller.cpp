@@ -190,6 +190,10 @@ geometry_msgs::msg::TwistStamped GracefulController::computeVelocityCommands(
   std::vector<double> target_distances;
   computeDistanceAlongPath(transformed_plan.poses, target_distances);
 
+  // HARP: the first (farthest) target's command, kept when its trajectory is blocked.
+  bool have_blocked_command = false;
+  geometry_msgs::msg::Twist blocked_command;
+
   // Work back from the end of plan to find valid target pose
   for (int i = transformed_plan.poses.size() - 1; i >= 0; --i) {
     // Underlying control law needs a single target pose, which should:
@@ -239,6 +243,19 @@ geometry_msgs::msg::TwistStamped GracefulController::computeVelocityCommands(
       failing_ = false;
       return cmd_vel;
     }
+    // simulateTrajectory sets the first step's command before it checks for collision.
+    if (!have_blocked_command) {
+      have_blocked_command = true;
+      blocked_command = cmd_vel.twist;
+    }
+  }
+
+  // HARP: with follow_when_blocked, the robot's own avoidance (downstream of /cmd_vel_nav)
+  // decides how to get past what blocks the trajectory; this keeps asking for the path.
+  if (params_->follow_when_blocked && have_blocked_command) {
+    failing_ = false;
+    cmd_vel.twist = blocked_command;
+    return cmd_vel;
   }
 
   // HARP (Foxy port): stop and try again for up to failure_tolerance, as Jazzy's

@@ -9,6 +9,9 @@ from submission/build.sh). OUT_DIR gets a copy of it and:
                     wouldn't move them, so they'd stand still where they start.
   NAME_fixed.xml    the world without its movers, included by NAME.xml
   NAME_all.xml      the G1 in the world with its movers, for scoring (course.py)
+  NAME_replay.xml   the same with each mover a free body that touches nothing, so
+                    HIM's replay viewer, which draws joint positions, can move them
+                    (course.py --replay)
   image/            for our image's simulated lidar: the world with its movers
                     (world.xml) and the scene that includes it (lidar_scene.xml)
 """
@@ -57,6 +60,16 @@ def main(name, model_dir, out_dir, world=None):
     shutil.copy(world, image / "world.xml")
     (image / "lidar_scene.xml").write_text(scene(name, "world.xml"))
     (out / f"{name}_all.xml").write_text(scene(name, f"image/{name}/world.xml"))
+
+    root = ET.fromstring(re.sub(r"<!--.*?-->", "", world.read_text(), flags=re.S))
+    for body in root.find("worldbody").findall("body"):
+        if body.attrib.pop("mocap", None) == "true":
+            body.insert(0, ET.Element("freejoint", name=body.get("name") + "_replay"))
+            for geom in body.iter("geom"):
+                geom.set("contype", "0")
+                geom.set("conaffinity", "0")
+    ET.ElementTree(root).write(out / f"{name}_replay_world.xml")
+    (out / f"{name}_replay.xml").write_text(scene(name, f"{name}_replay_world.xml"))
     return out / f"{name}.xml"
 
 

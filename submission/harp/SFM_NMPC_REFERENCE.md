@@ -25,6 +25,12 @@ All of them, standing included, are ranked by one soft-constrained cost:
   moderate, tradeable cost;
 - a fixed preference for a path that is certifiably clear when one exists.
 
+Every rollout ends stopped. An object that would then walk into the stopped pose
+within 4 s (constant velocity, closed form) is charged body risk as if the hit
+came when the plan ends: otherwise backing away from a faster walker, or standing
+in their path, only pushes the hit past the horizon and scores as safe (a terminal
+check, as in inevitable-collision-state reasoning).
+
 Intrusion is discounted with a 2 s time constant; in a crowd sweep a longer one
 over-weighted speculative far-future overlaps and the robot dithered. This single
 ranking replaces an earlier cascade (certified, margin recovery, brake then stop,

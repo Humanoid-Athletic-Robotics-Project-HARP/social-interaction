@@ -14,6 +14,7 @@ source /example/install/setup.bash
 source /harp_ws/install/setup.bash
 # Validate before starting any command producer. Select one filter, never two.
 avoidance_filter=$(PYTHONPATH="/harp:$PYTHONPATH" python3 -m harp.avoidance_config)
+export HARP_AVOIDANCE_FILTER="$avoidance_filter"   # nav2.launch.py follows it
 # HIM's sim profile finds only 5 participants; ours lists peers for 32 (harp/fastdds_profile.py).
 if [[ "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" == /fastdds.xml ]]; then
   python3 /harp/harp/fastdds_profile.py > /tmp/harp_fastdds.xml

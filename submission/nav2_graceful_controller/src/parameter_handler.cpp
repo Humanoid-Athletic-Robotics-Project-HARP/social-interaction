@@ -78,6 +78,10 @@ ParameterHandler::ParameterHandler(
   // failure_tolerance seconds of controller errors; Foxy's aborts the path on the first one.
   declare_parameter_if_not_declared(
     node, plugin_name_ + ".failure_tolerance", rclcpp::ParameterValue(0.0));
+  // HARP: when another node downstream owns collision avoidance (our predictive filter),
+  // a blocked trajectory still yields the path's command instead of a stop and an abort.
+  declare_parameter_if_not_declared(
+    node, plugin_name_ + ".follow_when_blocked", rclcpp::ParameterValue(false));
 
   node->get_parameter(plugin_name_ + ".transform_tolerance", params_.transform_tolerance);
   node->get_parameter(plugin_name_ + ".min_lookahead", params_.min_lookahead);
@@ -113,6 +117,7 @@ ParameterHandler::ParameterHandler(
     plugin_name_ + ".in_place_collision_resolution", params_.in_place_collision_resolution);
   node->get_parameter(plugin_name_ + ".goal_dist_tolerance", params_.goal_dist_tolerance);
   node->get_parameter(plugin_name_ + ".failure_tolerance", params_.failure_tolerance);
+  node->get_parameter(plugin_name_ + ".follow_when_blocked", params_.follow_when_blocked);
 
   if (params_.initial_rotation && params_.allow_backward) {
     RCLCPP_WARN(
@@ -201,6 +206,8 @@ ParameterHandler::dynamicParametersCallback(std::vector<rclcpp::Parameter> param
           continue;
         }
         params_.allow_backward = parameter.as_bool();
+      } else if (name == plugin_name_ + ".follow_when_blocked") {
+        params_.follow_when_blocked = parameter.as_bool();
       }
     }
   }

@@ -55,6 +55,7 @@ struct Parameters
   double in_place_collision_resolution;
   double goal_dist_tolerance;  // HARP (Foxy port): was the goal checker's
   double failure_tolerance;  // HARP (Foxy port): was the controller server's
+  bool follow_when_blocked;  // HARP: another node owns collision avoidance
 };
 
 /**

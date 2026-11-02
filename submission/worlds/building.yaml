@@ -1,0 +1,9 @@
+# Pass criteria for course tests on this world (runs check, summary.json).
+# Seven non-reacting walkers in a hallway: first set before any HIM runs, from
+# the native G1 building trials (26-45 s to the goal); revisit after HIM runs.
+must_succeed: true
+max_time_s: 90
+min_clearance_m: 0.30
+max_contacts: 0
+max_recoveries: 3
+max_end_error_m: 0.35

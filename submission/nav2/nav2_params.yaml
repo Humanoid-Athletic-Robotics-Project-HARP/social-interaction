@@ -75,6 +75,10 @@ controller_server:
       # s of no collision-free trajectory (a person crossing) it stops and waits out before
       # aborting the path. The controller server's failure_tolerance on Jazzy; Foxy's has none.
       failure_tolerance: 0.3
+      # follow_when_blocked (default false): keep sending the path's command through a blocked
+      # trajectory, for a filter downstream that checks every command. nav2.launch.py sets it
+      # with predictive avoidance. Not set here: Foxy gives this file's controller_server entry
+      # priority over the launch file's override (written for every node, /**), whatever the order.
 
 # Both costmaps read the head lidar the same way, through STVL
 # (spatio_temporal_voxel_layer), whose marks fade:

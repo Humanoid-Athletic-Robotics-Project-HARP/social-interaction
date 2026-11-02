@@ -266,13 +266,39 @@ class PredictiveMpc(unittest.TestCase):
         cases = [([obstacle(math.nan, 0)], (0, 0, 0)),
                  ([obstacle(0, 0, radius=-1)], (0, 0, 0)),
                  ([obstacle(10, 0)]*1281, (0, 0, 0)),
-                 ([obstacle(1.5, 0)]*161, (0, 0, 0)),
+                 # Moving objects each need a swept check; fixed geometry goes into the
+                 # field and has its own, larger limit.
+                 ([obstacle(1.5, 0, vx=-.5)]*161, (0, 0, 0)),
+                 ([obstacle(1.5, 0)]*641, (0, 0, 0)),
                  ([], (math.inf, 0, 0))]
         for tracks, pose in cases:
             result = Planner().plan(pose, (0, 0, 0), (.25, 0, 0), tracks, 0)
             self.assertEqual(result.mode, 'blocked')
             self.assertTrue(result.alert)
             self.assertEqual(result.command, (0., 0., 0.))
+
+    def test_postponing_an_unavoidable_hit_is_not_rated_safe(self):
+        # A walker 4 m ahead comes straight at the robot faster than it can back
+        # away. Within the horizon nothing touches, so backing away and standing
+        # in the walker's path looked as safe as stepping out of it.
+        planner = Planner(Config(tracking_gain=.85, lateral_tracking_gain=.6))
+        walker = np.array([[4., 0., -.55, 0., .25, .05]])
+        back, aside, stand = (np.tile(v, (3, 1)) for v in ([-.3, 0, 0], [0, .3, 0], [0, 0, 0]))
+        paths, _ = planner._rollout(np.array([back, aside, stand]), np.zeros(3), np.zeros(3))
+        risk = planner._risk(paths, walker)
+        self.assertLess(risk[1], .1)
+        self.assertGreater(risk[0], risk[1]+.5)
+        self.assertGreater(risk[2], risk[1]+.5)
+
+    def test_walls_do_not_count_against_the_moving_object_limit(self):
+        from harp.obstacle_tracker import STRUCTURE_ID
+        wall = []
+        for i in range(200):
+            tile = obstacle(1.5+.05*i, 1.2)
+            tile.id = STRUCTURE_ID+i
+            wall.append(tile)
+        result = Planner().plan((0, 0, 0), (0, 0, 0), (.25, 0, 0), wall+[obstacle(3, -.5, vx=-.4)], 0)
+        self.assertNotEqual(result.solver, 'track_capacity')
 
     def test_invalid_configuration_rejected(self):
         with self.assertRaises(ValueError):

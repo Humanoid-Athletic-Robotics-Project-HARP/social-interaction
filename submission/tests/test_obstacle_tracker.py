@@ -1,9 +1,10 @@
 """Geometry, association and missing-observation regressions for the tracker."""
 
+import math
 import unittest
 import numpy as np
 
-from harp.obstacle_tracker import Tracker
+from harp.obstacle_tracker import STRUCTURE_ID, Tracker
 
 
 def square(x, y, half=0.12):
@@ -61,6 +62,20 @@ class Tracking(unittest.TestCase):
                   and abs(k.x-(.3+.6*t)) < .3]
         self.assertEqual(len(moving), 1)
         self.assertAlmostEqual(moving[0].vx, .6, delta=.15)
+
+    def test_a_sliding_visible_piece_of_a_known_wall_is_not_a_mover(self):
+        # Seen whole, the wall is structure. Then people in front hide all but a
+        # short piece, which slides as they walk: that piece is still the wall.
+        tracker, origin = Tracker(), np.array([0., 0.])
+        wall = np.column_stack((np.arange(1., 6., .03), np.full(167, 1.8)))
+        for step in range(5):
+            tracker.update(wall, .1*step, origin)
+        for step in range(5, 25):
+            start = 1.5+.1*(step-5)
+            piece = wall[(wall[:, 0] >= start) & (wall[:, 0] <= start+.6)]
+            tracks = tracker.update(piece, .1*step, origin)
+            movers = [k for k in tracks if k.id < STRUCTURE_ID and math.hypot(k.vx, k.vy) > .15]
+            self.assertEqual(movers, [])
 
     def test_walls_seen_while_walking_stay_static_and_bounded(self):
         tracker = Tracker()

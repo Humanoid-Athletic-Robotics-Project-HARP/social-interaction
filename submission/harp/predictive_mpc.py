@@ -24,6 +24,7 @@ RISK_TIME = 2.           # s: discount time constant of predicted intrusion (swe
 UNCERTIFIED_COST = .6    # preference for a certifiably clear path when one exists
 RECOVERY_TIME = 2.       # s to repay an existing comfort intrusion: a ramped walker's launch
 FINALISTS = 24           # nominally best candidates re-ranked under the robust model
+AFTER_PLAN = 4.          # s after a plan's stop checked for objects walking into it
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ class Config:
     # Extra forecast spread per m/s of an object's own speed: a walker can turn
     # or stop, a standing one hardly drifts. Comfort-margin (soft) only.
     speed_spread: float = 0.1
-    max_tracks: int = 160  # relevant objects after pruning; input is capped at 8x
+    max_tracks: int = 160  # moving objects after pruning (fixed: 4x); input is capped at 8x
     solve_seconds: float = 0.07
     solver_iterations: int = 8
     tracking_gain: float = 1.0
@@ -357,8 +358,23 @@ class Planner:
             comfort = np.maximum(comfort, np.max(spread-distance, axis=2))
         weight = np.exp(-times/RISK_TIME)[None]
         body, comfort = np.maximum(body, 0.)*weight, np.maximum(comfort, 0.)*weight
-        return (BODY_WEIGHT*(np.max(body, axis=1)+.3*np.sum(body, axis=1)*c.dt)
+        risk = (BODY_WEIGHT*(np.max(body, axis=1)+.3*np.sum(body, axis=1)*c.dt)
                 + COMFORT_WEIGHT*np.sum(comfort, axis=1)*c.dt)
+        if len(objects) and AFTER_PLAN > 0:
+            # Every plan ends stopped. An object that will then walk into the stopped
+            # robot makes that collision inevitable, not avoided: charge it as if it
+            # happened when the plan ends. Otherwise backing away from a faster
+            # walker only pushes the hit past the horizon and looks safest.
+            # Closest approach of each straight-walking object to the stopped pose.
+            end = self.times[-1]
+            start = objects[None, :, :2]+end*objects[None, :, 2:4]-paths[:, -1][:, None]
+            velocity = objects[None, :, 2:4]
+            later = np.clip(-np.sum(start*velocity, axis=-1)
+                            / np.maximum(np.sum(velocity*velocity, axis=-1), 1e-12), 0., AFTER_PLAN)
+            gap = np.linalg.norm(start+later[..., None]*velocity, axis=-1)
+            risk = risk+BODY_WEIGHT*math.exp(-end/RISK_TIME)*np.max(
+                np.maximum(0., (c.robot_radius+objects[:, 4])[None]-gap), axis=1)
+        return risk
 
     def _assess(self, controls, pose, velocity, objects, robust=True):
         """Paths and first requests of the nominal walker model, with clearances
@@ -418,12 +434,15 @@ class Planner:
                      + self._growth(objects)*span + c.acceleration*c.dt*c.dt + .2)
             near = np.linalg.norm(objects[:, :2]-pose[:2], axis=1) <= reach
             objects, fixed = objects[near], fixed[near]
-        if len(objects) > c.max_tracks:
-            return self._blocked(reason="track_capacity")
         # Wall tiles and remembered surfaces are fixed; slow tracked objects (a
         # column, a standing person) join the field with forecast growth, so only
         # moving objects need exact swept checks under both walker models.
         slow = ~fixed & (np.linalg.norm(objects[:, 2:4], axis=1) < STATIC_SPEED)
+        # Only moving objects need a swept check each; fixed geometry (wall tiles,
+        # remembered surfaces) folds into the field, whose cost grows slowly with it.
+        # Counting walls against the moving limit stopped the robot beside them.
+        if (~(fixed | slow)).sum() > c.max_tracks or (fixed | slow).sum() > 4*c.max_tracks:
+            return self._blocked(reason="track_capacity")
         if (fixed | slow).any():
             half = max(float(np.linalg.norm(velocity[:2])), c.speed)*self.times[-1]+.3
             self._build_field(objects[fixed | slow], pose, half, slow[fixed | slow])

@@ -47,6 +47,8 @@ world loses STRIPPED (about 52 of its 53 MB), once the scene rebuilt from run.js
 scene/ (HIM's G1 read at HIM's commit) matches the one in the trace. Runs from before
 run.json kept a scene get theirs filled in the same way. --replay RUN serves HIM's replay
 with the scene put back, from a copy of the trace; a stripped run's thrash panel is empty.
+HIM's live viewer never shows movers (only our lidar sees them); the replay does, walking
+where scoring placed them.
 Each run, with its scoring and pruning, and --prune and --score hold checkout.py's
 machine-wide lock: one build or sim at a time, waiting for whoever holds it.
 
@@ -656,14 +658,53 @@ def run_once(name, tag, route=None, view=False, avoidance=None):
     return run
 
 
+def replay_movers(run, qpos, times):
+    """(model, qpos) with the run's movers walking, for HIM's replay viewer, or None for a
+    world without movers. HIM's sim never had them and its viewer draws joint positions, so
+    the model is the world's NAME_replay.xml (each mover a free body after the G1's joints)
+    and each pose gets where every mover was at that sim time, as scoring places them."""
+    name = json.loads((run / "run.json").read_text()).get("world")
+    if not name:
+        return None
+    stage_world.main(name, MODEL, SCENES)
+    try:
+        events, _ = read_log(run)
+    except FileNotFoundError:
+        events = []
+    started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
+    movers_model = mujoco.MjModel.from_xml_path(str(SCENES / (name + "_all.xml")))
+    movers = Movers(movers_model, started=started)
+    if not movers.mocap:
+        return None
+    model = mujoco.MjModel.from_xml_path(str(SCENES / (name + "_replay.xml")))
+    starts = [int(model.jnt_qposadr[model.joint(n + "_replay").id]) for n in movers.names]
+    if model.nq != qpos.shape[1] + 7 * len(starts) or min(starts) < qpos.shape[1]:
+        raise ValueError(f"{run.name}: the replay scene's joints don't extend the trace's")
+    data = mujoco.MjData(movers_model)
+    poses = np.zeros((len(qpos), model.nq))
+    poses[:, :qpos.shape[1]] = qpos
+    for row, t in zip(poses, times):
+        movers.apply(data, t)
+        for start, mocap in zip(starts, movers.mocap):
+            row[start:start + 3] = data.mocap_pos[mocap]
+            row[start + 3] = 1.0   # upright
+    return model, poses
+
+
 def replay(run, seconds=None):
-    """Serve HIM's replay of a run, with its scene put back if the trace was stripped, from
-    a copy of the trace (HIM writes view/ beside it): for seconds, or until Ctrl-C."""
+    """Serve HIM's replay of a run, with its movers walking and its scene put back if the
+    trace was stripped, from a copy of the trace (HIM writes view/ beside it): for seconds,
+    or until Ctrl-C."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         with np.load(run / "trace.npz") as trace:
             parts = {k: trace[k] for k in trace.files}
-        if "model" not in parts:
+        people = replay_movers(run, parts["qpos"], parts["time"])
+        if people:
+            model, parts["qpos"] = people
+            parts["model"] = np.empty(mujoco.mj_sizeModel(model), dtype=np.uint8)
+            mujoco.mj_saveModel(model, None, parts["model"])
+        elif "model" not in parts:
             model = rebuild_model(run)
             parts["model"] = np.empty(mujoco.mj_sizeModel(model), dtype=np.uint8)
             mujoco.mj_saveModel(model, None, parts["model"])

@@ -12,6 +12,12 @@ native_g1_sim.py remains the walking-G1 check. Odometry is ideal here.
 It imports the ROS node module, so run it with the native Jazzy Python
 (as native_g1_sim.sh does); submission/native_g1_sim.sh is the G1 run:
   PYTHONPATH=submission <native python> submission/crowd_harness.py --world building --seeds 1-8
+
+--course NAME runs a course world instead (submission/worlds/NAME.xml): its movers
+exactly as HIM's course scores them (harp/movers.py, started when the goal is sent,
+at t = 0), its goal site, and contacts as geometry touching the robot's 0.3 m
+cylinder. With --speed and --plant matching HIM's image and walker it reproduces
+course runs in seconds; HIM's Nav2 path is approximated by the native route driver.
 """
 import os
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')   # before numpy: one BLAS thread per job
@@ -66,16 +72,57 @@ def build(world, seed, crowd, flow, count=7):
     return model, data, people
 
 
+class CourseMovers:
+    """A course world's movers (harp/movers.py) behind the crowd interface the loop reads."""
+    def __init__(self, model):
+        from harp.movers import Movers
+        self.movers = Movers(model)
+        self.movers.started = [d or 0. for d in self.movers.delay]   # goal sent at t = 0
+        self.positions = model.body_pos[model.body_mocapid >= 0].copy()   # Movers' order
+        self.velocity = np.zeros((len(self.positions), 2))
+        self.at = None
+
+    def apply(self, data, t):
+        self.movers.apply(data, t)
+        now = data.mocap_pos[self.movers.mocap].copy()
+        if self.at is not None and t > self.at:
+            self.velocity = (now[:, :2]-self.positions[:, :2])/(t-self.at)
+        self.positions, self.at = now, t
+
+
+def build_course(name):
+    import mujoco
+    spec = mujoco.MjSpec.from_string(
+        '<mujoco><worldbody><geom name="floor" type="plane" size="30 30 .1"/>'
+        '<body name="robot"><freejoint/><geom name="robot" type="cylinder" size=".3 .7" pos="0 0 .7" '
+        'contype="0" conaffinity="0"/></body></worldbody></mujoco>')
+    world = Path(__file__).resolve().parent/'worlds'/(name+'.xml')
+    spec.attach(mujoco.MjSpec.from_file(str(world)), prefix='course/', frame=spec.worldbody.add_frame())
+    model = spec.compile()
+    return model, mujoco.MjData(model), CourseMovers(model)
+
+
 def run(args):
     world, crowd, seed, flow, seconds = args['world'], args['crowd'], args['seed'], args['flow'], args['seconds']
-    os.environ.update(HARP_PREDICTIVE_SPEED='.5', HARP_PREDICTIVE_TRACKING_GAIN='.85',
-                      HARP_PREDICTIVE_LATERAL_GAIN='.60')
+    course = args.get('course')
+    gain_x, gain_y, delay = args.get('plant') or (.85, .55, .25)
+    os.environ.update(HARP_PREDICTIVE_SPEED=str(args.get('speed') or .5),
+                      HARP_PREDICTIVE_TRACKING_GAIN='.85', HARP_PREDICTIVE_LATERAL_GAIN='.60')
     import mujoco
     from harp import lidar_mount
     from harp.local_route import route_command, route_direction
     from harp.predictive_avoidance import PredictiveAvoidance
-    model, data, people = build(world, seed, crowd, flow, args['people'])
-    goal = np.array(args['goal'] or ((9., 0.) if world == 'building' else (6., 0.)))
+    if course:
+        model, data, people = build_course(course)
+        default_goal = model.site('course/goal').pos[:2].copy()
+        # Each mover's geoms, in Movers' (body) order.
+        mover_geoms = [np.flatnonzero(model.geom_bodyid == b) for b in np.flatnonzero(model.body_mocapid >= 0)]
+        robot_geom = model.geom('robot').id
+    else:
+        model, data, people = build(world, seed, crowd, flow, args['people'])
+        default_goal = (9., 0.) if world == 'building' else (6., 0.)
+    goal = np.array(args['goal'] or default_goal)
+    cap = float(os.environ['HARP_PREDICTIVE_SPEED'])
     guard = PredictiveAvoidance(_Node(), buffer=SimpleNamespace())
     if args.get('params'):
         # Tuning: module constants of predictive_mpc, or Config fields.
@@ -103,13 +150,14 @@ def run(args):
     # Plant: walker response unlike the planner's assumed .2 s / .85 / .60, with
     # the native G1's gait-dependent sidestep variability (lateral gain .3-.7);
     # 12 steps of .02 s is a .24 s delay.
-    delay_steps, gains, accel, yaw_accel = int(round(.25/DT)), np.array([.85, .55, 1.]), .4, 1.
+    delay_steps, gains, accel, yaw_accel = int(round(delay/DT)), np.array([gain_x, gain_y, 1.]), .4, 1.
     pose, body_velocity = np.zeros(3), np.zeros(3)
     pending = [np.zeros(3)]*delay_steps
     command, desired, route_vector = np.zeros(3), np.zeros(3), np.array([1., 0.])
     tracks = []
     stats = dict(people_contacts=0, wall_contacts=0, scan_errors=0, deadline_stops=0,
                  modes={}, plan_ms=[], events=[])
+    phantoms = []   # per plan: moving tracks within 4 m that are no real mover
     solver, scan_ok, at_wall = None, True, False
     touching, minimum_person, minimum_wall = set(), math.inf, math.inf
     standstill = longest = path = 0.
@@ -142,10 +190,15 @@ def run(args):
         if step % 25 == 0:   # route every .5 s, as the native trial
             route_vector = route_direction(pose[:2], goal, tracks)
         if step % 5 == 0:
-            desired = np.array(route_command(pose, goal, route_vector, .5))
+            desired = np.array(route_command(pose, goal, route_vector, cap))
         if step % 10 == 0 and scan_ok:   # 5 Hz avoidance
+            planning = guard.planning_tracks(t)
+            movers_xy = people.positions[:, :2]
+            phantoms.append(sum(1 for tr in planning if 0 <= tr.id < 10**9 and math.hypot(tr.vx, tr.vy) > .15
+                                and math.hypot(tr.x-pose[0], tr.y-pose[1]) < 4.
+                                and np.min(np.linalg.norm(movers_xy-[tr.x, tr.y], axis=1)) > .6))
             began = time.perf_counter()
-            result = guard.planner.plan(pose, body_velocity, desired, guard.planning_tracks(t), t, goal)
+            result = guard.planner.plan(pose, body_velocity, desired, planning, t, goal)
             elapsed = time.perf_counter()-began
             stats['plan_ms'].append(1000*elapsed)
             command = np.array(result.command)
@@ -165,7 +218,7 @@ def run(args):
                 stats['modes'][result.mode] = stats['modes'].get(result.mode, 0)+1
                 mode = result.mode
         if step % 25 == 0:
-            gains[1] = rng.uniform(.3, .7)
+            gains[1] = rng.uniform(gain_y-.2, gain_y+.2)
         pending.append(command*gains)
         target = pending.pop(0)
         change = target-body_velocity
@@ -181,9 +234,18 @@ def run(args):
         path += speed*DT
         standstill = standstill+DT if speed < .06 else 0.
         longest = max(longest, standstill)
-        gaps = np.linalg.norm(people.positions[:, :2]-pose[:2], axis=1).reshape(-1)
+        if course:
+            # Surface distances from the robot's cylinder to each mover (person, trolley, ...).
+            data.qpos[:2] = pose[:2]
+            data.qpos[3:7] = (math.cos(pose[2]/2), 0., 0., math.sin(pose[2]/2))
+            mujoco.mj_kinematics(model, data)
+            gaps = np.array([min(mujoco.mj_geomDistance(model, data, robot_geom, g, 2., None)
+                                 for g in geoms) for geoms in mover_geoms])
+            now_touching = set(np.flatnonzero(gaps <= 0.))
+        else:
+            gaps = np.linalg.norm(people.positions[:, :2]-pose[:2], axis=1).reshape(-1)
+            now_touching = set(np.flatnonzero(gaps < CONTACT_PERSON))
         minimum_person = min([minimum_person, *gaps.tolist()])
-        now_touching = set(np.flatnonzero(gaps < CONTACT_PERSON))
         stats['people_contacts'] += len(now_touching-touching)
         for i in now_touching-touching:
             # Context for diagnosis: was the actor tracked, how, and what was planned.
@@ -220,11 +282,12 @@ def run(args):
             break
     plan = np.array(stats.pop('plan_ms'))
     straight = float(np.linalg.norm(goal))
-    return dict(world=world, crowd=crowd, seed=seed, flow=flow, params=args.get('params') or {},
+    return dict(world=course or world, crowd=None if course else crowd, seed=seed, flow=flow, params=args.get('params') or {},
                 status=status, seconds=round(t, 1),
                 passed=status == 'SUCCEEDED' and not stats['people_contacts'] and not stats['wall_contacts'],
                 **stats, min_person_m=round(minimum_person, 3), min_wall_m=round(minimum_wall, 3),
-                longest_standstill_s=round(longest, 2), path_efficiency=round(straight/max(path, 1e-9), 3),
+                longest_standstill_s=round(longest, 2),
+                phantom_movers=round(float(np.mean(phantoms)) if phantoms else 0., 2), path_efficiency=round(straight/max(path, 1e-9), 3),
                 final=[round(float(v), 2) for v in pose[:2]],
                 plan_ms_p50=round(float(np.percentile(plan, 50)), 1),
                 plan_ms_p95=round(float(np.percentile(plan, 95)), 1),
@@ -253,9 +316,15 @@ def main():
                         help='override a predictive_mpc constant or Config field (tuning)')
     parser.add_argument('--trace', type=float, nargs=2, metavar=('FROM', 'TO'),
                         help='print every planning step in this sim-time window')
+    parser.add_argument('--course', help='a course world (submission/worlds/NAME.xml) instead')
+    parser.add_argument('--speed', type=float, default=.5,
+                        help='predictive speed cap, m/s (HARP_PREDICTIVE_SPEED; the image: 0.3)')
+    parser.add_argument('--plant', type=float, nargs=3, metavar=('GAIN_X', 'GAIN_Y', 'DELAY'),
+                        help='walker response: forward and lateral gain, delay s (default .85 .55 .25)')
     args = parser.parse_args()
     jobs = [dict(world=args.world, crowd=args.crowd, seed=s, flow=args.flow_speed,
                  seconds=args.seconds, goal=args.goal, people=args.people, trace=args.trace,
+                 course=args.course, speed=args.speed, plant=args.plant,
                  params={k: (int(v) if v.lstrip('-').isdigit() else float(v))
                          for k, v in (p.split('=', 1) for p in args.param)})
             for s in args.seeds]

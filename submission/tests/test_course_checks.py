@@ -69,3 +69,55 @@ class StaleSuccess(unittest.TestCase):
         with patch.object(course_goal, "go_to", return_value=("SUCCEEDED", None)) as go:
             status = course_goal.follow(None, None, route, lambda name, **f: None, True)
         self.assertEqual((status, go.call_count), ("SUCCEEDED", 1))
+
+
+class RouteMovers(unittest.TestCase):
+    def test_a_route_mover_walks_its_points_and_turns_back(self):
+        import mujoco
+        import numpy as np
+        from harp.movers import Movers
+        model = mujoco.MjModel.from_xml_string("""<mujoco><custom>
+            <numeric name="p_duration" data="4"/><numeric name="p_route" data="2 0 2 2"/>
+            </custom><worldbody><body name="p" mocap="true" pos="0 0 0">
+            <geom type="sphere" size=".2"/></body></worldbody></mujoco>""")
+        data, movers = mujoco.MjData(model), Movers(model)
+        self.assertEqual(movers.started, [0.0])   # no delay: walks from the start
+        # 4 m of route in 4 s: the corner at 2 s, the end at 4 s, back at the corner at 6 s.
+        for t, xy in ((1, (1, 0)), (2, (2, 0)), (3, (2, 1)), (4, (2, 2)), (6, (2, 0)), (8, (0, 0))):
+            movers.apply(data, t)
+            np.testing.assert_allclose(data.mocap_pos[0][:2], xy, atol=1e-9)
+
+    def test_the_building_world_loads_with_people_and_moving_objects(self):
+        import mujoco
+        from pathlib import Path
+        from harp.movers import Movers
+        world = Path(__file__).resolve().parents[1]/'worlds/building.xml'
+        movers = Movers(mujoco.MjModel.from_xml_path(str(world)))
+        self.assertEqual(sorted(movers.names), sorted(
+            [f"person{i}" for i in range(7)] + ["trolley", "delivery"]))
+        self.assertTrue(all(route is not None for route in movers.routes))
+
+    def test_the_replay_walks_movers_where_scoring_places_them(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        import numpy as np
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            g1, run, scenes = folder / "g1", folder / "run", folder / "scenes"
+            for path in (g1, run):
+                path.mkdir()
+            # A stand-in for HIM's G1: its root free joint first, as in the real model.
+            (g1 / "g1_robot.xml").write_text("""<mujoco><worldbody><body name="pelvis">
+                <freejoint/><geom type="sphere" size=".1"/></body></worldbody></mujoco>""")
+            (run / "run.json").write_text(json.dumps({"world": "crossing"}))
+            (run / "policy.log").write_text('submission-1  | ' + json.dumps(
+                {"event": "mover_start", "mover": "person", "starts_at": 4.0}) + "\n")
+            qpos = np.tile([0., 0., .8, 1., 0., 0., 0.], (3, 1))
+            with patch.object(course, "MODEL", g1), patch.object(course, "SCENES", scenes):
+                model, poses = course.replay_movers(run, qpos, np.array([0., 6.5, 9.]))
+        self.assertEqual(model.nq, 14)
+        np.testing.assert_array_equal(poses[:, :7], qpos)
+        # crossing.xml: 6 m from y=-3 in 5 s, once, starting at 4 s.
+        np.testing.assert_allclose(poses[:, 7:10], [[2.5, -3, 0], [2.5, 0, 0], [2.5, 3, 0]])
+        np.testing.assert_array_equal(poses[:, 10], 1.)

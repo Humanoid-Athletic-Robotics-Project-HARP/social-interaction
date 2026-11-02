@@ -17,6 +17,9 @@ STRUCTURE_ID = 10**9    # IDs of static surface tiles start here, beyond any obj
 MEASUREMENT_NOISE = .05   # m, 1 sigma of a fitted centre (2 cm range noise, partial views)
 ACCELERATION_NOISE = 1.   # m/s^2, 1 sigma: walkers start, stop and turn
 FIT_PADDING = .06         # m beyond the farthest visible return of a fitted disc
+SURFACE_CELL = .05        # m: grid of remembered wall-surface returns
+SURFACE_SEEN = 3          # scans a cell must be part of a wall before it is known
+SURFACE_MEMORY = 60.      # s a known wall cell is remembered unseen (walls stay put)
 
 
 def _spread(covariance):
@@ -69,6 +72,8 @@ class Tracker:
         # many consistent scans remain before velocity learning resumes.
         self._size = {}
         self._settle = {}
+        # Fine cells where wall tiles' returns were seen: [scans, last seen].
+        self._surface = {}
 
     def _clusters(self, points):
         points = np.asarray(points, dtype=float)
@@ -117,7 +122,7 @@ class Tracker:
             else:
                 groups = [(members, None)]
             for group, key in groups:
-                members_of_group = np.flatnonzero(np.isin(inverse, group)) if key is None else None
+                members_of_group = np.flatnonzero(np.isin(inverse, group))
                 lo, hi = low[group].min(axis=0), high[group].max(axis=0)
                 center = (lo + hi) * 0.5
                 # A measured wall face has no hidden depth on the robot's side:
@@ -142,6 +147,26 @@ class Tracker:
         axes = np.linalg.svd(centered.astype(float), full_matrices=False)[2]
         spans = np.ptp(centered @ axes.T, axis=0)*self.voxel
         return spans[0] >= .9 and spans[1] <= .2
+
+    def _on_known_surface(self, points):
+        """Share of returns on (or one cell from) a remembered wall surface."""
+        known = 0
+        for i, j in np.floor(points/SURFACE_CELL).astype(np.int64):
+            known += any(self._surface.get((i+di, j+dj), (0,))[0] >= SURFACE_SEEN
+                         for di in (-1, 0, 1) for dj in (-1, 0, 1))
+        return known/max(len(points), 1)
+
+    def _tiles(self, points, members):
+        """A component split into the same fixed grid tiles as a long one."""
+        keys = np.floor(points[members]/self.voxel).astype(np.int64)//2
+        result = []
+        for key in np.unique(keys, axis=0):
+            group = members[(keys == key).all(axis=1)]
+            lo, hi = points[group].min(axis=0), points[group].max(axis=0)
+            result.append(((lo+hi)*.5, float(np.linalg.norm(hi-lo)*.5+(.05 if min(hi-lo) <= .1
+                                                                         else self.padding)),
+                           tuple(key), group))
+        return result
 
     def tracks_at(self, stamp):
         if not math.isfinite(stamp) or (self._stamp is not None and stamp < self._stamp):
@@ -244,17 +269,27 @@ class Tracker:
                     claims.append(index)
                     claimed[index] = True
         rest = np.flatnonzero(~claimed)
-        components = [(c, r, k, None if m is None else rest[m])
-                      for c, r, k, m in self._clusters(points[rest])]
+        components = []
+        for c, r, k, m in self._clusters(points[rest]):
+            # A short visible piece of a wall seen here before (people in front hide
+            # the rest) is that wall, not an object: tracked as one, its visible
+            # extent slid with the occlusion and it gained a velocity toward the robot.
+            if k is None and self._surface and self._on_known_surface(points[rest[m]]) >= .8:
+                components += self._tiles(points, rest[m])
+            else:
+                components.append((c, r, k, rest[m]))
         # Tiles of long surfaces (walls) are static structure: keyed by their
         # fixed grid tile, re-measured every scan, never given a velocity or
         # matched against moving objects. Tracking them as objects let shifting
         # visible extents spawn new IDs until the tracker overflowed in a building.
         structure = {k: t for k, t in self._structure.items() if stamp - t.last_seen <= self.max_age}
         next_structure = self._next_structure_id
-        for center, radius, key, _ in components:
+        surface = {k: v for k, v in self._surface.items() if stamp-v[1] <= SURFACE_MEMORY}
+        wall_cells = set()
+        for center, radius, key, members in components:
             if key is None:
                 continue
+            wall_cells.update(map(tuple, np.floor(points[members]/SURFACE_CELL).astype(np.int64)))
             old = structure.get(key)
             ident = old.id if old else next_structure
             next_structure += old is None
@@ -262,6 +297,10 @@ class Tracker:
                                    .05, stamp, (old.hits if old else 0)+1)
         if len(structure) > self.max_cells:
             raise ValueError("Obstacle structure capacity exceeded")
+        for cell in wall_cells:
+            surface[cell] = [surface.get(cell, (0,))[0]+1, stamp]
+        if len(surface) > 16*self.max_cells:
+            raise ValueError("Wall surface memory capacity exceeded")
         previous = {t.id: t for t in self._tracks if stamp - t.last_seen <= self.max_age}
         predicted = self._project(self._tracks, stamp)
         # Separate a merged return with the previous motion estimates as seeds.
@@ -370,5 +409,6 @@ class Tracker:
         self._settle = {t.id: settles[t.id] for t in updated}
         self._next_id = next_id
         self._structure, self._next_structure_id = structure, next_structure
+        self._surface = surface
         self._stamp = stamp
         return self.tracks_at(stamp)
