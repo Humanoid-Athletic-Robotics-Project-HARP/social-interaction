@@ -3,13 +3,13 @@ name: sim-run-logs
 description: Read before changing what our image prints, how course.py reads a run's events, the Rerun lidar view (harp/view_feed.py, lidar_view.py), or how replays show the people
 metadata:
   type: reference
-  updated: 2026-11-02T02:46:29Z
+  updated: 2026-11-02T06:06:36Z
   covers: [submission/harp/events.py, submission/harp/view_feed.py, submission/lidar_view.py, submission/course.py, submission/entrypoint.sh]
 ---
 
 **Only the container's output leaves it** (HIM's sim: `network_mode: none`). Live it is `docker logs -f g1-desktop-sim-submission-1`; after the run HIM's launcher saves it as `policy.log` (`compose logs`, each line prefixed `submission-1  | `). Docker and compose keep lines of 40 KB whole (tested 2026-10-30), so a frame is one line.
 
-**Events** (`harp/events.py`): every program prints JSON lines starting `source`, `event`, `wall` (Unix s, the VM's clock), and `sim_time` only from programs that read HIM's state (the rest get it estimated from `wall` by `course.py --events`). JSON on `std_msgs/String`, no custom messages ([[feedback-minimal-setup]]).
+**Events** (`harp/events.py`): every program prints JSON lines starting `source`, `event`, `wall` (Unix s, the VM's clock), and `sim_time` only from programs that read HIM's state (the rest get it estimated from `wall` by `course.py --events`, and when scoring the behavior loop's talks, from the last `odom` line before them: [[behavior-loop]]). JSON on `std_msgs/String`, no custom messages ([[feedback-minimal-setup]]).
 - **`events.jsonl`, one per run:** `course.py` copies our lines out of `policy.log` (at pruning, so after every `--output` run, or when first read); scoring reads only it. JSON Lines because a stopped run still leaves every earlier line readable, the same line goes live to the viewer and into the file, and it needs only the standard library (`jq`, `grep` work). Old runs get theirs made from `policy.log` the same way.
 - `harp_node.py`'s `late_state` (each state 40 ms or more old) and `run.json`'s `host_memory.seconds` (the Mac's free and decompressed MB each second) line up in `course.py --events`: [[sim-deadline-stops]].
 - `source: "view"` lines are frames for the viewer: they go to `view.jsonl` and out of `policy.log`.

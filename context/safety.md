@@ -18,7 +18,7 @@ Planned moves end their plan and request zero on lost valid odometry or excessiv
 
 Normal straight-walk and turn speed ramps ([[planned-moves]]) never delay the target/timeout zero request. The waypoint recorder ([[waypoint-recorder]]) only reads odometry; exiting it does not stop the active movement program.
 
-**Gap:** a lost lidar doesn't stop Nav2 on Foxy: nothing in it acts on a stale costmap. In the sim's course runs `harp/approach_stop.py` holds zero from startup until usable lidar, its live transform and speed feedback arrive, and on 0.5 s without any of these receipts; failed route results latch zero until a new session ([[nav2-sim]]); on the robot nothing does yet.
+**Gap:** a lost lidar doesn't stop Nav2 on Foxy: nothing in it acts on a stale costmap. In the sim's course and behavior-loop runs ([[behavior-loop]]) `harp/approach_stop.py` holds zero from startup until usable lidar, its live transform and speed feedback arrive, and on 0.5 s without any of these receipts; failed route results latch zero until a new session ([[nav2-sim]]); on the robot nothing does yet.
 
 **To check on the robot:** what `wireless_remote` reads with the remote off or out of range (if all zeros, the remote can't stop it then; only the laptop and HIM's deadlines can), and whether anything else reacts to HIM's button gestures.
 
