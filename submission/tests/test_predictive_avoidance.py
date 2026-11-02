@@ -20,6 +20,7 @@ from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 from tf2_ros import TransformException
 
+from harp.approach_stop import xyz
 from harp.predictive_avoidance import PredictiveAvoidance
 
 
@@ -144,6 +145,64 @@ class Adapter(unittest.TestCase):
             tracks = self.guard.planning_tracks(self.guard.scan_stamp)
             self.assertTrue(any(abs(t.x-1.5) < .1 for t in tracks))
             self.assertTrue(self.guard.unresolved)
+
+    def camera(self, points):
+        """A head camera frame (the test's transforms put every frame at the robot)."""
+        cloud = self.cloud(points)
+        cloud.header.frame_id = 'd435_depth_optical_frame'
+        return cloud
+
+    def test_the_camera_shows_the_tracker_a_person_the_lidar_misses(self):
+        self.fresh_active()
+        legs = [[1.2, y, z] for y in (-.1, -.05, .05, .1) for z in (.2, .3, .4)]
+        for _ in range(3):
+            self.stamp += .1
+            self.wall += .1
+            self.guard.on_camera(self.camera(legs))
+            self.guard.on_cloud(self.cloud([[2, 0, 0]]))   # the lidar: floor only
+        tracks = self.guard.planning_tracks(self.guard.scan_stamp)
+        self.assertTrue(any(abs(t.x-1.2) < .15 and abs(t.y) < .15 for t in tracks))
+
+    def test_a_stale_or_untransformable_camera_frame_is_left_out(self):
+        self.fresh_active()
+        legs = [[1.2, y, .3] for y in (-.1, 0., .1)]
+        self.guard.on_camera(self.camera(legs))
+        self.assertIsNone(self.guard.camera_points(self.stamp + 1.))   # older than CAMERA_AGE
+        lookup = self.guard.tf.lookup_transform
+        self.guard.tf.lookup_transform = lambda *a: (_ for _ in ()).throw(TransformException('late TF'))
+        self.assertIsNone(self.guard.camera_points(self.stamp))
+        self.guard.tf.lookup_transform = lookup
+        self.assertIsNotNone(self.guard.camera_points(self.stamp))
+
+    def test_camera_rays_at_leg_height_clear_a_lost_person(self):
+        from harp.predictive_avoidance import CAMERA_HEIGHTS
+        self.fresh_active()
+        self.stamp += .1
+        self.guard.on_cloud(self.cloud([[1.5, 0, 1]]))
+        self.stamp += 2.4
+        self.wall += 2.4
+        self.guard.on_cloud(self.cloud([[2, 0, 0]]))
+        self.assertTrue(self.guard.unresolved)       # lost nearby: remembered
+        # The camera's rays pass beyond where it was, at leg height (3 rays per check).
+        lost = next(iter(self.guard.unresolved.values()))
+        r = lost.radius
+        rays = [np.array([lost.x+dx, lost.y+dy, z])*1.6 + jitter for z in CAMERA_HEIGHTS
+                for dx, dy in ((0, 0), (r, 0), (-r, 0), (0, r), (0, -r))
+                for jitter in ((0, 0, 0), (0, .002, 0), (0, -.002, 0))]
+        self.stamp += .1
+        self.wall += .1
+        self.guard.on_camera(self.camera(rays))
+        self.guard.on_cloud(self.cloud([[2, 0, 0]]))
+        self.assertFalse(self.guard.unresolved)
+
+    def test_the_camera_s_still_points_reach_nav2_s_static_cloud(self):
+        self.fresh_active()
+        self.stamp += .1
+        self.guard.on_camera(self.camera([[1.0, .3, .4], [1.0, .3, .02]]))   # a box, and floor
+        self.guard.on_cloud(self.cloud([[2, 0, 1]]))
+        static = xyz(self.output['/harp/static_cloud'][-1])
+        self.assertTrue(np.any(np.linalg.norm(static - [1.0, .3, .4], axis=1) < 1e-3))
+        self.assertFalse(np.any(np.linalg.norm(static - [1.0, .3, .02], axis=1) < 1e-3))
 
     HEIGHTS = (.5, .98, 1., 1.02, 1.4)   # dense near 1 m, as a real scan's rings
 

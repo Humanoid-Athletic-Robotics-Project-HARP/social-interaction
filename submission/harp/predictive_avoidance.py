@@ -24,8 +24,8 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from harp import events
-from harp.approach_stop import TOPIC, rotation, xyz
+from harp import camera_mount, events
+from harp.approach_stop import CAMERA_AGE, CAMERA_MIN_Z, CAMERA_TOPIC, TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.obstacle_tracker import STRUCTURE_ID, Tracker
 from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner, Responsiveness
@@ -38,6 +38,11 @@ STATIC_TOPIC = "/harp/static_cloud"
 MOVING_SPEED = .15   # m/s: a fresh track at least this fast is left out of STATIC_TOPIC
 MOVING_SIZE = .7     # m: larger tracks (a merged blob, a wall piece) always stay in it
 SELF_RADIUS = .45    # m from base_link: the robot's own torso and arms (seen up to 0.42 m)
+# The head depth camera (approach_stop.CAMERA_TOPIC) joins each lidar scan when its frame is
+# within CAMERA_AGE: its points go to the tracker and, without moving objects, to STATIC_TOPIC.
+# It looks 48 deg down and sees only legs (up to about 0.35 m high at 2.7 m), so its rays
+# certify a lost object gone at leg height: whatever walks has legs on the floor.
+CAMERA_HEIGHTS = (.2, .35)
 
 
 def seconds(stamp):
@@ -52,6 +57,16 @@ def transform_points(points, transform):
     if not np.isfinite(shift).all() or not np.isfinite(norm) or norm < 1e-6:
         raise ValueError("invalid transform")
     return points @ rotation(quat / norm).T + shift
+
+
+def untransform_points(points, transform):
+    """The inverse of transform_points: points in the transform's target frame -> its source."""
+    q, p = transform.transform.rotation, transform.transform.translation
+    quat = np.array([q.x, q.y, q.z, q.w])
+    norm = np.linalg.norm(quat)
+    if not np.isfinite(norm) or norm < 1e-6:
+        raise ValueError("invalid transform")
+    return (points - np.array([p.x, p.y, p.z])) @ rotation(quat / norm)
 
 
 def static_mask(points_xy, tracks, stamp, base_xy=None, moved=()):
@@ -84,7 +99,7 @@ def cloud_message(header, points):
     return message
 
 
-def observed_free(track, origin, points):
+def observed_free(track, origin, points, heights=(.5, 1.0)):
     """Multiple measured rays must pass beyond the lost occupancy at two heights.
 
     Empty space/no returns, background receipt alone and an occluding return
@@ -101,7 +116,7 @@ def observed_free(track, origin, points):
     # measured object and must not turn into a permanent wall around the robot.
     radius = track.radius
     offsets = [(0,0),(radius,0),(-radius,0),(0,radius),(0,-radius)]
-    for z in (.5, 1.0):
+    for z in heights:
         for dx,dy in offsets:
             ray = np.array([track.x+dx,track.y+dy,z])-origin
             distance = np.linalg.norm(ray)
@@ -143,6 +158,9 @@ class PredictiveAvoidance:
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(PointCloud2, TOPIC, self.on_cloud,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
+        node.create_subscription(PointCloud2, CAMERA_TOPIC, self.on_camera,
+                                 QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self.camera_cloud = None   # the latest head camera frame, for the next lidar scan
         node.create_timer(PERIOD, self.on_timer)
         node.create_timer(0.05, self.on_pending)
         self.pending_cloud = None
@@ -230,6 +248,28 @@ class PredictiveAvoidance:
         self.pending_cloud = cloud
         self.on_pending()
 
+    def on_camera(self, cloud):
+        if cloud.header.frame_id == camera_mount.FRAME:
+            self.camera_cloud = cloud
+
+    def camera_points(self, stamp):
+        """(odom points, camera origin) of the camera frame nearest this scan, or None: the
+        camera is optional, so a stale frame, a missing transform or bad data skip it."""
+        cloud = self.camera_cloud
+        if cloud is None or abs(seconds(cloud.header.stamp) - stamp) > CAMERA_AGE:
+            return None
+        try:
+            if cloud.width * cloud.height > 100000:
+                return None
+            local = xyz(cloud)
+            local = local[np.isfinite(local).all(axis=1)]
+            if not len(local):
+                return None
+            world = self.tf.lookup_transform("odom", camera_mount.FRAME, Time.from_msg(cloud.header.stamp))
+            return transform_points(local, world), transform_points(np.zeros((1, 3)), world)[0]
+        except (TransformException, ValueError, TypeError):
+            return None
+
     def on_pending(self):
         cloud = self.pending_cloud
         if cloud is None:
@@ -253,7 +293,8 @@ class PredictiveAvoidance:
             points = transform_points(local, world)
             origin = transform_points(np.zeros((1,3)), world)[0]
             base = transform_points(np.zeros((1, 3)), body)[0]
-            tracks = self.process_scan(points, origin, base, stamp)
+            camera = self.camera_points(stamp)
+            tracks = self.process_scan(points, origin, base, stamp, camera)
             if self.pose is not None and self.velocity is not None and self.config.cooperative:
                 self.planner.credits = self.responsiveness.update(tracks, self.pose, self.velocity)
             present = {t.id for t in tracks}
@@ -271,15 +312,22 @@ class PredictiveAvoidance:
             return
         self.pending_cloud = None
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
-        self.static_out.publish(cloud_message(cloud.header, local[static_mask(
-            points[:, :2], self.last_tracks, stamp, base[:2],
-            self.moved if self.config.smoothing else ())]))
+        moved = self.moved if self.config.smoothing else ()
+        static = local[static_mask(points[:, :2], self.last_tracks, stamp, base[:2], moved)]
+        if camera is not None:
+            # The camera's still points too (its floor left out), in the lidar's frame: Nav2
+            # marks only from here in predictive mode, so walkers' legs stay out of its costmaps.
+            seen = camera[0][camera[0][:, 2] >= CAMERA_MIN_Z]
+            seen = seen[static_mask(seen[:, :2], self.last_tracks, stamp, base[:2], moved)]
+            static = np.vstack([static, untransform_points(seen, world)]).astype(np.float32)
+        self.static_out.publish(cloud_message(cloud.header, static))
         credits = getattr(self.planner, 'credits', {})
         self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp, tracks=[
             dict(asdict(t), credit=credits.get(t.id)) for t in tracks]))))
 
-    def process_scan(self, points, origin, base, stamp):
-        """Odom-frame points, lidar origin and base position -> planning tracks.
+    def process_scan(self, points, origin, base, stamp, camera=None):
+        """Odom-frame points, lidar origin and base position (and the camera's (odom points,
+        origin), or None) -> planning tracks.
 
         Free of ROS types, so offline harnesses run exactly this pipeline.
         Raises ValueError (tracker capacity, bad data) without changing memory.
@@ -287,14 +335,21 @@ class PredictiveAvoidance:
         distance = np.linalg.norm(points[:, :2] - base[:2], axis=1)
         keep = ((points[:, 2] >= 0.15) & (points[:, 2] <= 1.8)
                 & (distance > SELF_RADIUS) & (distance <= 6.0))
-        tracks = self.tracker.update(points[keep, :2], stamp, origin)
+        seen = points[keep, :2]
+        if camera is not None:
+            near = np.linalg.norm(camera[0][:, :2] - base[:2], axis=1)
+            low = max(.15, CAMERA_MIN_Z)
+            seen = np.vstack([seen, camera[0][(camera[0][:, 2] >= low) & (camera[0][:, 2] <= 1.8)
+                                              & (near > SELF_RADIUS) & (near <= 6.0), :2]])
+        tracks = self.tracker.update(seen, stamp, origin)
         observed = {t.id for t in tracks if t.last_seen == stamp}
         # Static wall tiles cannot approach while unseen, and no ray ever passes
         # beyond a wall, so they never enter lost-occupancy memory (it grew past
         # 200 retained cells in a building and stalled planning).
         candidates = {t.id:t for t in tracks if stamp-t.last_seen > .25 and t.id < STRUCTURE_ID}
         candidates.update(self.unresolved)
-        cleared = {ident for ident,t in candidates.items() if observed_free(t,origin,points)}
+        cleared = {ident for ident,t in candidates.items() if observed_free(t,origin,points)
+                   or (camera is not None and observed_free(t,camera[1],camera[0],CAMERA_HEIGHTS))}
         vectors = points-origin
         ranges = np.linalg.norm(vectors,axis=1)
         directions = vectors/np.maximum(ranges[:,None],1e-9)
