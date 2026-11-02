@@ -206,26 +206,6 @@ SSL_CERT_FILE="$(.venv-policy-safety/bin/python -m certifi)" .venv-policy-safety
 
 ## Run it in the sim
 
-### Native walking G1 crowd test (macOS)
-
-Use the retained native Jazzy environment to run the walking G1, raycast LiDAR,
-tracking and predictive control with seven continuously circulating pedestrians:
-
-```bash
-submission/native_g1_sim.sh --obstacles 7 --seed 1 --rviz
-```
-
-The robot stands up automatically and navigates toward (6, 0), beyond the crowd.
-MuJoCo shows the G1; RViz shows LiDAR. Pedestrians change speed and direction,
-pause, and avoid each other. Use `--static-obstacles` to add two pillars,
-`--seed 2` to change pedestrian behavior, or `--crowd adversarial` for three
-pedestrians who do not yield to the robot. `--flow-speed 1.5` increases pedestrian
-speed and acceleration; `--goal 4 0` puts the goal inside their circulation area.
-
-Use `--obstacles 0` for baseline walking or `--headless` for a scored run.
-Close MuJoCo or press Ctrl-C to stop. Each run saves source snapshots, trajectories,
-commands and a verdict under `runs/`. See [crowd test setup and limits](context/native-crowd.md).
-
 From this repo, build the image (`submission/submission.tar`, for the robot,
 and `submission/joint_profile.json`, its joint limits and gains):
 
