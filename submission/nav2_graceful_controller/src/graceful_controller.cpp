@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <mutex>
 
@@ -347,8 +349,13 @@ geometry_msgs::msg::Twist GracefulController::rotateToTarget(double angle_to_tar
   geometry_msgs::msg::Twist vel;
   vel.linear.x = 0.0;
   vel.angular.z = params_->rotation_scaling_factor * angle_to_target * params_->v_angular_max;
-  vel.angular.z = std::copysign(1.0, vel.angular.z) * std::max(abs(vel.angular.z),
-      params_->v_angular_min_in_place);
+  // Keep in-place rotations inside the configured angular cap, including when
+  // a dynamic speed limit lowers the cap below the normal minimum.
+  if (angle_to_target == 0.0) {return vel;}
+  vel.angular.z = std::copysign(
+    std::clamp(std::abs(vel.angular.z),
+    std::min(params_->v_angular_min_in_place, params_->v_angular_max), params_->v_angular_max),
+    vel.angular.z);
   return vel;
 }
 
@@ -357,9 +364,8 @@ bool GracefulController::inCollision(const double & x, const double & y, const d
   unsigned int mx, my;
   if (!costmap_ros_->getCostmap()->worldToMap(x, y, mx, my)) {
     RCLCPP_WARN(
-      logger_, "The path is not in the costmap. Cannot check for collisions. "
-      "Proceed at your own risk, slow the robot, or increase your costmap size.");
-    return false;
+      logger_, "The path is not in the costmap. Rejecting an unchecked trajectory.");
+    return true;
   }
 
   // Calculate the cost of the footprint at the robot's current position depending
@@ -414,7 +420,7 @@ void GracefulController::validateOrientations(
   double initial_yaw = tf2::getYaw(path[1].pose.orientation);
   for (size_t i = 2; i < path.size() - 1; ++i) {
     double this_yaw = tf2::getYaw(path[i].pose.orientation);
-    if (angles::shortest_angular_distance(this_yaw, initial_yaw) > 1e-6) {return;}
+    if (std::abs(angles::shortest_angular_distance(this_yaw, initial_yaw)) > 1e-6) {return;}
   }
 
   // For each pose, point at the next one

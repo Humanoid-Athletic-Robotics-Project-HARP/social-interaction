@@ -4,7 +4,7 @@
     relative to the pelvis (forward kinematics of the G1 model in MuJoCo).
     The lower foot is taken as planted, so the pelvis moves by minus that
     foot's motion.
-The same kinematics give the head lidar's pose for its transform.
+The same kinematics give the head lidar's and depth camera's poses for their transforms.
 """
 
 import math
@@ -12,7 +12,7 @@ import math
 import mujoco
 import numpy as np
 
-from harp import lidar_mount
+from harp import camera_mount, lidar_mount
 
 NUM_MOTORS = 29
 FEET = ("left_ankle_roll_link", "right_ankle_roll_link")
@@ -35,8 +35,9 @@ class LegOdometry:
         self.model = mujoco.MjModel.from_xml_path(str(model_path))
         self.data = mujoco.MjData(self.model)
         self.feet = [self.model.body(name).id for name in FEET]
-        self.lidar_parent = self.model.body(lidar_mount.PARENT).id
+        self.torso = self.model.body(lidar_mount.PARENT).id   # both head sensors' parent
         self.lidar_mount = lidar_mount.rotation()
+        self.camera_mount = camera_mount.rotation()
         self.position = np.zeros(2)
         self.heading = 0.0        # sum of yaw changes, radians
         self.yaw = None
@@ -64,16 +65,24 @@ class LegOdometry:
         self.last_feet = feet
 
     def lidar_pose(self):
-        """The head lidar relative to base_link (the floor under the pelvis, turned
-        by the pelvis yaw) at the last update: translation (m) and quaternion
+        """The head lidar relative to base_link: see sensor_pose."""
+        return self.sensor_pose(lidar_mount.POSITION, self.lidar_mount)
+
+    def camera_pose(self):
+        """The head depth camera's optical frame relative to base_link: see sensor_pose."""
+        return self.sensor_pose(camera_mount.POSITION, self.camera_mount)
+
+    def sensor_pose(self, position_in_torso, rotation_in_torso):
+        """A sensor on the torso relative to base_link (the floor under the pelvis,
+        turned by the pelvis yaw) at the last update: translation (m) and quaternion
         (x, y, z, w). Follows the torso's lean and sway and the pelvis height, so
         floor points stay on the floor in the costmap."""
         d = self.data
         c, s = math.cos(self.yaw), math.sin(self.yaw)
         unyaw = np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
-        torso = d.xmat[self.lidar_parent].reshape(3, 3)
-        position = unyaw @ (d.xpos[self.lidar_parent] + torso @ lidar_mount.POSITION)
+        torso = d.xmat[self.torso].reshape(3, 3)
+        position = unyaw @ (d.xpos[self.torso] + torso @ position_in_torso)
         position[2] += ANKLE_HEIGHT - self.last_feet[self.stance][2]   # pelvis above the floor
         quat = np.zeros(4)
-        mujoco.mju_mat2Quat(quat, (unyaw @ torso @ self.lidar_mount).ravel())
+        mujoco.mju_mat2Quat(quat, (unyaw @ torso @ rotation_in_torso).ravel())
         return position, (quat[1], quat[2], quat[3], quat[0])

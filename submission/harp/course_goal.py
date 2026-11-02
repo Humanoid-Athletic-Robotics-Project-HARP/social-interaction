@@ -185,7 +185,9 @@ def run(node):
     if not wait_for_active(node, "bt_navigator", NAV2_START):
         event("goal_result", status="NAV2_NOT_ACTIVE", recoveries=0, seconds=0.0, remaining=None)
         return 1
-    spin_until(node, lambda: bool(ready))
+    if not spin_until(node, lambda: bool(ready), NAV2_START):
+        event("goal_result", status="CONTROL_NOT_READY", recoveries=0, seconds=0.0, remaining=None)
+        return 1
     spin_until(node, lambda: False, SETTLE)
 
     nav = ActionClient(node, NavigateToPose, "navigate_to_pose")

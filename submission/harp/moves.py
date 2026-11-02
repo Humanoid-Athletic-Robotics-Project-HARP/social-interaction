@@ -8,8 +8,9 @@ image both in HIM's sim and on the robot:
   G1_TASK_COMMAND='{"to": [1, 1, 45]}'                     (one curve, the same as a list of one)
 
   walk: meters straight ahead (negative walks backward), holding the heading it
-        started with.
-  turn: degrees in place (positive turns left).
+        started with, measuring signed forward/backward progress, ramping up
+        and slowing near the end before requesting zero.
+  turn: degrees in place (positive turns left), ramping up and slowing near the angle.
   to:   [X, Y] or [X, Y, HEADING]: X m forward, Y m left of where the move
         starts, ending facing HEADING degrees (positive left; leave it out to
         face away from the start). Park & Kuipers' law (smooth_control.py), then
@@ -24,7 +25,7 @@ wherever the last one ended, so errors carry over. A move that takes much
 longer than expected, or a turn that goes over 10 deg the wrong way, stops the
 rest. Stops, falls and damping are HIM's. Events on /harp/events: move_start,
 move_done (target, estimate: x, y forward/left of the move's start and heading
-in degrees, from leg odometry), move_timeout or wrong_way, then all_moves_done;
+in degrees, from leg odometry), move_timeout, odom_timeout, walk_drift or wrong_way; all_moves_done only on success;
 each with the move's number and sim_time when HIM's sim gives one.
 """
 
@@ -47,9 +48,18 @@ MAX_SPEED = 0.4           # m/s, hard cap no matter what is passed in
 MAX_TURN_SPEED = 30.0     # deg/s, hard cap no matter what is passed in
 SETTLE = 2.0              # s before the first move, between moves and after the last
 RATE = 50.0               # Hz of /cmd_vel
+ODOM_TIMEOUT = 0.5       # s without valid position feedback ends an active plan
 WRONG_WAY_LIMIT = math.radians(10.0)  # stop if a turn goes this far the wrong way
 HEADING_GAIN = 1.5        # rad/s of turn per rad of heading error, during walks
 MAX_HEADING_CORRECTION = 0.3  # rad/s, cap on that correction
+WALK_ACCEL = 0.4         # m/s^2, ramp for straight walking's forward/backward speed
+WALK_DECEL = 0.4         # m/s^2, braking envelope near the distance target
+WALK_MAX_CROSS_TRACK = 0.2  # m of sideways displacement before aborting a straight walk
+WALK_WRONG_WAY_LIMIT = 0.1  # m opposite the requested direction before aborting
+WALK_MIN_SPEED = 0.1     # m/s, final approach stays above GR00T's 0.05 Balance switch
+TURN_ACCEL = 1.0        # rad/s^2, angular ramp for turns and final curve alignment
+TURN_DECEL = 1.0        # rad/s^2, angular braking envelope
+TURN_MIN_SPEED = 0.1    # rad/s, final approach above the policy Balance switch
 CURVE_MIN_SPEED = 0.1     # m/s, keeps the curve walking (GR00T balances below 0.05)
 CURVE_ACCEL = 0.4         # m/s^2, ramp for the curve's forward speed
 CURVE_TURN_ACCEL = 1.0    # rad/s^2, ramp for its turn rate
@@ -108,6 +118,7 @@ class Moves:
         self.speed, self.turn_speed = speed, turn_speed
         self.index = 0
         self.pose = None          # x, y, yaw from /odom
+        self.odom_time = None     # monotonic receipt of the last valid pose
         self.heading = 0.0        # unwrapped yaw, for turns past 180 deg
         self.sim_time = None
         self.ready_at = None      # monotonic time of HIM's handoff
@@ -126,7 +137,11 @@ class Moves:
         self.events(name, self.sim_time, **fields)
 
     def on_event(self, msg):
-        if json.loads(msg.data).get("event") == "control_ready" and self.ready_at is None:
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            return
+        if isinstance(record, dict) and record.get("event") == "control_ready" and self.ready_at is None:
             self.ready_at = time.monotonic()
             self.next_at = self.ready_at + SETTLE
 
@@ -135,10 +150,13 @@ class Moves:
 
     def on_odom(self, msg):
         p, o = msg.pose.pose.position, msg.pose.pose.orientation
+        if not all(math.isfinite(v) for v in (p.x, p.y, o.z, o.w)) or math.hypot(o.z, o.w) == 0:
+            return  # Invalid feedback must not refresh the watchdog or poison the pose.
         yaw = 2.0 * math.atan2(o.z, o.w)
         if self.pose is not None:
             self.heading += wrap_angle(yaw - self.pose[2])
         self.pose = (p.x, p.y, yaw)
+        self.odom_time = time.monotonic()
 
     def begin(self):
         kind, value = self.moves[self.index]
@@ -174,23 +192,43 @@ class Moves:
                 round(math.degrees(self.heading - self.start_heading), 1)]
 
     def walk_command(self, meters):
-        """Straight ahead or back, steering back to the starting heading; None once there."""
+        """Ramp ahead/back, brake near the distance target, hold heading; None once there."""
         x, y, _ = self.progress()
-        if math.hypot(x, y) >= abs(meters):
+        along = math.copysign(1.0, meters) * x
+        if along < -WALK_WRONG_WAY_LIMIT:
+            return "wrong_way"
+        if abs(y) > WALK_MAX_CROSS_TRACK:
+            return "walk_drift"
+        remaining = abs(meters) - along
+        if remaining <= 0:
             return None
+        # v^2 = 2*a*d bounds the approach speed. Keep a walking floor so the
+        # policy doesn't stand before reaching the target; never exceed the
+        # requested speed, including requests below WALK_MIN_SPEED.
+        target = min(self.speed, max(WALK_MIN_SPEED, math.sqrt(2 * WALK_DECEL * remaining)))
+        current = abs(self.cmd[0])
+        limit = WALK_ACCEL if target >= current else WALK_DECEL
+        speed = toward(current, target, limit / RATE)
         error = self.start_heading - self.heading
         yaw_rate = max(-MAX_HEADING_CORRECTION, min(MAX_HEADING_CORRECTION, HEADING_GAIN * error))
-        return [math.copysign(self.speed, meters), yaw_rate]
+        return [math.copysign(speed, meters), yaw_rate]
+
+    def turn_rate(self, remaining, sign):
+        """Ramp angular velocity toward a braking envelope, keeping an approach floor."""
+        target = min(self.turn_speed, max(TURN_MIN_SPEED, math.sqrt(2 * TURN_DECEL * remaining)))
+        target = math.copysign(target, sign)
+        limit = TURN_ACCEL if self.cmd[1] * target >= 0 and abs(target) >= abs(self.cmd[1]) else TURN_DECEL
+        return toward(self.cmd[1], target, limit / RATE)
 
     def turn_command(self, angle):
-        """In place, at turn_speed; None once turned far enough, "wrong_way" if going the other way."""
+        """Ramp an in-place turn, slow near its angle, and reject wrong-way rotation."""
         sign = math.copysign(1.0, angle)
         turned = sign * (self.heading - self.start_heading)
         if turned < -WRONG_WAY_LIMIT:
             return "wrong_way"
         if turned >= abs(angle):
             return None
-        return [0.0, sign * self.turn_speed]
+        return [0.0, self.turn_rate(abs(angle) - turned, sign)]
 
     def curve_command(self):
         """Forward speed and turn rate toward the target; None once it is reached."""
@@ -204,14 +242,22 @@ class Moves:
             # Stop inside the tolerance, or once the turn carries past the heading.
             if abs(error) < HEADING_TOLERANCE or error * self.facing_sign < 0:
                 return None
-            return [0.0, self.facing_sign * self.turn_speed]
+            return [0.0, self.turn_rate(abs(error) - HEADING_TOLERANCE, self.facing_sign)]
         v, w = command(self.pose, self.target, self.speed, self.turn_speed, CURVE_MIN_SPEED)
         # Ramp toward the law's command so the robot doesn't lurch into or out of the curve.
         return [toward(self.cmd[0], v, CURVE_ACCEL / RATE),
                 toward(self.cmd[1], w, CURVE_TURN_ACCEL / RATE)]
 
     def step(self):
+        if self.phase == "done":
+            return
         now = time.monotonic()
+        if self.odom_time is None or now - self.odom_time > ODOM_TIMEOUT:
+            if self.phase == "waiting":
+                self.send()  # Hold zero until the first fresh pose and handoff.
+            else:
+                self.stop_all("odom_timeout", *self.moves[self.index])
+            return
         if self.phase in ("waiting", "settling"):
             self.send()
             if self.next_at is None or now < self.next_at or self.pose is None:
@@ -233,8 +279,8 @@ class Moves:
             return
         cmd = (self.curve_command() if kind == "to" else self.turn_command(value) if kind == "turn"
                else self.walk_command(value))
-        if cmd == "wrong_way":
-            self.stop_all("wrong_way", kind, value)
+        if isinstance(cmd, str):
+            self.stop_all(cmd, kind, value)
             return
         if cmd is None:
             self.cmd = [0.0, 0.0]
@@ -267,12 +313,17 @@ def main():
         while rclpy.ok() and moves.phase != "done":
             rclpy.spin_once(node, timeout_sec=0.1)
     except KeyboardInterrupt:
-        pass
-    moves.cmd = [0.0, 0.0]
-    moves.send()
-    node.destroy_node()
-    rclpy.shutdown()
-    return 0
+        return 130
+    finally:
+        moves.cmd = [0.0, 0.0]
+        try:
+            if rclpy.ok():
+                moves.send()
+        finally:
+            node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
+    return 0 if moves.index == len(moves.moves) else 1
 
 
 if __name__ == "__main__":

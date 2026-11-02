@@ -1,8 +1,10 @@
 """Robot state from /safety/policy_state as standard ROS topics, for Nav2 and rviz:
 
   /odom          nav_msgs/Odometry   odom -> base_link (planar, really a base_footprint)
-  /tf            odom -> base_link, and base_link -> livox_frame (the head lidar's real
-                 pose from the joints and IMU, so the floor stays flat in the costmap)
+  /tf            odom -> base_link, and base_link -> livox_frame and
+                 d435_depth_optical_frame (the head lidar's and depth camera's real
+                 poses from the joints and IMU, so the floor stays flat in the costmap),
+                 and livox_frame -> livox_rear (turned 180 deg, for Nav2's clearing)
   /joint_states  sensor_msgs/JointState  the 29 joints
   /imu           sensor_msgs/Imu     the pelvis IMU
 
@@ -22,7 +24,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu, JointState
 from tf2_ros import TransformBroadcaster
 
-from harp import events, lidar_mount
+from harp import camera_mount, events, lidar_mount
 from harp.leg_odometry import LegOdometry, yaw_of
 
 CONTROL_DT = 0.02         # s between states
@@ -88,16 +90,24 @@ class StatePublisher:
         base.transform.translation.x, base.transform.translation.y = float(x), float(y)
         r = base.transform.rotation
         r.x, r.y, r.z, r.w = rotation
-        position, quat = self.legs.lidar_pose()
-        lidar = TransformStamped()
-        lidar.header.stamp = stamp
-        lidar.header.frame_id = "base_link"
-        lidar.child_frame_id = lidar_mount.FRAME
-        t = lidar.transform.translation
-        t.x, t.y, t.z = map(float, position)
-        r = lidar.transform.rotation
-        r.x, r.y, r.z, r.w = map(float, quat)
-        self.tf.sendTransform([base, lidar])
+        sensors = []
+        for frame, (position, quat) in ((lidar_mount.FRAME, self.legs.lidar_pose()),
+                                        (camera_mount.FRAME, self.legs.camera_pose())):
+            sensor = TransformStamped()
+            sensor.header.stamp = stamp
+            sensor.header.frame_id = "base_link"
+            sensor.child_frame_id = frame
+            t = sensor.transform.translation
+            t.x, t.y, t.z = map(float, position)
+            r = sensor.transform.rotation
+            r.x, r.y, r.z, r.w = map(float, quat)
+            sensors.append(sensor)
+        rear = TransformStamped()           # fixed: livox_frame turned 180 deg about its z
+        rear.header.stamp = stamp
+        rear.header.frame_id = lidar_mount.FRAME
+        rear.child_frame_id = lidar_mount.REAR_FRAME
+        rear.transform.rotation.z, rear.transform.rotation.w = 1.0, 0.0
+        self.tf.sendTransform([base] + sensors + [rear])
 
     def publish_joints_imu(self, stamp, state):
         joints = JointState()
