@@ -56,7 +56,7 @@ class Go(unittest.TestCase):
         robot.event = lambda name, **fields: robot.events.append(name)
         answers = iter(zip(ends, statuses))
 
-        def go_to(node, nav, goal, deadline, interrupt=None):
+        def go_to(node, nav, goal, deadline, interrupt=None, handoff=None):
             robot.pose, status = next(answers)
             return status, None
 

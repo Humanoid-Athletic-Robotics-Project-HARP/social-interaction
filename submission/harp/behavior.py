@@ -12,14 +12,20 @@ then loops until the container stops:
     of where it started (in odom: there is no map, and leg odometry drifts): near the
     edge the cone widens until a point fits, and from outside it heads back to the
     start. A failed or timed-out point is dropped for the next.
-  - Notice: a person on /harp/people (the stand-in harp/sim_people.py: people off to
-    the sides by the lidar, ahead only within about 2 m by the camera) within NOTICE m,
-    standing still (moved under STILL m/s over the last TRACK s), and not talked to in
-    the last REGREET s. The nearest one cancels the wander goal. While it walks up to
-    them, someone ahead is out of sight until about 2 m: it keeps to where it saw them.
-  - Approach: one Nav2 goal STAND_OFF m from them on the robot's side, facing them,
-    which the Graceful Controller reaches in one curve. If they move over REAIM m from
-    where it aims, it aims again (at most REAIMS times), then gives up on them.
+  - Notice: someone on /harp/people (the stand-in harp/sim_people.py): a candidate the
+    lidar found by its shape, or a person the camera confirmed by their legs (only within
+    about 2 m ahead), within NOTICE m, standing still (moved under STILL m/s over the
+    last TRACK s), and not walked up to in the last REGREET s. The nearest one cancels
+    the wander goal. While it walks up to them, someone in the lidar's blind wedges is
+    out of sight: it keeps to where it saw them.
+  - Approach, in one walk: a candidate gets a Nav2 goal CHECK m from them on the
+    robot's side, facing them, where the camera sees their legs. Once the camera has
+    confirmed them a person (on the way, or within CONFIRM s of getting there), the goal
+    is replaced without stopping by one STAND_OFF m from them, which the Graceful
+    Controller reaches in one curve; someone already confirmed gets that one at once. A
+    candidate never confirmed is not a person (a pillar, say): left alone for REGREET s.
+    If they move over REAIM m from where it aims, it aims again (at most REAIMS times),
+    then gives up on them.
   - Talk: a placeholder until there is speech: a talk event with the line it would
     say, then standing (Nav2 has no goal, so our node gets no /cmd_vel) until the person
     leaves (out of sight for GONE s, or over LEFT m away) or TALK s have passed, which
@@ -32,8 +38,9 @@ wander points the same every run).
 
 Events on /harp/events (source "behavior"): loop_start (radius, seed, home),
 wander_goal (x, y, yaw), wander_result (status, seconds), noticed (person, x, y,
-distance), approach_goal (person, x, y, yaw), approach_result (person, status,
-seconds), talk (person, line, distance), talk_done (person, ended: left or time,
+distance, confirmed), approach_goal (person, stage: check or final, x, y, yaw),
+approach_result (person, status, seconds), confirmed (person, distance), not_a_person
+(person), talk (person, line, distance), talk_done (person, ended: left or time,
 seconds), turn_away (yaw), turn_result (status, seconds); resend (x, y, yaw, off, turn) when
 Nav2 called a goal reached with the robot off m and turn deg from it; error
 (message) if it stops.
@@ -70,6 +77,9 @@ SEEN = 0.5        # s since a person was last seen, after which they don't count
 REGREET = 120.0   # s before it walks up to someone it talked with again
 STAND_OFF = 0.85  # m from the person's centre to the robot's goal: the goal checker's 0.25 m
                   # stops it short, at about 1.1 m
+CHECK = 1.5       # m from a candidate's centre to the goal where the camera can confirm them
+                  # (it sees legs within about 2 m; the goal checker stops it at about 1.75 m)
+CONFIRM = 2.0     # s it waits at the check goal for the camera before it's not a person
 REAIM = 0.5       # m a person may move from where it aims before it aims again
 REAIMS = 3        # times it aims again before giving up on someone
 TURN_TIME = 30.0  # s for the turn away after a talk
@@ -93,6 +103,7 @@ class Behavior:
         self.pose = None          # x, y, yaw in odom
         self.tracks = {}          # person id -> deque of (monotonic s, x, y in odom)
         self.talked = {}          # person id -> monotonic s of the last talk
+        self.people = set()       # ids the camera has confirmed are people
         self.nav = ActionClient(node, NavigateToPose, "navigate_to_pose")
 
     def on_event(self, msg):
@@ -110,6 +121,8 @@ class Behavior:
         x0, y0, yaw = self.pose
         c, s = math.cos(yaw), math.sin(yaw)
         for p in json.loads(msg.data).get("people", []):
+            if "camera" in p.get("seen_by", []):
+                self.people.add(p["id"])
             track = self.tracks.setdefault(p["id"], deque())
             track.append((now, x0 + c * p["x"] - s * p["y"], y0 + s * p["x"] + c * p["y"]))
             while now - track[0][0] > 2 * TRACK:
@@ -160,12 +173,12 @@ class Behavior:
                 self.talk(person)
                 self.turn_away()
 
-    def go(self, goal, deadline, interrupt=None):
+    def go(self, goal, deadline, interrupt=None, handoff=None):
         """course_goal.go_to's status, but a goal Nav2 calls reached while the robot is over
         ARRIVED m or ARRIVED_DEG from it is sent again (Nav2 can end a goal sent right after
         another at once), until the deadline."""
         while True:
-            status, _ = go_to(self.node, self.nav, goal, deadline, interrupt)
+            status, _ = go_to(self.node, self.nav, goal, deadline, interrupt, handoff)
             x, y, yaw = self.pose
             off = math.dist((x, y), goal[:2])
             turn = abs(math.degrees(math.atan2(math.sin(math.radians(goal[2]) - yaw),
@@ -187,29 +200,46 @@ class Behavior:
         self.event("wander_result", status=status, seconds=round(time.monotonic() - began, 1))
 
     def approach(self, person):
-        """Walk up to the person; True once there, facing them."""
+        """Walk up to the person, checking a candidate with the camera on the way; True once
+        there, facing a confirmed person."""
         aim = self.where(person)
         self.event("noticed", person=person, x=round(aim[0], 2), y=round(aim[1], 2),
-                   distance=round(self.distance(aim), 2))
-        for _ in range(REAIMS + 1):
+                   distance=round(self.distance(aim), 2), confirmed=person in self.people)
+        reaims = 0
+        while True:
+            final = person in self.people
             x, y = self.pose[:2]
             away = max(self.distance(aim), 1e-3)
-            goal = (aim[0] + (x - aim[0]) / away * STAND_OFF, aim[1] + (y - aim[1]) / away * STAND_OFF)
+            off = STAND_OFF if final else CHECK
+            goal = (aim[0] + (x - aim[0]) / away * off, aim[1] + (y - aim[1]) / away * off)
             heading = math.degrees(math.atan2(aim[1] - goal[1], aim[0] - goal[0]))
-            self.event("approach_goal", person=person, x=round(goal[0], 2), y=round(goal[1], 2),
-                       yaw=round(heading, 1))
+            self.event("approach_goal", person=person, stage="final" if final else "check",
+                       x=round(goal[0], 2), y=round(goal[1], 2), yaw=round(heading, 1))
             began = time.monotonic()
 
             def moved():
                 now = self.where(person)
                 return now is not None and math.dist(now, aim) > REAIM
 
-            status = self.go((*goal, heading), began + APPROACH_TIME, moved)
+            def confirmed():
+                return not final and person in self.people
+
+            status = self.go((*goal, heading), began + APPROACH_TIME,
+                             lambda: moved() or confirmed(), confirmed)
             self.event("approach_result", person=person, status=status,
                        seconds=round(time.monotonic() - began, 1))
-            aim = self.where(person)
-            if status != "INTERRUPTED" or aim is None:
-                break
+            if status == "SUCCEEDED" and not final:
+                status = "HANDED_OFF" if spin_until(self.node, confirmed, CONFIRM) else "NOT_A_PERSON"
+            if status == "HANDED_OFF":
+                aim = self.where(person) or aim
+                self.event("confirmed", person=person, distance=round(self.distance(aim), 2))
+                continue
+            if status == "NOT_A_PERSON":
+                self.event("not_a_person", person=person)
+            if status == "INTERRUPTED" and reaims < REAIMS and self.where(person) is not None:
+                aim, reaims = self.where(person), reaims + 1
+                continue
+            break
         if status != "SUCCEEDED":
             self.talked[person] = time.monotonic()   # leave them be for a while
         return status == "SUCCEEDED"
