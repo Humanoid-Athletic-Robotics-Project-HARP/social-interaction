@@ -33,9 +33,9 @@ from action_msgs.msg import GoalStatus
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
+from harp.events import Events, latched
 from harp.route import Route, route_from_data
 
 WORLD = "/harp/model/lidar_scene.xml"
@@ -166,13 +166,7 @@ def follow(node, nav, route, event, waypoint_events):
 
 
 def run(node):
-    latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-    events_pub = node.create_publisher(String, "/harp/events", latched)
-
-    def event(name, **fields):
-        text = json.dumps({"source": "goal", "event": name, **fields})
-        events_pub.publish(String(data=text))
-        print(text, flush=True)
+    event = Events(node, "goal")
 
     try:
         route = route_from_env()
@@ -187,7 +181,7 @@ def run(node):
 
     ready = []
     node.create_subscription(
-        String, "/harp/events", lambda m: ready.append(True) if is_control_ready(m.data) else None, latched)
+        String, "/harp/events", lambda m: ready.append(True) if is_control_ready(m.data) else None, latched())
     if not wait_for_active(node, "bt_navigator", NAV2_START):
         event("goal_result", status="NAV2_NOT_ACTIVE", recoveries=0, seconds=0.0, remaining=None)
         return 1

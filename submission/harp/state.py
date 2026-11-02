@@ -16,7 +16,6 @@ the container's output, HIM's policy.log) for drift checks and course scoring,
 never used for /odom.
 """
 
-import json
 import math
 
 import numpy as np
@@ -25,7 +24,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu, JointState
 from tf2_ros import TransformBroadcaster
 
-from harp import camera_mount, lidar_mount
+from harp import camera_mount, events, lidar_mount
 from harp.leg_odometry import LegOdometry, yaw_of
 
 CONTROL_DT = 0.02         # s between states
@@ -56,10 +55,9 @@ class StatePublisher:
         if "position" in state and state.get("sim_time", 0.0) >= self.next_truth:
             self.next_truth = state["sim_time"] + TRUTH_PERIOD
             truth = state["position"]
-            print(json.dumps({"event": "odom", "sim_time": round(state["sim_time"], 2),
-                              "legs": [round(float(v), 3) for v in (x, y, yaw)],
-                              "truth": [round(truth[0], 3), round(truth[1], 3),
-                                        round(yaw_of(state["quat"]), 3)]}), flush=True)
+            events.emit("policy", "odom", state["sim_time"],
+                        legs=[round(float(v), 3) for v in (x, y, yaw)],
+                        truth=[round(truth[0], 3), round(truth[1], 3), round(yaw_of(state["quat"]), 3)])
 
     def from_legs(self):
         x, y = self.legs.position

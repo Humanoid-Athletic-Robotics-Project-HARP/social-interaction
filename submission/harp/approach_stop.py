@@ -42,12 +42,13 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
 from harp import camera_mount, lidar_mount
+from harp.events import Events, latched
 
 TOPIC = "/utlidar/cloud_livox_mid360"
 CAMERA_TOPIC = "/camera/depth/points"
@@ -138,9 +139,8 @@ class ApproachStop:
     def __init__(self, node):
         self.node = node
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
-        latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.events = node.create_publisher(String, "/harp/events", latched)
-        node.create_subscription(String, "/harp/events", self.on_event, latched)
+        self.event = Events(node, "approach")
+        node.create_subscription(String, "/harp/events", self.on_event, latched())
         node.create_subscription(Twist, "/cmd_vel_nav", self.on_nav, 10)
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(TFMessage, "/tf", self.on_tf, 50)
@@ -161,11 +161,6 @@ class ApproachStop:
         self.goal_failed = False   # latch route failure, including late goal acceptance
         self.stopped_at = None      # monotonic s it began standing for an approach
         self.last_coming = None
-
-    def event(self, name, **fields):
-        text = json.dumps({"source": "approach", "event": name, **fields})
-        self.events.publish(String(data=text))
-        print(text, flush=True)
 
     def inputs_fresh(self, now):
         return all(t is not None and now - t <= LIDAR_TIMEOUT
