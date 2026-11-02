@@ -46,6 +46,8 @@ import math
 
 import numpy as np
 
+from harp import events
+
 START_DISTANCE = 0.3   # m the pelvis has to move from where it started
 CROWDS = ("scripted", "aware")   # the task's "crowd": scripted (the default) or aware movers
 # How an aware crowd's movers walk and give way (AwareMovers): every call (each lidar scan)
@@ -453,14 +455,15 @@ def crowd_mode(task_text):
 
 
 def crowd_event(names):
-    """The lidar's first event with an aware crowd: the movers its path events list."""
-    return {"source": "lidar", "event": "crowd", "mode": "aware", "movers": list(names)}
+    """The lidar's first event with an aware crowd (harp/events.py): the movers its path
+    events list."""
+    return events.record("lidar", "crowd", mode="aware", movers=list(names))
 
 
 def path_event(t, positions):
-    """Where an aware crowd's movers are at sim time t, every scan."""
-    return {"source": "lidar", "event": "movers", "t": round(float(t), 3),
-            "xy": [[round(float(x), 3), round(float(y), 3)] for x, y in positions]}
+    """Where an aware crowd's movers are at sim time t, every scan (harp/events.py)."""
+    return events.record("lidar", "movers", sim_time=t,
+                         xy=[[round(float(x), 3), round(float(y), 3)] for x, y in positions])
 
 
 def logged_path(events):
@@ -470,7 +473,7 @@ def logged_path(events):
     samples = [e for e in events if e.get("event") == "movers"]
     if not crowd or crowd.get("mode") != "aware" or not samples:
         return None
-    return (list(crowd["movers"]), np.array([e["t"] for e in samples], dtype=float),
+    return (list(crowd["movers"]), np.array([e.get("sim_time", e.get("t")) for e in samples], dtype=float),
             np.array([e["xy"] for e in samples], dtype=float).reshape(len(samples), -1, 2))
 
 

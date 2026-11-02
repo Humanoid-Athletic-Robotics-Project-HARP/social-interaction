@@ -33,9 +33,9 @@ from action_msgs.msg import GoalStatus
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
-from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
+from harp.events import Events, latched
 from harp.route import Route, route_from_data
 
 WORLD = "/harp/model/lidar_scene.xml"
@@ -101,9 +101,10 @@ def cancel(node, handle, result):
     return result.done()
 
 
-def go_to(node, nav, point, deadline):
+def go_to(node, nav, point, deadline, interrupt=None):
     """One Nav2 goal at (x, y, heading deg) by the monotonic deadline: its status, and
-    its last feedback (or None)."""
+    its last feedback (or None). interrupt: checked while Nav2 drives; once it returns
+    True the goal is cancelled (INTERRUPTED)."""
     if not nav.wait_for_server(timeout_sec=max(0.0, deadline - time.monotonic())):
         return "TIMEOUT", None
     x, y, heading = point
@@ -121,13 +122,16 @@ def go_to(node, nav, point, deadline):
     if not handle.accepted:
         return "REJECTED", None
     result = handle.get_result_async()
+    stop = interrupt or (lambda: False)
     try:
-        if spin_until(node, result.done, deadline - time.monotonic()):
+        spin_until(node, lambda: result.done() or stop(), deadline - time.monotonic())
+        if result.done():
             return STATUS.get(result.result().status, "UNKNOWN"), feedback.get("f")
     except BaseException:
         cancel(node, handle, result)    # don't leave Nav2 driving to a point nobody watches
         raise
-    return ("TIMEOUT" if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
+    ended = "INTERRUPTED" if stop() else "TIMEOUT"
+    return (ended if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
 
 
 def distance_to(feedback, point):
@@ -187,13 +191,7 @@ def follow(node, nav, route, event, waypoint_events):
 
 
 def run(node):
-    latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-    events_pub = node.create_publisher(String, "/harp/events", latched)
-
-    def event(name, **fields):
-        text = json.dumps({"source": "goal", "event": name, **fields})
-        events_pub.publish(String(data=text))
-        print(text, flush=True)
+    event = Events(node, "goal")
 
     try:
         route = route_from_env()
@@ -208,7 +206,7 @@ def run(node):
 
     ready = []
     node.create_subscription(
-        String, "/harp/events", lambda m: ready.append(True) if is_control_ready(m.data) else None, latched)
+        String, "/harp/events", lambda m: ready.append(True) if is_control_ready(m.data) else None, latched())
     if not wait_for_active(node, "bt_navigator", NAV2_START):
         event("goal_result", status="NAV2_NOT_ACTIVE", recoveries=0, seconds=0.0, remaining=None)
         return 1

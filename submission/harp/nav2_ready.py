@@ -5,12 +5,12 @@ commands. Configured, not active: Nav2 activates only once our node's odometry a
 Prints a nav2_ready event (seconds waited, and whether Nav2 was ready) to policy.log.
 """
 
-import json
 import sys
 import time
 
 import rclpy
 
+from harp import events
 from harp.course_goal import wait_for_active
 
 
@@ -20,8 +20,8 @@ def main():
     node = rclpy.create_node("harp_nav2_ready")
     # bt_navigator is the last server Nav2's lifecycle manager configures.
     ready = wait_for_active(node, "bt_navigator", float(sys.argv[1]), ("inactive", "active"))
-    print(json.dumps({"source": "entrypoint", "event": "nav2_ready", "ready": ready,
-                      "seconds": round(time.monotonic() - started, 1)}), flush=True)
+    events.emit("entrypoint", "nav2_ready", ready=ready,
+                seconds=round(time.monotonic() - started, 1))
     node.destroy_node()
     rclpy.shutdown()
     return 0 if ready else 1

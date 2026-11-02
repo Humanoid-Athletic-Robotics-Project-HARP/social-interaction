@@ -80,8 +80,12 @@ controller_server:
       # with predictive avoidance. Not set here: Foxy gives this file's controller_server entry
       # priority over the launch file's override (written for every node, /**), whatever the order.
 
-# Both costmaps read the head lidar the same way, through STVL
-# (spatio_temporal_voxel_layer), whose marks fade:
+# Both costmaps read the head lidar and the head depth camera the same way, through
+# STVL (spatio_temporal_voxel_layer), whose marks fade. The lidar's head blinds it
+# around the front (harp/lidar_mount.py): with the face visor off it sees about
+# 36-42 deg either side of straight ahead and past about 52-68 deg, and nothing between;
+# with it on, nothing within that. The camera, pitched about 50 deg down, sees ahead from
+# 0.2 to about 2.7 m out and up to about 0.8 m high 1 m ahead (context/sim-vs-real.md):
 #  - marking: points 0.08-1.8 m above the floor, up to 3 m away. Past 3 m,
 #    torso tilt makes floor points look like obstacles. STVL has no minimum
 #    range, so the robot's own arms get marked, but they are always inside the
@@ -93,6 +97,14 @@ controller_server:
 #    see; only things above the lidar (1.21 m) are affected.
 #  - everything else (the blind ring near the feet, beyond 3 m, behind the
 #    arms) fades after voxel_decay, 15 s.
+#  - the lidar's clearing views leave out where its head blinds it, as STVL centres
+#    a view on +x: lidar_clearing reads the cloud in livox_rear, turned 180 deg, and
+#    covers all but 62 deg either side of ahead (the blind edge is at 52-68 deg, so a
+#    little of it, high up, is cleared); with the visor off, lidar_front_clearing
+#    reads it in livox_frame and covers the window ahead, 36 deg either side and 25 deg
+#    up and down (it narrows looking down). nav2.launch.py drops lidar_front_clearing
+#    with the visor on. So what the camera saw, or the lidar elsewhere, isn't
+#    cleared by a sensor that can't see it; the camera clears its own view.
 #  - no unknown space: STVL never marks cells free, so with
 #    track_unknown_space the map stayed unknown around the obstacles, the
 #    inflation layer left no cost gradient there (it only spreads its
@@ -127,7 +139,7 @@ local_costmap:
         publish_voxel_map: false
         transform_tolerance: 0.5
         mapping_mode: false
-        observation_sources: lidar_marking lidar_clearing
+        observation_sources: lidar_marking lidar_clearing lidar_front_clearing camera_marking camera_clearing
         lidar_marking:
           data_type: PointCloud2
           topic: /utlidar/cloud_livox_mid360
@@ -145,7 +157,7 @@ local_costmap:
           clear_after_reading: true
         lidar_clearing:
           data_type: PointCloud2
-          topic: /utlidar/cloud_livox_mid360
+          topic: /utlidar/cloud_rear  # the lidar's cloud in livox_rear (+x back)
           marking: false
           clearing: true
           model_type: 1               # 3D lidar
@@ -153,7 +165,54 @@ local_costmap:
           max_z: 3.0                  # the marking range
           vertical_fov_angle: 1.815   # +-52 deg
           vertical_fov_padding: 0.05  # m
-          horizontal_fov_angle: 6.29  # all around
+          horizontal_fov_angle: 4.119 # 236 deg round the back: all but 62 deg either side of ahead
+          decay_acceleration: 10.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        lidar_front_clearing:         # visor off only (nav2.launch.py)
+          data_type: PointCloud2
+          topic: /utlidar/cloud_livox_mid360  # in livox_frame (+x ahead)
+          marking: false
+          clearing: true
+          model_type: 1               # 3D lidar
+          min_z: 0.0                  # m from the lidar, in its plane
+          max_z: 3.0                  # the marking range
+          vertical_fov_angle: 0.873   # +-25 deg
+          vertical_fov_padding: 0.05  # m
+          horizontal_fov_angle: 1.257 # 72 deg: the window ahead
+          decay_acceleration: 10.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_marking:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: true
+          clearing: false
+          obstacle_range: 3.0
+          min_obstacle_height: 0.08
+          max_obstacle_height: 1.8
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_clearing:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: false
+          clearing: true
+          model_type: 0               # depth camera (optical frame, z forward)
+          min_z: 0.2                  # m along the optical axis: its minimum depth
+          max_z: 3.0                  # the marking range
+          vertical_fov_angle: 1.012   # 58 deg
+          vertical_fov_padding: 0.05  # m
+          horizontal_fov_angle: 1.518 # 87 deg
           decay_acceleration: 10.0
           expected_update_rate: 0.0
           observation_persistence: 0.0
@@ -197,7 +256,7 @@ global_costmap:
         publish_voxel_map: false
         transform_tolerance: 0.5
         mapping_mode: false
-        observation_sources: lidar_marking lidar_clearing
+        observation_sources: lidar_marking lidar_clearing lidar_front_clearing camera_marking camera_clearing
         lidar_marking:
           data_type: PointCloud2
           topic: /utlidar/cloud_livox_mid360
@@ -215,7 +274,7 @@ global_costmap:
           clear_after_reading: true
         lidar_clearing:
           data_type: PointCloud2
-          topic: /utlidar/cloud_livox_mid360
+          topic: /utlidar/cloud_rear  # the lidar's cloud in livox_rear (+x back)
           marking: false
           clearing: true
           model_type: 1               # 3D lidar
@@ -223,7 +282,54 @@ global_costmap:
           max_z: 3.0                  # the marking range
           vertical_fov_angle: 1.815   # +-52 deg
           vertical_fov_padding: 0.05  # m
-          horizontal_fov_angle: 6.29  # all around
+          horizontal_fov_angle: 4.119 # 236 deg round the back: all but 62 deg either side of ahead
+          decay_acceleration: 10.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        lidar_front_clearing:         # visor off only (nav2.launch.py)
+          data_type: PointCloud2
+          topic: /utlidar/cloud_livox_mid360  # in livox_frame (+x ahead)
+          marking: false
+          clearing: true
+          model_type: 1               # 3D lidar
+          min_z: 0.0                  # m from the lidar, in its plane
+          max_z: 3.0                  # the marking range
+          vertical_fov_angle: 0.873   # +-25 deg
+          vertical_fov_padding: 0.05  # m
+          horizontal_fov_angle: 1.257 # 72 deg: the window ahead
+          decay_acceleration: 10.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_marking:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: true
+          clearing: false
+          obstacle_range: 3.0
+          min_obstacle_height: 0.08
+          max_obstacle_height: 1.8
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
+          inf_is_valid: false
+          voxel_min_points: 0
+          clear_after_reading: true
+        camera_clearing:
+          data_type: PointCloud2
+          topic: /camera/depth/points
+          marking: false
+          clearing: true
+          model_type: 0               # depth camera (optical frame, z forward)
+          min_z: 0.2                  # m along the optical axis: its minimum depth
+          max_z: 3.0                  # the marking range
+          vertical_fov_angle: 1.012   # 58 deg
+          vertical_fov_padding: 0.05  # m
+          horizontal_fov_angle: 1.518 # 87 deg
           decay_acceleration: 10.0
           expected_update_rate: 0.0
           observation_persistence: 0.0

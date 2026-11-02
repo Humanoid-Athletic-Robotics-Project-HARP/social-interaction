@@ -7,20 +7,24 @@ harp/approach_stop.py passes on to harp_node's /cmd_vel unless something comes a
 the robot), the recoveries (wait) and the navigator (navigate.xml), brought up by
 one lifecycle manager.
 
-With predictive avoidance (HARP_AVOIDANCE_FILTER, from entrypoint.sh), that filter owns
-moving objects, and Nav2 runs on a copy of nav2_params.yaml (parameters_for) where:
-  - both costmaps mark obstacles from the filter's STATIC_TOPIC, the lidar without the
-    returns of objects seen moving, so a hallway full of walkers is not a wall to the
-    planner (it failed to find any path and the route was given up); clearing still
-    uses the raw lidar;
-  - the controller keeps sending the path's command when something blocks its
-    trajectory (FollowPath.follow_when_blocked) instead of stopping and, after
-    failure_tolerance, aborting the path.
+Nav2 runs on nav2_params.yaml, or on a rewritten copy (parameters_for) when:
+  - the face visor is on (harp/lidar_mount.py): the costmaps leave out the lidar's
+    clearing view ahead (lidar_front_clearing);
+  - predictive avoidance (HARP_AVOIDANCE_FILTER, from entrypoint.sh) owns moving objects:
+      - both costmaps mark obstacles from the filter's STATIC_TOPIC, the lidar without the
+        returns of objects seen moving, so a hallway full of walkers is not a wall to the
+        planner (it failed to find any path and the route was given up), and the head
+        camera only clears (its marking would put the walkers back); clearing still uses
+        the raw lidar;
+      - the controller keeps sending the path's command when something blocks its
+        trajectory (FollowPath.follow_when_blocked) instead of stopping and, after
+        failure_tolerance, aborting the path.
 A rewritten file rather than launch overrides: Foxy gives the file's own node entries
 priority over a launch override (written for every node, /**), whatever the order.
 """
 
 import os
+import sys
 import tempfile
 
 import yaml
@@ -29,6 +33,9 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+from harp import lidar_mount  # noqa: E402
+
 PARAMS = os.path.join(HERE, "nav2_params.yaml")
 TREE = os.path.join(HERE, "navigate.xml")
 DRIVES = {"controller_server", "recoveries_server"}   # publish cmd_vel
@@ -42,24 +49,36 @@ SERVERS = [
 ]
 
 
-def predictive_parameters():
-    """nav2_params.yaml, as a dict, changed for a filter that owns moving objects."""
+def rewritten_parameters(visor, predictive):
+    """nav2_params.yaml, as a dict, changed for the visor and for a filter that owns
+    moving objects."""
     with open(PARAMS) as source:
         params = yaml.safe_load(source)
-    params["controller_server"]["ros__parameters"]["FollowPath"]["follow_when_blocked"] = True
+    if predictive:
+        params["controller_server"]["ros__parameters"]["FollowPath"]["follow_when_blocked"] = True
     for costmap in ("local_costmap", "global_costmap"):
         layer = params[costmap][costmap]["ros__parameters"]["stvl_layer"]
-        layer["lidar_marking"]["topic"] = STATIC_TOPIC
+        sources = layer["observation_sources"].split()
+        assert "lidar_front_clearing" in sources and "camera_marking" in sources, \
+            f"nav2_params.yaml: {costmap} sources changed"
+        if visor:
+            sources.remove("lidar_front_clearing")
+        if predictive:
+            layer["lidar_marking"]["topic"] = STATIC_TOPIC
+            sources.remove("camera_marking")
+        layer["observation_sources"] = " ".join(sources)
     return params
 
 
-def parameters_for(avoidance_filter=None):
-    """The parameter file Nav2 runs with for this filter."""
-    if avoidance_filter not in OWNS_MOVING:
+def parameters_for(avoidance_filter=None, visor=None):
+    """The parameter file Nav2 runs with for this filter and visor setting."""
+    visor = lidar_mount.VISOR if visor is None else visor
+    predictive = avoidance_filter in OWNS_MOVING
+    if not (visor or predictive):
         return PARAMS
-    path = os.path.join(tempfile.gettempdir(), "harp_nav2_params_predictive.yaml")
+    path = os.path.join(tempfile.mkdtemp(), "nav2_params.yaml")
     with open(path, "w") as out:
-        yaml.safe_dump(predictive_parameters(), out, sort_keys=False)
+        yaml.safe_dump(rewritten_parameters(visor, predictive), out, sort_keys=False)
     return path
 
 

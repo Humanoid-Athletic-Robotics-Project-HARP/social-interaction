@@ -22,6 +22,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
+| `testground/` | Tests on the real robot: read-only scripts run on its Jetson (PC2), their recordings analysed on a laptop ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned team forks of Ultralytics (YOLO26) and BoT-SORT for person-perception evaluation; [checkout instructions](third_party/README.md). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
 
@@ -33,7 +34,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 |---|---|---|---|
 | Move like a person | ✅ | ⬜ | Run it on the robot |
 | Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
-| Find people and walk up to them | ⬜ | ⬜ | Pick a person detector for the camera |
+| Find people and walk up to them | 🟡 | ⬜ | Pick a person detector for the camera |
 | Talk with people | ⬜ | ⬜ | Make the speaker talk |
 | Run safely on the real robot | 🟡 | ⬜ | **Next:** first robot run of the move to a point through HARP's harness |
 
@@ -55,6 +56,11 @@ unchanged, cloned next to this repo, and keep only our code here.
 - Done when: it walks to a spot a few meters away and around boxes in its
   way, using the MID-360 lidar and Nav2.
 - ✅ Sim: a simulated head lidar and obstacle courses (`submission/worlds/`).
+- 🟡 Sim: the sensors as they are on the robot: the lidar's view around the
+  front as its head leaves it, with the face visor off or on
+  (`harp/lidar_mount.py`'s `VISOR`, off by default), and the head depth camera
+  looking down at the floor ahead, both in Nav2's costmaps (`harp/lidar.py`,
+  `harp/depth_camera.py`).
 - ✅ Sim: Nav2 (Graceful Controller, the same law as our curves) walks every
   course (`course.py`), including the obstacle course with a table, pillars,
   a thin pole and an archway, without touching anything. The robot's own
@@ -71,11 +77,14 @@ unchanged, cloned next to this repo, and keep only our code here.
   person crossing the robot's path (`crossing`) and one walking toward it
   (`oncoming`).
 - 🟡 Predict moving obstacles from LiDAR tracks and request slower motion,
-  standing, or a checked sideways escape (`--avoidance predictive`). Planar
-  MuJoCo and local ROS checks, plus native walking G1 crowd trials;
-  full Foxy/HIM validation remains pending.
-- 🟡 Robot: real lidar data in ROS 2, then the same walk. Started:
-  `harp/lidar_relay.py`, tested in the image against a recorded-style cloud.
+  standing, or a checked sideways escape (`--avoidance predictive`). Tested in
+  HIM's sim (crossing, the box route, the building with scripted and aware
+  walkers); not yet on the robot.
+- 🟡 Robot: real lidar data in ROS 2, then the same walk. The lidar is
+  recorded and measured on the robot (`testground/lidar/`), and reaches ROS 2
+  through Unitree's `lidar_driver` service and `harp/lidar_relay.py` (tried on
+  PC2 outside our image); next, the head camera's depth in our image, then Nav2
+  on the robot.
 
 ### Find people and walk up to them
 
@@ -83,9 +92,13 @@ unchanged, cloned next to this repo, and keep only our code here.
   away, facing them.
 - ⬜ A person detector on the D435i camera that places people to within
   about 0.3 m, out to 4 m.
-- ⬜ Sim: a camera, or recorded camera data, to test with.
+- 🟡 Sim: a camera to test with: depth only (`harp/depth_camera.py`); colour
+  still needs recorded camera data.
 - ✅ Building block: the curved move to a point and heading.
-- ⬜ Sim, then robot: walk up to a person.
+- ✅ Sim: on its own, wander, walk up to people standing still and talk
+  with them (`harp/behavior.py`, `course.py people`), with a stand-in for
+  the detector (`harp/sim_people.py`) and for speech.
+- ⬜ Robot: walk up to a person.
 
 ### Talk with people
 
@@ -111,18 +124,23 @@ This has to happen before any of the "Robot" boxes above.
     every course.
   - ✅ Turns and curves to a point (`harp/moves.py`): 90° turn 90.2°,
     curve to (1, 1, 45°) within 7 cm and 5°.
-  - ✅ The simulated head lidar and moving people (`harp/lidar.py`,
-    `harp/movers.py`).
+  - ✅ The simulated head lidar and depth camera, as on the robot, and moving
+    people (`harp/lidar.py`, `harp/depth_camera.py`, `harp/movers.py`).
   - ✅ Nav2 with STVL and the Graceful Controller (`nav2/`, our Foxy port in
     `nav2_graceful_controller/`): all six courses succeed, no contacts.
-  - ✅ Standing while someone walks at the robot, and while the lidar is quiet
-    (`harp/approach_stop.py`, between Nav2 and our node): in `oncoming` it
+  - ✅ Standing while someone walks at the robot, seen by the lidar or the head
+    camera, and while the lidar is quiet (`harp/approach_stop.py`, between Nav2
+    and our node): in `oncoming` it
     stands about 6 s and the person passes 0.36 m away; it never stops on the
     courses without people.
   - ✅ Course tests, their scores and criteria, comparing runs, and each run's
     git commit (`course.py`).
-  - ✅ The robot's lidar into ROS 2 (`harp/lidar_relay.py`, started on the robot):
-    tested in the image against a cloud published the way the robot does.
+  - 🟡 The robot's lidar into ROS 2 (`harp/lidar_relay.py`, from Unitree's
+    `lidar_driver` service): both its clouds at 10 Hz on PC2, not yet in a
+    session through HARP's harness.
+  - 🟡 The head camera's depth on HARP's ROS 2 network, beside our image
+    (`testground/camera/depth_node.py` on PC2): 15 fps, the harness
+    unaffected; not yet read by our image in a session.
 - 🟡 Stopping from the remote: HARP's harness (double Start damps, double F3
   switches to its recovery policy, D-pad Left + B hands control to us).
   Robot: not yet tried.
@@ -222,7 +240,8 @@ This walks the robot in one curve to 1 m ahead and 1 m left, ending facing
 G1_TASK_COMMAND='{"to": [1, 1, 45]}' submission/sim.sh --seconds 35
 ```
 
-A page opens in your browser; press Start. For the first 5 s HARP's GR00T
+The run starts at once, and a viewer comes up at the address printed; press
+Start there to watch it from the beginning. For the first 5 s HARP's GR00T
 balance holds the robot (on the robot, until the operator hands over), then
 our image takes over and the move starts 2 s later. `"to": [X, Y, HEADING]`
 is meters ahead, meters left and degrees left of where the robot stands.
@@ -274,11 +293,17 @@ world's criteria, in a folder in `runs/` (which git ignores):
 python3 submission/course.py one_box
 ```
 
-To test predictive avoidance on a Nav2 course or waypoint route:
+Add `--view` to watch each run live at the address printed (press Start
+there to watch it from the beginning; the run doesn't wait for it). It closes
+the viewer 10 s after the run, before the next one.
+
+To test predictive avoidance on a Nav2 course, a waypoint route, or the
+building with walkers who give way to the robot:
 
 ```bash
 python3 submission/course.py crossing --avoidance predictive --tag predictive
 python3 submission/course.py one_box --route rectangle --avoidance predictive --tag predictive-route
+python3 submission/course.py building --avoidance predictive --crowd aware --tag predictive-building
 ```
 
 Build the image first. Predictive mode tracks generic LiDAR objects, checks future
@@ -289,26 +314,8 @@ keeps the route, recorder, GR00T adapter, and harness interfaces.
 Use `--avoidance reactive` for the default approach-stop behavior. Predictive
 mode currently accepts simulator Nav2 routes; use waypoints instead of planned
 straight moves. Model assumptions and validation: [predictive avoidance](context/predictive-avoidance.md).
+`course.py --replay RUN` replays a run with its walkers.
 
-Run the smaller planar MuJoCo check with the submission Python dependencies:
-
-```bash
-PYTHONPATH=submission python3 submission/test_predictive_sim.py --output runs/predictive-component
-```
-
-Watch the moving-object scenario with LiDAR hits and live avoidance (macOS):
-
-```bash
-PYTHONPATH=submission OPENBLAS_NUM_THREADS=1 mjpython submission/view_predictive_sim.py --scenario head_on
-```
-
-Use `--scenario crossing` for crossing traffic. This view uses the planar robot
-model. Close the window to exit.
-
-Add `--view` to watch each run live at the address printed: press Start
-there (after 2 minutes it starts the run anyway, but the page only shows a
-run started from it). It closes the viewer 10 s after the run, before the
-next one.
 Before each run it warns about viewers still up and memory pressure, and the
 run's `run.json` keeps the computer's memory during the run (`host_memory`).
 
@@ -317,11 +324,35 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 53). `--replay RUN_FOLDER` still shows any run with its obstacles, and
 `--prune` prunes every folder in `runs/` now.
 
+The robot on its own, the loop the robot is for: it wanders within 2.5 m of
+where it started, walks up to anyone standing still it notices, stops
+facing them, "talks" (the line it would say goes to `policy.log`) until they
+walk away or 30 s pass, turns around, then carries on. Until there is a
+person detector, the people come from a stand-in that finds them where the
+robot's sensors could: by the lidar wherever its head leaves it a view (with the
+face visor on, only off to the sides), and by the downward-looking camera
+within about 2 m ahead (`harp/sim_people.py`):
+
+```bash
+python3 submission/course.py people
+```
+
+The task is `G1_TASK_COMMAND='{"behavior": {"radius": 2.5}}'`
+(`harp/behavior.py`); `people.yaml` gives it, and checks each talk's
+distance and facing. `people_ahead` checks the lidar's view ahead with the face
+visor off: someone straight ahead, 3.5 m out, should be walked up to first, before
+a nearer person standing in the lidar's blind wedge to the side:
+
+```bash
+python3 submission/course.py people_ahead
+```
+
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`
 and `obstacle_course`; with people, `crossing` (someone walks across the
 robot's path) and `oncoming` (someone walks toward it; the robot should stand
-until they've passed). HARP's viewer doesn't show the people: they live only
-in our simulated lidar's world. They're MuJoCo files,
+until they've passed). HARP's live viewer doesn't show the people (they live
+only in our simulated lidar's world); `--replay` and the lidar view below do.
+They're MuJoCo files,
 so copy and edit them freely (how to make something move:
 `submission/harp/movers.py`). This compares every scored run of a course, by
 tag (`--tag` names what a run is testing):
@@ -329,6 +360,31 @@ tag (`--tag` names what a run is testing):
 ```bash
 python3 submission/course.py --compare slalom
 ```
+
+Each run folder keeps our events in `events.jsonl`. This lists them in order,
+with their sim time, and any second whose state from HARP's sim came late:
+
+```bash
+python3 submission/course.py --events RUN_FOLDER
+```
+
+To see what the robot sees (its lidar, where it thinks it is and where it
+really is, the people, Nav2's costmap and plan, and the events), in
+[Rerun](https://rerun.io), set up `testground/`'s analysis tools once
+(`testground/README.md`):
+
+```bash
+cd testground && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+```
+
+Then start this before a run and open the address it prints; it shows each
+sim run in a world as it happens, until Ctrl-C (`--native` for a window):
+
+```bash
+python3 submission/lidar_view.py
+```
+
+`--run RUN_FOLDER` shows a finished run instead.
 
 To walk a route of several points instead of the world's goal:
 
@@ -420,8 +476,7 @@ G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./setup.sh --mode dry-run --profile ~/harp_
 G1_TASK_COMMAND='{"to": [1, 1, 45]}' ./submit.sh --mode real --profile ~/harp_joint_profile.json
 ```
 
-The image also brings the head lidar into ROS 2 on
-`/utlidar/cloud_livox_mid360` (`harp/lidar_relay.py`). GR00T balance takes over from Unitree's controller. Once it prints
+GR00T balance takes over from Unitree's controller. Once it prints
 `startup_phase: ready`, press **D-pad Left + B** to hand control to our
 image. **Double Start damps the robot** at any time, and double F3 switches
 to the recovery policy. Before running again, double-press Start, check it

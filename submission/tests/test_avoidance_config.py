@@ -92,9 +92,20 @@ class Nav2Overrides(unittest.TestCase):
         self.assertEqual(launch.STATIC_TOPIC, STATIC_TOPIC)
         for costmap in ("local_costmap", "global_costmap"):
             layer = params[costmap][costmap]["ros__parameters"]["stvl_layer"]
-            # Marks from the cloud without moving objects; clearing from the raw lidar.
+            # Marks from the cloud without moving objects; clearing from the raw lidar. The
+            # head camera only clears: its marks would put the walkers back.
             self.assertEqual(layer["lidar_marking"]["topic"], STATIC_TOPIC)
-            self.assertEqual(layer["lidar_clearing"]["topic"], "/utlidar/cloud_livox_mid360")
+            self.assertEqual(layer["lidar_clearing"]["topic"], "/utlidar/cloud_rear")
+            self.assertEqual(layer["lidar_front_clearing"]["topic"], "/utlidar/cloud_livox_mid360")
+            sources = layer["observation_sources"].split()
+            self.assertNotIn("camera_marking", sources)
+            self.assertIn("camera_clearing", sources)
+            self.assertIn("lidar_front_clearing", sources)
+        with open(launch.parameters_for("predictive_avoidance", visor=True)) as source:
+            both = yaml.safe_load(source)
+        for costmap in ("local_costmap", "global_costmap"):
+            sources = both[costmap][costmap]["ros__parameters"]["stvl_layer"]["observation_sources"].split()
+            self.assertEqual(sources, ["lidar_marking", "lidar_clearing", "camera_clearing"])
         # Never set in the shared file: on Foxy its controller_server entry beats a
         # launch override (a /** entry), as follow_when_blocked: false there did in HIM.
         with open(launch.PARAMS) as source:

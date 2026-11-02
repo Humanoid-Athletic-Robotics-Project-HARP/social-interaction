@@ -3,7 +3,7 @@ name: project-overview
 description: Read when you need the big picture — the robot, the team and the decisions that shape the code
 metadata:
   type: project
-  updated: 2026-11-01T11:57:41Z
+  updated: 2026-11-02T06:50:41Z
   covers: [README.md]
 ---
 
@@ -15,7 +15,7 @@ Stanford HARP project on a **Unitree G1 EDU with 29 joints** (6 per leg, 3 waist
 
 **Decisions that shape the code**
 - Walking: NVIDIA's open GR00T policy, not Unitree's closed sport service (the mentors' request) ([[gr00t-wbc]], [[feedback-minimal-setup]]).
-- Our code runs inside HARP's safety harness and simulator, HIMRobotics' `him-sim2real-management`, kept as an unmodified external dependency ([[him-sim2real]], [[safety]]): one Docker image (ROS 2 Foxy) in `submission/` ([[submission-image]]). `harp_node.py` drives HIM's GR00T walker from `/cmd_vel` and publishes our leg odometry; planned moves ([[planned-moves]]) and Nav2 with the head lidar ([[nav2-sim]]) drive `/cmd_vel`.
+- Our code runs inside HARP's safety harness and simulator, HIMRobotics' `him-sim2real-management`, kept as an unmodified external dependency ([[him-sim2real]], [[safety]]): one Docker image (ROS 2 Foxy) in `submission/` ([[submission-image]]). `harp_node.py` drives HIM's GR00T walker from `/cmd_vel` and publishes our leg odometry; planned moves ([[planned-moves]]) and Nav2 with the head lidar and depth camera ([[nav2-sim]], [[sim-vs-real]]) drive `/cmd_vel`.
 - Validate changes in HIM's sim before hardware use and keep scored runs under `runs/` (`submission/course.py`). Validation status is in the README. Nothing has run on the real robot yet (as of 2026-10-31).
 - How to detect and talk to people is undecided.
 

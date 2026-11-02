@@ -5,7 +5,11 @@
 #  - otherwise, in a world's image in the sim (submission/sim.sh --world): the
 #    simulated lidar, Nav2, the course goal (the world's goal, or the route in
 #    G1_TASK_COMMAND, {"route": ...}: course.py --route), and harp/approach_stop.py
-#    between Nav2's commands and our node (standing while something comes at the robot).
+#    between Nav2's commands and our node (standing while something comes at the robot),
+#    and harp/view_feed.py (the lidar, pose, people and costmap for submission/lidar_view.py);
+#    with {"behavior": ...} in G1_TASK_COMMAND, the behavior loop (harp/behavior.py: wander
+#    and walk up to people) and its stand-in person detector (harp/sim_people.py) in place
+#    of the course goal.
 # Everything prints to the container's output (HIM's policy.log in the sim).
 set -e
 NAV2_WAIT=15   # s our node waits at most for Nav2 to be configured (HIM waits 30 s)
@@ -47,7 +51,14 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH="/harp:$PYTHONPATH" \
     nice -n 10 python3 "/harp/harp/${avoidance_filter}.py" &
-  PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/course_goal.py &
+  if [[ "${G1_TASK_COMMAND:-}" == *'"behavior"'* ]]; then
+    PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/sim_people.py &
+    PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/behavior.py &
+  else
+    PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/course_goal.py &
+  fi
+  # What the robot sees, a few times a second on our output, for submission/lidar_view.py.
+  PYTHONPATH="/harp:$PYTHONPATH" nice -n 19 python3 /harp/harp/view_feed.py &
   PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/nav2_ready.py "$NAV2_WAIT" || true
 fi
 exec python3 /harp/harp_node.py

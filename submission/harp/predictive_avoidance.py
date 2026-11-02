@@ -24,6 +24,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from harp import events
 from harp.approach_stop import TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.obstacle_tracker import STRUCTURE_ID, Tracker
@@ -165,7 +166,7 @@ class PredictiveAvoidance:
 
     def status(self, mode, alert=False, **fields):
         if mode != self.mode:
-            text = json.dumps(dict(source="predictive", event="avoidance", mode=mode, **fields))
+            text = events.record("predictive", "avoidance", mode=mode, **fields)
             self.events.publish(String(data=text))
             print(text, flush=True)
             self.mode = mode

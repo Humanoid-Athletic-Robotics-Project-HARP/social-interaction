@@ -99,8 +99,8 @@ class AwareWalkers(unittest.TestCase):
 
 class LoggedPaths(unittest.TestCase):
     EVENTS = [{"source": "lidar", "event": "crowd", "mode": "aware", "movers": ["p"]},
-              {"source": "lidar", "event": "movers", "t": 0., "xy": [[0., 0.]]},
-              {"source": "lidar", "event": "movers", "t": 2., "xy": [[1., 2.]]}]
+              {"source": "lidar", "event": "movers", "sim_time": 0., "xy": [[0., 0.]]},
+              {"source": "lidar", "event": "movers", "sim_time": 2., "xy": [[1., 2.]]}]
 
     def test_movers_follow_a_logged_path(self):
         model = mujoco.MjModel.from_xml_string(world())
@@ -125,8 +125,8 @@ class LoggedPaths(unittest.TestCase):
         # crossing.xml's person walks x = 2.5, well clear of a robot standing at the origin;
         # an aware crowd's log has it standing against the robot instead.
         crowd = [{"source": "lidar", "event": "crowd", "mode": "aware", "movers": ["person"]},
-                 {"source": "lidar", "event": "movers", "t": 0., "xy": [[.3, 0.]]},
-                 {"source": "lidar", "event": "movers", "t": 2., "xy": [[.3, 0.]]}]
+                 {"source": "lidar", "event": "movers", "sim_time": 0., "xy": [[.3, 0.]]},
+                 {"source": "lidar", "event": "movers", "sim_time": 2., "xy": [[.3, 0.]]}]
         for events, contacts, mode in (([], 0, "scripted"), (crowd, 1, "aware")):
             with tempfile.TemporaryDirectory() as folder:
                 folder = Path(folder)
@@ -159,8 +159,8 @@ class LoggedPaths(unittest.TestCase):
                 "submission-1  | " + json.dumps(e) + "\n" for e in (
                     {"source": "lidar", "event": "crowd", "mode": "aware", "movers": ["person"]},
                     {"source": "lidar", "event": "mover_start", "mover": "person", "starts_at": 4.},
-                    {"source": "lidar", "event": "movers", "t": 0., "xy": [[2.5, -3.]]},
-                    {"source": "lidar", "event": "movers", "t": 10., "xy": [[1.5, 2.]]})))
+                    {"source": "lidar", "event": "movers", "sim_time": 0., "xy": [[2.5, -3.]]},
+                    {"source": "lidar", "event": "movers", "sim_time": 10., "xy": [[1.5, 2.]]})))
             qpos = np.tile([0., 0., .8, 1., 0., 0., 0.], (2, 1))
             with patch.object(course, "MODEL", g1), patch.object(course, "SCENES", scenes):
                 _, poses = course.replay_movers(run, qpos, np.array([5., 10.]))
@@ -178,19 +178,24 @@ class SimLidarCrowd(unittest.TestCase):
             with patch.dict(os.environ, {"G1_TASK_COMMAND": task}), redirect_stdout(out):
                 lidar = SimLidar(node, scene)
                 # Not the rays (the image's MuJoCo 3.2.3 casts them): the movers and the log.
-                with patch.object(SimLidar, "cast"), patch.object(SimLidar, "publish"):
+                lidar.camera = Mock()
+                with patch.object(SimLidar, "cast", return_value=np.zeros((0, 3))), \
+                        patch.object(SimLidar, "publish"):
                     for t in (0., .1, .2):
                         lidar.on_state(Mock(data=json.dumps(dict(
                             sim_time=t, position=[3., 0., .8], quat=[1., 0., 0., 0.], q=[],
                             control_ready=True))))
-        return lidar, [json.loads(line) for line in out.getvalue().splitlines()]
+        lines = out.getvalue().splitlines()
+        self.assertTrue(lines)
+        return lidar, [json.loads(line) for line in lines if line.startswith("{")]
 
     def test_an_aware_crowd_logs_where_its_walkers_go(self):
         lidar, printed = self.lidar('{"crowd":"aware"}')
-        self.assertEqual(printed[0], {"source": "lidar", "event": "crowd", "mode": "aware",
-                                      "movers": ["p"]})
+        crowd = {k: v for k, v in printed[0].items() if k != "wall"}   # harp/events.py's head
+        self.assertEqual(crowd, {"source": "lidar", "event": "crowd", "mode": "aware",
+                                 "movers": ["p"]})
         paths = [e for e in printed if e["event"] == "movers"]
-        self.assertEqual([e["t"] for e in paths], [0., .1, .2])
+        self.assertEqual([e["sim_time"] for e in paths], [.1, .2])   # with each 100 ms scan
         np.testing.assert_allclose(paths[-1]["xy"], lidar.movers.positions, atol=1e-3)
 
     def test_scripted_movers_log_no_paths(self):
