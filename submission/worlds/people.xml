@@ -1,23 +1,23 @@
 <!-- People for the behavior loop (harp/behavior.py; course.py people runs it, the task
-     is in people.yaml): wander, walk up to someone, talk, wander again. Two people
-     stand out of the camera's view at the start: person_a 3.1 m away to the left,
-     person_b behind. person_a walks off (3 m away from the robot's start, in 3 s)
-     46 s after the robot sets off: partway through the talk with them in runs with
-     people.yaml's seed, so the robot should end the talk as they leave. person_c
-     walks across ahead, 3.8 m out, once the robot sets off (4.5 m in 6 s), then
-     stands at the far end. A box sits inside the area the robot wanders (2.5 m around
-     its start). Standing people are movers too, so the stand-in detector
-     (harp/sim_people.py) sees them: trips 0 keeps one where it starts. How movers
-     work: submission/harp/movers.py.
+     is in people.yaml): wander, notice someone, walk up, talk, turn away, again. Everyone
+     starts just over 4 m from the robot, beyond where it notices people, so it wanders
+     first. person_a stands off to the side of its first wander leg (people.yaml's seed),
+     so it notices them first, and walks off (3 m further away, in 3 s) 38 s after the
+     robot sets off, partway through their talk: the robot should end it as they leave.
+     person_b stands behind the start. person_c walks across ahead, 4.5 m out, once the
+     robot sets off (5.5 m in 7 s), then stands at the far end. A box sits inside the area
+     the robot wanders (2.5 m around its start). Standing people are movers too, so the
+     stand-in detector (harp/sim_people.py) sees them: trips 0 keeps one where it starts.
+     How movers work: submission/harp/movers.py.
      python3 submission/course.py people -->
 <mujoco>
   <custom>
     <numeric name="person_a_duration" data="3"/>
-    <numeric name="person_a_delay" data="46"/>
+    <numeric name="person_a_delay" data="38"/>
     <numeric name="person_a_trips" data="1"/>
     <numeric name="person_b_duration" data="1"/>
     <numeric name="person_b_trips" data="0"/>
-    <numeric name="person_c_duration" data="6"/>
+    <numeric name="person_c_duration" data="7"/>
     <numeric name="person_c_delay" data="4"/>
     <numeric name="person_c_trips" data="1"/>
   </custom>
@@ -32,17 +32,17 @@
   </default>
   <worldbody>
     <geom class="obstacle" name="box" size="0.3 0.3 0.4" pos="1.6 -1.5 0.4"/>
-    <body name="person_a" mocap="true" pos="0.8 3 0">
+    <body name="person_a" mocap="true" pos="-2.5 -3.5 0">
       <geom class="person" name="person_a"/>
     </body>
-    <site name="person_a_end" pos="0.8 6 0"/>
-    <body name="person_b" mocap="true" pos="-2.6 -1 0">
+    <site name="person_a_end" pos="-5.2 -4.9 0"/>
+    <body name="person_b" mocap="true" pos="-4.4 -1.2 0">
       <geom class="person" name="person_b"/>
     </body>
-    <site name="person_b_end" pos="-2.6 -1 0"/>
-    <body name="person_c" mocap="true" pos="3.8 -2.5 0">
+    <site name="person_b_end" pos="-4.4 -1.2 0"/>
+    <body name="person_c" mocap="true" pos="4.5 -3 0">
       <geom class="person" name="person_c"/>
     </body>
-    <site name="person_c_end" pos="3.8 2 0"/>
+    <site name="person_c_end" pos="4.5 2.5 0"/>
   </worldbody>
 </mujoco>

@@ -282,11 +282,12 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 `--prune` prunes every folder in `runs/` now.
 
 The robot on its own, the loop the robot is for: it wanders within 2.5 m of
-where it started, walks up to anyone standing still in front of it, stops
+where it started, walks up to anyone standing still it notices, stops
 facing them, "talks" (the line it would say goes to `policy.log`) until they
 walk away or 30 s pass, turns around, then carries on. Until there is a
-camera detector, the people come from a stand-in that sees them where the
-sim has them (`harp/sim_people.py`):
+person detector, the people come from a stand-in that finds them where the
+robot's sensors could: off to the sides by the lidar, and ahead only within
+about 2 m by the downward-looking camera (`harp/sim_people.py`):
 
 ```bash
 python3 submission/course.py people

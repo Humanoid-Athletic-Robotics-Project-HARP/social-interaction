@@ -1,6 +1,6 @@
 """The robot on its own: wander, notice a person, walk up to them, talk, wander again.
 entrypoint.sh starts it in place of harp/course_goal.py when G1_TASK_COMMAND is
-{"behavior": {...}}, in a world's image in the sim and on the robot. It drives only
+{"behavior": {...}}, in a world's image in the sim (not yet on the robot). It drives only
 through Nav2 (harp/approach_stop.py still stands between Nav2 and our node), reusing
 course_goal's Nav2 client.
 
@@ -10,10 +10,11 @@ then loops until the container stops:
   - Wander: Nav2 goals to random points within radius m of where it started (in odom:
     there is no map, and leg odometry drifts), at least MIN_LEG from where it is,
     facing the way it walks. A failed or timed-out point is dropped for the next.
-  - Notice: a person on /harp/people (harp/sim_people.py in the sim; nothing yet on
-    the robot, which so only wanders) within NOTICE m, standing still (moved under
-    STILL m/s over the last TRACK s), and not talked to in the last REGREET s. The
-    nearest one cancels the wander goal.
+  - Notice: a person on /harp/people (the stand-in harp/sim_people.py: people off to
+    the sides by the lidar, ahead only within about 2 m by the camera) within NOTICE m,
+    standing still (moved under STILL m/s over the last TRACK s), and not talked to in
+    the last REGREET s. The nearest one cancels the wander goal. While it walks up to
+    them, someone ahead is out of sight until about 2 m: it keeps to where it saw them.
   - Approach: one Nav2 goal STAND_OFF m from them on the robot's side, facing them,
     which the Graceful Controller reaches in one curve. If they move over REAIM m from
     where it aims, it aims again (at most REAIMS times), then gives up on them.

@@ -3,7 +3,7 @@ name: project-overview
 description: Read when you need the big picture — the robot, the team and the decisions that shape the code
 metadata:
   type: project
-  updated: 2026-11-02T02:46:39Z
+  updated: 2026-11-02T06:06:36Z
   covers: [README.md]
 ---
 
