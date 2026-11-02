@@ -7,9 +7,11 @@ course_goal's Nav2 client.
 It starts once HIM has handed control to our policy (in the sim, after HIM's start-up
 balance; on the robot, D-pad Left + B), Nav2 is active and SETTLE s have passed, and
 then loops until the container stops:
-  - Wander: Nav2 goals to random points within radius m of where it started (in odom:
-    there is no map, and leg odometry drifts), at least MIN_LEG from where it is,
-    facing the way it walks. A failed or timed-out point is dropped for the next.
+  - Wander: Nav2 goals to a random point in front of it (MIN_LEG to MAX_LEG m away,
+    within FRONT deg of where it faces), facing the way it walks, kept within radius m
+    of where it started (in odom: there is no map, and leg odometry drifts): near the
+    edge the cone widens until a point fits, and from outside it heads back to the
+    start. A failed or timed-out point is dropped for the next.
   - Notice: a person on /harp/people (the stand-in harp/sim_people.py: people off to
     the sides by the lidar, ahead only within about 2 m by the camera) within NOTICE m,
     standing still (moved under STILL m/s over the last TRACK s), and not talked to in
@@ -56,6 +58,8 @@ from harp.leg_odometry import yaw_of
 
 RADIUS = 2.5      # m from where it started that it wanders within, by default
 MIN_LEG = 1.0     # m at least from where it is to the next wander point
+MAX_LEG = 2.5     # m at most from where it is to the next wander point
+FRONT = 45        # deg either side of where it faces that the next wander point is looked for
 WANDER_TIME = 60.0     # s for each wander point
 APPROACH_TIME = 60.0   # s for each approach goal
 NOTICE = 4.0      # m: people farther away are left alone (the detector we want reaches 4 m)
@@ -156,11 +160,7 @@ class Behavior:
     def wander(self, home):
         """One wander goal, cut short as soon as someone is worth walking up to."""
         x, y = self.pose[:2]
-        for _ in range(100):
-            r, a = self.radius * math.sqrt(self.random.random()), self.random.uniform(-math.pi, math.pi)
-            point = home[0] + r * math.cos(a), home[1] + r * math.sin(a)
-            if math.hypot(point[0] - x, point[1] - y) >= MIN_LEG:
-                break
+        point = wander_point(self.pose, home, self.radius, self.random)
         heading = math.degrees(math.atan2(point[1] - y, point[0] - x))
         self.event("wander_goal", x=round(point[0], 2), y=round(point[1], 2), yaw=round(heading, 1))
         began = time.monotonic()
@@ -223,6 +223,20 @@ class Behavior:
         began = time.monotonic()
         status, _ = go_to(self.node, self.nav, (x, y, heading), began + TURN_TIME)
         self.event("turn_result", status=status, seconds=round(time.monotonic() - began, 1))
+
+
+def wander_point(pose, home, radius, rng):
+    """A point MIN_LEG to MAX_LEG m in front of the robot (within FRONT deg of where it
+    faces) and within radius of home. Near the edge, facing out, none may fit: the cone
+    widens FRONT deg at a time, up to all round. Outside the area, home."""
+    x, y, yaw = pose
+    for half in range(int(FRONT), 181, int(FRONT)):
+        for _ in range(50):
+            d, a = rng.uniform(MIN_LEG, MAX_LEG), yaw + math.radians(rng.uniform(-half, half))
+            point = x + d * math.cos(a), y + d * math.sin(a)
+            if math.dist(point, home) <= radius:
+                return point
+    return tuple(home)
 
 
 def settings():

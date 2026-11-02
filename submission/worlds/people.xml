@@ -1,11 +1,11 @@
 <!-- People for the behavior loop (harp/behavior.py; course.py people runs it, the task
      is in people.yaml): wander, notice someone, walk up, talk, turn away, again. Everyone
      starts just over 4 m from the robot, beyond where it notices people, so it wanders
-     first. person_a stands off to the side of its first wander leg (people.yaml's seed),
-     so it notices them first, and walks off (3 m further away, in 3 s) 38 s after the
-     robot sets off, partway through their talk: the robot should end it as they leave.
-     person_b stands behind the start. person_c walks across ahead, 4.5 m out, once the
-     robot sets off (5.5 m in 7 s), then stands at the far end. A box sits inside the area
+     first. person_a stands behind the start, to the right, and walks off (3 m further
+     away, in 3 s) 38 s after the robot sets off: met before then, the robot should end
+     the talk as they leave (with people.yaml's seed it isn't). person_b stands behind
+     the start. person_c walks across ahead, 4.5 m out, once the robot sets off (5.5 m
+     in 7 s), then stands at the far end: walking on ahead, the robot meets them first. A box sits inside the area
      the robot wanders (2.5 m around its start). Standing people are movers too, so the
      stand-in detector (harp/sim_people.py) sees them: trips 0 keeps one where it starts.
      How movers work: submission/harp/movers.py.
