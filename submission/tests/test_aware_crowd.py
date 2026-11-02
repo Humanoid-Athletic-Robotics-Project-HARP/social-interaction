@@ -75,6 +75,28 @@ class AwareWalkers(unittest.TestCase):
         self.assertTrue(any(xy[0] > 5.6 for _, xy in path))
 
 
+    def test_aware_walkers_give_way_to_each_other_and_never_overlap(self):
+        # Head-on along one line: they walked through each other (and the trolley) before.
+        xml = f"""<mujoco><custom>
+            <numeric name="p_duration" data="10"/><numeric name="p_route" data="6 0"/>
+            <numeric name="q_duration" data="10"/><numeric name="q_route" data="0 0"/>
+            </custom><worldbody>
+            <body name="{lidar_mount.PARENT}"><freejoint/><geom type="cylinder" size=".3 .7"/></body>
+            <body name="p" mocap="true" pos="0 0 0"><geom type="cylinder" size=".25 .85"/></body>
+            <body name="q" mocap="true" pos="6 0 0"><geom type="cylinder" size=".25 .85"/></body>
+            </worldbody></mujoco>"""
+        model = mujoco.MjModel.from_xml_string(xml)
+        data, movers = mujoco.MjData(model), AwareMovers(model)
+        data.qpos[:2] = (3., 20.)   # the robot far away
+        gaps, ends = [], set()
+        for t in np.arange(0., 14., .1):
+            movers.apply(data, t)
+            gaps.append(np.linalg.norm(movers.positions[0] - movers.positions[1]))
+            ends |= {i for i, end in ((0, 6.), (1, 0.)) if abs(movers.positions[i][0] - end) < .2}
+        self.assertGreater(min(gaps), .5)        # 0.25 + 0.25: their bodies never overlap
+        self.assertEqual(ends, {0, 1})           # and both get past each other
+
+
 class LoggedPaths(unittest.TestCase):
     EVENTS = [{"source": "lidar", "event": "crowd", "mode": "aware", "movers": ["p"]},
               {"source": "lidar", "event": "movers", "t": 0., "xy": [[0., 0.]]},

@@ -732,6 +732,8 @@ def replay(run, seconds=None):
                 time.sleep(0.5)
             url = next((line.split()[-1] for line in log_path.read_text().splitlines()
                         if line.startswith("Open http")), None)
+            if url and people:
+                overview_camera(tmp / "view" / "index.html", people[0], run.name)
             if not url:
                 print(f"{run.name}: no replay:\n{log_path.read_text()}", flush=True)
             elif seconds is None:
@@ -744,6 +746,29 @@ def replay(run, seconds=None):
                 print(f"{run.name}: replay at {url} for {seconds:.0f} s", flush=True)
                 time.sleep(seconds)
             stop(server, run.name)
+
+
+VIEWER_CAMERA = ("camera.position.set(2.2, -2.2, 1.4);", "controls.target.set(0, 0, 0.8);")
+
+
+def overview_camera(page, model, name):
+    """Start HIM's replay page (our temporary copy, never HIM's files) looking over the
+    whole world, its goal included, instead of from beside the start: from there walkers
+    near the start filled the view and the robot walked out of sight."""
+    fixed = [g for g in range(model.ngeom) if model.geom_bodyid[g] == 0
+             and model.geom_type[g] != mujoco.mjtGeom.mjGEOM_PLANE]
+    if not fixed or not page.is_file():
+        return
+    reach = np.abs(model.geom_size[fixed, :2]).max(axis=1, keepdims=True)
+    low = (model.geom_pos[fixed, :2] - reach).min(axis=0)
+    high = (model.geom_pos[fixed, :2] + reach).max(axis=0)
+    (cx, cy), size = (low + high) / 2, float(max(high - low))
+    text = page.read_text()
+    if not all(line in text for line in VIEWER_CAMERA):
+        print(f"{name}: HIM's replay page changed; kept its own camera", flush=True)
+        return
+    text = text.replace(VIEWER_CAMERA[0], f"camera.position.set({cx:.2f}, {cy - .9 * size:.2f}, {.9 * size:.2f});")
+    page.write_text(text.replace(VIEWER_CAMERA[1], f"controls.target.set({cx:.2f}, {cy:.2f}, 0);"))
 
 
 def stop(process, name, wait=15):

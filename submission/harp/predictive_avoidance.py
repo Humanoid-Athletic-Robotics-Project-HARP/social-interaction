@@ -27,7 +27,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from harp.approach_stop import TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.obstacle_tracker import STRUCTURE_ID, Tracker
-from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner
+from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner, Responsiveness
 
 PERIOD = CONTROL_PERIOD
 TIMEOUT = 0.5
@@ -53,20 +53,22 @@ def transform_points(points, transform):
     return points @ rotation(quat / norm).T + shift
 
 
-def static_mask(points_xy, tracks, stamp, base_xy=None):
-    """Returns not on an object seen moving in this scan (a person, a trolley), nor on
-    the robot itself (within SELF_RADIUS of base_xy).
+def static_mask(points_xy, tracks, stamp, base_xy=None, moved=()):
+    """Returns not on an object seen moving in this scan (a person, a trolley) or before
+    (moved: track ids), nor on the robot itself (within SELF_RADIUS of base_xy).
 
-    Only compact, freshly observed, moving tracks are removed: anything standing,
-    unseen or large stays, so Nav2 still plans around it. The robot's own returns lie
-    just past Nav2's footprint; marked and inflated, they enclosed its start cell.
+    Only compact, freshly observed tracks that move, or have moved, are removed: anything
+    never seen moving, unseen or large stays, so Nav2 still plans around it. A person
+    pausing to give way had joined Nav2's map, and its replanned path swung the robot's
+    heading. The robot's own returns lie just past Nav2's footprint; marked and inflated,
+    they enclosed its start cell.
     """
     keep = np.ones(len(points_xy), bool)
     if base_xy is not None:
         keep &= np.hypot(points_xy[:, 0]-base_xy[0], points_xy[:, 1]-base_xy[1]) > SELF_RADIUS
     for t in tracks:
         if (t.id < STRUCTURE_ID and t.last_seen == stamp and t.radius < MOVING_SIZE
-                and math.hypot(t.vx, t.vy) >= MOVING_SPEED):
+                and (math.hypot(t.vx, t.vy) >= MOVING_SPEED or t.id in moved)):
             keep &= np.hypot(points_xy[:, 0]-t.x, points_xy[:, 1]-t.y) > t.radius+.05
     return keep
 
@@ -121,7 +123,12 @@ class PredictiveAvoidance:
             raise ValueError('predictive speed must be within .05 to .6 m/s')
         gain = float(os.environ.get('HARP_PREDICTIVE_TRACKING_GAIN','.85'))
         lateral_gain = float(os.environ.get('HARP_PREDICTIVE_LATERAL_GAIN','.60'))
-        self.planner = Planner(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain))
+        self.planner = Planner(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain,
+            cooperative=os.environ.get('HARP_PREDICTIVE_COOPERATIVE', '1') != '0',
+            smoothing=os.environ.get('HARP_PREDICTIVE_SMOOTHING', '1') != '0',
+            heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1'))
+        self.moved = set()   # ids of tracks seen moving: people, still people when they pause
+        self.responsiveness = Responsiveness()   # who gives way: the planner's forecast credit
         self.config = self.planner.config
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
         latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -246,6 +253,12 @@ class PredictiveAvoidance:
             origin = transform_points(np.zeros((1,3)), world)[0]
             base = transform_points(np.zeros((1, 3)), body)[0]
             tracks = self.process_scan(points, origin, base, stamp)
+            if self.pose is not None and self.velocity is not None and self.config.cooperative:
+                self.planner.credits = self.responsiveness.update(tracks, self.pose, self.velocity)
+            present = {t.id for t in tracks}
+            self.moved = {i for i in self.moved if i in present} | {
+                t.id for t in tracks if t.id < STRUCTURE_ID and t.last_seen == stamp
+                and t.radius < MOVING_SIZE and math.hypot(t.vx, t.vy) >= MOVING_SPEED}
         except TransformException:
             # DDS can deliver a scan before its TF. Retry one bounded pending scan,
             # keeping its original timestamp; the watchdog still holds zero if stale.
@@ -257,10 +270,12 @@ class PredictiveAvoidance:
             return
         self.pending_cloud = None
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
-        self.static_out.publish(cloud_message(cloud.header,
-                                              local[static_mask(points[:, :2], self.last_tracks, stamp, base[:2])]))
-        self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp,
-                                                   tracks=[asdict(t) for t in tracks]))))
+        self.static_out.publish(cloud_message(cloud.header, local[static_mask(
+            points[:, :2], self.last_tracks, stamp, base[:2],
+            self.moved if self.config.smoothing else ())]))
+        credits = getattr(self.planner, 'credits', {})
+        self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp, tracks=[
+            dict(asdict(t), credit=credits.get(t.id)) for t in tracks]))))
 
     def process_scan(self, points, origin, base, stamp):
         """Odom-frame points, lidar origin and base position -> planning tracks.

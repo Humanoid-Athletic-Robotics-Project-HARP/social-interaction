@@ -77,6 +77,10 @@ WALL_LOOK = (0.2, 0.4, 0.6)   # s ahead its positions are checked against walls
 WALL_COST = 1.0           # heading into a wall or block (it would slide along it)
 ROBOT_WINDOW = 0.5        # s the robot's velocity is measured over (its gait sways)
 GIVE_UP = 6.0             # s a mover stands blocked (by the robot in a door, say) before turning back
+OTHERS = 3.0              # m within which a mover gives way to another, at half the weight
+                          # (the other gives way too), never letting their bodies overlap
+OTHERS_COMFORT = 0.25     # m of gap it would rather keep from another mover
+OTHERS_GAP = 0.05         # m of gap it never heads to within CONTACT_TIME, if avoidable
 BOX = 6                   # mujoco.mjtGeom.mjGEOM_BOX; and sphere, capsule, ellipsoid, cylinder:
 ROUND = (2, 3, 4, 5)
 
@@ -179,9 +183,10 @@ class AwareMovers(Movers):
     at the same mean speed as a scripted mover, but speeds up, slows to turn back and
     changes direction gradually, and gives way to the robot: it goes round it, slows to
     let it cross or steps aside (right, if straight at each other), then heads back to
-    its route, keeping off walls and blocks (boxes named wall* or block*). Movers don't
-    see each other, as scripted ones don't. data.qpos[:2] holds the robot's true position
-    when apply is called (the lidar's copy of the world, posed from HIM's state)."""
+    its route, keeping off walls and blocks (boxes named wall* or block*) and giving way to
+    each other the same way (each taking half), their bodies never overlapping.
+    data.qpos[:2] holds the robot's true position when apply is called (the lidar's copy
+    of the world, posed from HIM's state)."""
 
     def __init__(self, model):
         super().__init__(model)
@@ -241,6 +246,7 @@ class AwareMovers(Movers):
                 size = np.linalg.norm(change, axis=1, keepdims=True)
                 self.velocity += change * np.minimum(1.0, ACCELERATION * gap / steps / np.maximum(size, 1e-9))
                 self.positions += self.velocity * gap / steps
+                self._separate()
                 self._clear_walls()
             for i in np.flatnonzero(walking):
                 self._advance(i)
@@ -304,6 +310,19 @@ class AwareMovers(Movers):
             side = np.sign(relative[:, 0] * miss[:, 1] - relative[:, 1] * miss[:, 0])
             if self.side[i]:
                 cost += np.where(side == -self.side[i], SIDE_COST, 0.0)
+        others = np.flatnonzero((np.arange(len(self.names)) != i)
+                                & (np.linalg.norm(self.positions - self.positions[i], axis=1) < OTHERS))
+        if len(others):
+            apart = self.positions[i] - self.positions[others]                      # (m, 2)
+            moving = candidates[:, None, :] - self.velocity[others][None]         # (n, m, 2)
+            soon = np.maximum(-np.sum(moving * apart, axis=2)
+                              / np.maximum(np.sum(moving ** 2, axis=2), 1e-9), SOON)
+            passing = np.linalg.norm(apart + soon[..., None] * moving, axis=2)
+            bodies = self.radius[i] + self.radius[others]
+            cost += 0.5 * CLOSE_COST * np.sum(
+                np.exp(-soon / URGENCY) * np.maximum(0.0, 1.0 - passing / (bodies + OTHERS_COMFORT)) ** 2, axis=1)
+            contact = apart + np.minimum(soon, CONTACT_TIME)[..., None] * moving
+            cost += np.where((np.linalg.norm(contact, axis=2) < bodies + OTHERS_GAP).any(axis=1), BLOCKED_COST, 0.0)
         if len(self.wall_center):
             ahead = self.positions[i] + np.multiply.outer(WALL_LOOK, candidates)   # (looks, n, 2)
             gap = self._wall_gap(ahead.reshape(-1, 2)).reshape(len(WALL_LOOK), -1)
@@ -375,6 +394,19 @@ class AwareMovers(Movers):
                 self.heading[i], self.rest[i] = 0, end
             else:
                 self.heading[i] = -heading
+
+    def _separate(self):
+        """Pushes apart any two movers whose bodies overlap, half each."""
+        for _ in range(2):
+            apart = self.positions[:, None] - self.positions[None]
+            distance = np.linalg.norm(apart, axis=2)
+            overlap = self.radius[:, None] + self.radius[None] - distance
+            np.fill_diagonal(overlap, -1.0)
+            for i, j in zip(*np.nonzero(np.triu(overlap > 0))):
+                direction = (apart[i, j] / distance[i, j] if distance[i, j] > 1e-9
+                             else np.array([1.0, 0.0]))
+                self.positions[i] += 0.5 * overlap[i, j] * direction
+                self.positions[j] -= 0.5 * overlap[i, j] * direction
 
     def _clear_walls(self):
         """Keeps every mover's centre its radius from every wall and block."""

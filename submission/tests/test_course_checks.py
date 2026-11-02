@@ -135,3 +135,41 @@ class Pruning(unittest.TestCase):
             self.assertIsNone(course.saved_model(run))
             self.assertTrue(course.strip(run))
             self.assertEqual((run / "trace.npz").read_bytes(), b"PK\x03\x04 cut short")
+
+
+class ReplayScene(unittest.TestCase):
+    def test_the_replay_marks_the_goal_and_shows_the_floor_plan_through_walls(self):
+        import tempfile
+        import xml.etree.ElementTree as ET
+        from pathlib import Path
+        import stage_world
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            (folder / "g1").mkdir()
+            stage_world.main("building", folder / "g1", folder / "out")
+            replay = ET.parse(folder / "out" / "building_replay_world.xml").getroot()
+            plain = ET.parse(folder / "out" / "building_fixed.xml").getroot()
+        geoms = {g.get("name"): g for g in replay.find("worldbody").iter("geom")}
+        for marker in ("goal_area", "goal_pole"):
+            self.assertEqual((geoms[marker].get("contype"), geoms[marker].get("conaffinity")), ("0", "0"))
+        self.assertEqual(geoms["wall0"].get("rgba").split()[3], str(stage_world.SEE_THROUGH))
+        # Only the replay: HIM's scene, scoring and the lidar keep solid walls and no markers.
+        names = {g.get("name") for g in plain.find("worldbody").iter("geom")}
+        self.assertNotIn("goal_pole", names)
+
+
+    def test_the_replay_page_starts_over_the_whole_world(self):
+        import tempfile
+        from pathlib import Path
+        import mujoco
+        model = mujoco.MjModel.from_xml_string("""<mujoco><worldbody>
+            <geom type="plane" size="0 0 .05"/>
+            <geom type="box" size="1 .1 1" pos="0 2 1"/><geom type="box" size="1 .1 1" pos="8 -2 1"/>
+            </worldbody></mujoco>""")
+        with tempfile.TemporaryDirectory() as folder:
+            page = Path(folder) / "index.html"
+            page.write_text("a\n" + "\n".join(course.VIEWER_CAMERA) + "\nb\n")
+            course.overview_camera(page, model, "run")
+            text = page.read_text()
+        self.assertIn("controls.target.set(4.00, 0.00, 0);", text)   # the world's centre
+        self.assertNotIn(course.VIEWER_CAMERA[0], text)
