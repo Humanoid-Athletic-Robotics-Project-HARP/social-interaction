@@ -3,7 +3,7 @@ name: g1-lidar-measured
 description: Read before using the real G1's head lidar (reading it into ROS 2, Nav2 on the robot, a self-filter, the mount or the sim lidar), or when you need what it really sees — measured on our robot
 metadata:
   type: project
-  updated: 2026-11-02T00:19:33Z
+  updated: 2026-11-02T00:34:07Z
   covers: [testground/lidar/*.py]
 ---
 
@@ -51,12 +51,8 @@ about 25° below straight ahead. +x is the front (URDF, and the forward-facing c
 exactly that gap: [[g1-sensor-fusion]]), so the robot can't see what's in front of it
 with the lidar; the head camera has to. Not a setting: its FOV windows are off
 (`fov_cfg_en` 0) and these captures are its raw UDP, with no Unitree software in between.
-Cause, from Unitree's URDF: the D435i's body sits 5–6 cm in front of the lidar but
-covers only about ±50° by +6° to −16° (torso frame), 29% of the wedge. The rest, out
-to about ±60° and down to −48°, is something else in front: most likely the face plate (unchecked;
-Unitree's head mesh is a closed shell, so it can't show this). Removing the plate could
-open the cone below −16° (floor to about 4 m ahead, low obstacles), not the band behind
-the camera, where people's bodies are. About 290 returns a cloud within 0.7 m (shoulders and
+The cause is the face visor, and what removing it would open: [[g1-face-visor]].
+About 290 returns a cloud within 0.7 m (shoulders and
 arms at the sides, as near as 0.09 m). After 1 s the pattern has filled about 62% of
 its 1° cells, then barely more (the blocked part never fills).
 

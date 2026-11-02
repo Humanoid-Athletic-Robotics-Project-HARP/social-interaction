@@ -3,7 +3,7 @@ name: seeing-ahead-research
 description: Read when planning how the real robot finds people or avoids obstacles in front of it, given that the lidar is blind ahead and the camera looks down
 metadata:
   type: reference
-  updated: 2026-11-02T00:08:32Z
+  updated: 2026-11-02T00:34:07Z
   covers: []
 ---
 
@@ -28,7 +28,8 @@ detector (ROS 2 ports of angusleigh/leg_tracker, or DR-SPAAM with a ROS 2 wrappe
 TakShimoda/2D_lidar_person_detection); PointPillars person models (m300-perception,
 NVIDIA ros2_tao_pointpillars), which need retraining for our lidar. YOLO on the D435i's
 colour only works for legs at under 2 m; full bodies and faces (for talking) need a
-level, forward camera: the one hardware change worth asking the team about.
+level, forward camera. Hardware changes worth asking the team about: that camera, and
+taking the face visor off, which would let the lidar see people ahead ([[g1-face-visor]]).
 
 **Obstacles ahead.** Add the camera's depth to Nav2 as a second STVL source (covers
 64–88% of the lidar's blind cone out to 2.5 m and the floor at the feet); STVL's

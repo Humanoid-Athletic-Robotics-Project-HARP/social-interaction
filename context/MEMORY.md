@@ -20,6 +20,7 @@
 - [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body
 - [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, changing lidar_relay, adding mapping, or borrowing from other G1 stacks
 - [The robot's lidar, measured](g1-lidar-measured.md) — before using the real lidar: what it is, how it reaches PC2, where it's blind
+- [Face visor](g1-face-visor.md) — why the lidar is blind ahead, and what taking the visor off would open
 - [PC2](robot-pc2.md) — before logging in to the robot's Jetson or running anything on it
 - [The head camera](g1-head-camera.md) — before using the RealSense: what it sees ahead (near and low), how to read it
 - [Lidar + camera](g1-sensor-fusion.md) — before combining the lidar and camera depth: frame, offsets, how well they fit
