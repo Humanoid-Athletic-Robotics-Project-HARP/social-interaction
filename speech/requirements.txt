@@ -1,0 +1,6 @@
+# The listener's packages on a laptop, Python 3.12 (python3.12 -m venv .venv &&
+# .venv/bin/pip install -r requirements.txt). PC2 (Python 3.8, JetPack 5) differs: README.md.
+numpy==2.5.4
+onnxruntime==1.19.2
+sherpa-onnx==2.0.1
+sounddevice==0.5.6

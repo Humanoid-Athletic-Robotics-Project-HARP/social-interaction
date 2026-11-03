@@ -3,18 +3,18 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-03T01:37:25Z
-  covers: []
+  updated: 2026-11-03T02:04:41Z
+  covers: [speech/*, speech/tests/*]
 ---
 
-Design for the listening half of a conversation. Nothing is built; every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The other half and what both share (where they run, the handshake with `behavior.py`): [[talking]]. Options, numbers, other projects and licenses: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
+Design for the listening half of a conversation, and what of it is built (**Built**, below). Every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The other half and what both share (where they run, the handshake with `behavior.py`): [[talking]]. Options, numbers, other projects and licenses: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
 
 **Its job (decided, a teammate's call, 2026-11-02; ask before changing the split):** turn sound into one final transcript per thing a person says during a conversation. It doesn't decide what the words mean or what to answer ([[talking]] does). It ends where text begins, so each half is tested alone: listening prints transcripts; talking takes typed lines.
 
-**Shape:** one process, a chain of stages, each with one job and a swappable backend. Every stage also runs on a WAV file, so it is tuned and tested on recordings without a robot or a person. Plain Python that runs on 3.8. Dependencies:
-   - numpy, sherpa-onnx and requests everywhere.
-   - onnxruntime: on PC2, NVIDIA's onnxruntime-gpu 1.16.0 (the last for CUDA 11.4); on laptops, onnxruntime 1.19.2 (the last with Python 3.8 wheels).
-   - sounddevice on laptops. All are permissively licensed, imported and never copied.
+**Shape:** one process, a chain of stages, each with one job and a swappable backend. Every stage also runs on a WAV file, so it is tuned and tested on recordings without a robot or a person. Plain Python that runs on 3.8. Dependencies (all permissively licensed, imported and never copied):
+   - Laptops: `speech/requirements.txt`, which needs Python 3.12 (numpy 2.5.4, onnxruntime 1.19.2, sherpa-onnx, sounddevice).
+   - PC2: NVIDIA's onnxruntime-gpu 1.16.0 (the last for CUDA 11.4) and a GPU build of sherpa-onnx.
+   - A cloud backend would add requests.
 
 1. **Source**, re-cut into 32 ms frames (512 samples at 16 kHz mono int16, what Silero takes):
    - Laptop: a sounddevice callback into a queue. On macOS the terminal app owns the mic permission, and a denied grant gives silent zeros with no error, so say so on all-zero input.
@@ -64,13 +64,30 @@ Design for the listening half of a conversation. Nothing is built; every choice 
 
 While testing, keep each utterance's WAV and transcript with the run. Record strangers only with their OK, and never commit recordings (they go to `robot-captures/`).
 
+**Built** (`speech/listen.py`, 2026-11-03; setup and use: `speech/README.md`).
+- Decided (a teammate's call, 2026-11-03): the code lives in `speech/`, outside the image; the models go in `harp/models/` beside the main checkout (`HARP_MODELS` to change), fetched by pinned URL and hash.
+- What it does:
+  - sources: WAV files, the laptop mic, the robot's multicast mic
+  - Silero plus the loudness floor
+  - a fixed 0.7 s turn end
+  - Parakeet on CPU (`--provider cuda` on PC2)
+  - the filter's short, empty and made-up checks
+  - one JSON line per turn on stdout
+- The turn rules (`Turns`) are tested in `speech/tests/` without models.
+- Not built yet: the gate and the echo check (both need talking's `speaking` events), ROS 2 output, Smart Turn, a USB mic, and installing it on PC2. How `speech/` gets to PC2 is open: `sync.sh` pushes only `testground/`.
+- Measured on an M1 MacBook Air's CPU (2026-11-03), with macOS `say` voices, which are easier than a person at 1 m:
+  - two sentences 1.5 s apart gave two turns; a 0.4 s pause stayed inside one turn
+  - the text came out word for word, also with noise 15 dB below the speech
+  - 5 s of noise alone gave nothing
+  - Parakeet took 0.14–0.19 s for a 2–3 s turn: 0.84–0.89 s from going quiet to text
+  - the same clips gave the same turns from a stand-in robot mic stream over loopback multicast
+
 **First steps**
-1. Laptop: record test phrases and noise to WAV; build the chain on files, then live.
+1. Laptop: real voices through `--mic`, and recordings of people and rooms for tuning.
 2. Robot, listening only (`testground/audio/`): read the voice mode (1007), record the multicast mic standing and walking, note the firmware. Switching the mode changes the robot for everyone: ask first.
 3. From those recordings, choose the mic and the STT provider.
 
 **Open decisions:**
 - the STT model (by the bake-off on PC2)
 - the onboard or a USB mic
-- where the code lives (a new `speech/` folder?)
 - whether to listen outside a conversation

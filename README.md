@@ -22,6 +22,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
+| `speech/` | Talking with people, outside the image: `listen.py` turns speech into one transcript per turn ([speech/README.md](speech/README.md)). |
 | `testground/` | Tests on the real robot: read-only scripts run on its Jetson (PC2), their recordings analysed on a laptop ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned team forks of Ultralytics (YOLO26) and BoT-SORT for person-perception evaluation; [checkout instructions](third_party/README.md). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
@@ -35,7 +36,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | Move like a person | ✅ | ⬜ | Run it on the robot |
 | Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
 | Find people and walk up to them | 🟡 | ⬜ | Pick a person detector for the camera |
-| Talk with people | ⬜ | ⬜ | Make the speaker talk |
+| Talk with people | ⬜ | ⬜ | The talking half on a laptop; record the robot's mic |
 | Run safely on the real robot | 🟡 | ⬜ | **Next:** first robot run of the move to a point through HARP's harness |
 
 ### Move like a person
@@ -107,8 +108,10 @@ unchanged, cloned next to this repo, and keep only our code here.
 - Done when: someone speaks to it and it answers out loud within a few
   seconds, with an LLM choosing what to say.
 - ⬜ Speaker: Unitree's text-to-speech, also while our controller runs.
-- ⬜ Microphone: read its audio stream.
-- ⬜ Speech-to-text → LLM → text-to-speech loop, on a laptop first.
+- 🟡 Microphone: `speech/listen.py --robot` reads its stream (tried with a stand-in
+  sender on a laptop); next, on the robot.
+- 🟡 Speech-to-text → LLM → text-to-speech loop, on a laptop first: listening works
+  (`speech/listen.py`, Silero and Parakeet); next, the LLM and text-to-speech.
 
 ### Run safely on the real robot
 
@@ -164,6 +167,8 @@ harp/
 ├── him-sim2real-management/            HARP's harness and simulator
 └── models/fastsac_g1_29dof.onnx        its recovery policy (Holosoma)
 ```
+
+The speech models go in the same `models/` ([speech/README.md](speech/README.md)).
 
 To work on a branch in its own worktree, make it with git (not an app's
 new-session button), inside this repo, on a branch of the same name:
