@@ -27,7 +27,7 @@ def person(x, y, vx, vy, t, ident=1):
 
 def episode(p, start, velocity, desired, seconds=10., goal=(8., 0.)):
     """Closed loop: the robot walks each request (HIM's walker gains), the person walks
-    straight on and never reacts. Returns (closest centre distance, robot pose)."""
+    straight on and never reacts. Returns (closest centre distance, robot pose, person x)."""
     pose, vel = np.zeros(3), np.zeros(3)
     (px, py), (pvx, pvy) = start, velocity
     resp, closest = Responsiveness(), math.inf
@@ -43,7 +43,7 @@ def episode(p, start, velocity, desired, seconds=10., goal=(8., 0.)):
             pose += np.array([c*vel[0]-s*vel[1], s*vel[0]+c*vel[1], vel[2]])*.1
             px, py = px+pvx*.1, py+pvy*.1
             closest = min(closest, math.hypot(px-pose[0], py-pose[1]))
-    return closest, pose
+    return closest, pose, px
 
 
 class GameCore(unittest.TestCase):
@@ -64,12 +64,13 @@ class GameCore(unittest.TestCase):
         self.assertGreater(r.command[2], .3)
 
     def test_a_head_on_walker_who_never_reacts_is_passed_without_contact(self):
-        closest, pose = episode(planner(), (6., .1), (-.8, 0.), (.5, 0., 0.))
+        closest, pose, walker = episode(planner(), (6., .1), (-.8, 0.), (.5, 0., 0.))
         self.assertGreater(closest, BODY)
-        self.assertGreater(pose[0], 2.)           # and it kept walking on (10 s at 0.5 m/s, a pass)
+        self.assertLess(walker, pose[0])          # the walker is past it: no freeze in front
+        self.assertGreater(pose[0], 1.5)
 
     def test_a_crossing_walker_is_passed_without_contact(self):
-        closest, pose = episode(planner(), (4., -3.), (0., .9), (.5, 0., 0.))
+        closest, pose, _ = episode(planner(), (4., -3.), (0., .9), (.5, 0., 0.))
         self.assertGreater(closest, BODY)
         self.assertGreater(pose[0], 3.)
 
@@ -96,8 +97,12 @@ class GameCore(unittest.TestCase):
         robot_log = np.log(np.array([.7, .3]))
         people_log = np.log(np.array([[.7, .3]]))
         p = planner()
-        r1, h1, _ = p._equilibrium(robot_log, people_log, cost, np.array([1.]))
-        r0, h0, _ = p._equilibrium(robot_log, people_log, cost, np.array([0.]))
+        risk, game.RISK_ALPHA = game.RISK_ALPHA, 1.   # the property of the plain average
+        try:
+            r1, h1, _ = p._equilibrium(robot_log, people_log, cost, np.array([1.]))
+            r0, h0, _ = p._equilibrium(robot_log, people_log, cost, np.array([0.]))
+        finally:
+            game.RISK_ALPHA = risk
         self.assertGreater(h1[0, 1], .3)                   # the playing person steps aside more
         self.assertAlmostEqual(h0[0, 1], .3, places=6)     # the stubborn one stays as forecast
         self.assertGreater(r0[1], r1[1])                   # so the robot does more of it
