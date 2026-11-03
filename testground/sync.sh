@@ -21,7 +21,7 @@ ssh_cmd="ssh ${G1_SSH-}"
 case ${1:-} in
   push)
     rsync -rlv --checksum -e "$ssh_cmd" --exclude .venv --exclude __pycache__ \
-      --exclude captures --exclude .gitignore "$here/" "$host:$dir/" ;;
+      --exclude captures --exclude models --exclude .gitignore "$here/" "$host:$dir/" ;;
   pull)
     test=${2:?usage: $0 pull TEST (a folder here, e.g. lidar)}
     mkdir -p "$here/$test/captures"

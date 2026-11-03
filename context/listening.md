@@ -3,29 +3,74 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-02T22:28:58Z
+  updated: 2026-11-03T01:37:25Z
   covers: []
 ---
 
-Design for the listening half of a conversation. Nothing is built; every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The other half and what both share (where they run, the handshake with `behavior.py`): [[talking]]. Options and numbers behind the choices: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
+Design for the listening half of a conversation. Nothing is built; every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The other half and what both share (where they run, the handshake with `behavior.py`): [[talking]]. Options, numbers, other projects and licenses: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
 
 **Its job (decided, a teammate's call, 2026-11-02; ask before changing the split):** turn sound into one final transcript per thing a person says during a conversation. It doesn't decide what the words mean or what to answer ([[talking]] does). It ends where text begins, so each half is tested alone: listening prints transcripts; talking takes typed lines.
 
-**Pipeline** (each stage a swappable backend; plain Python that also runs on 3.8)
-1. Source, as 16 kHz mono 16-bit frames: a laptop mic first; on the robot, Unitree's mic multicast, or a USB mic on PC2 if that is too noisy (chosen from recordings).
-2. Gate: frames pass only during a conversation and while the robot isn't speaking, plus about 1 s after (talking's `speaking` events). This replaces echo cancellation, so people can't interrupt the robot at first, and nothing is heard outside a conversation.
-3. Turn end: Silero VAD (its ONNX model on onnxruntime) on 32 ms frames. Speech starts after about 0.25 s of voice and ends after about 0.6 s of silence. Utterances under 0.3 s are dropped; ones over 15 s are cut.
-4. Speech-to-text: each finished utterance goes whole to a cloud model (OpenAI `gpt-4o-mini-transcribe` or Deepgram); streaming only if latency needs it. Local faster-whisper `base.en` as the offline fallback. Unitree's own ASR (`rt/audio_msg`) is a third backend to compare; it also gives the speaker's angle.
+**Shape:** one process, a chain of stages, each with one job and a swappable backend. Every stage also runs on a WAV file, so it is tuned and tested on recordings without a robot or a person. Plain Python that runs on 3.8. Dependencies:
+   - numpy, sherpa-onnx and requests everywhere.
+   - onnxruntime: on PC2, NVIDIA's onnxruntime-gpu 1.16.0 (the last for CUDA 11.4); on laptops, onnxruntime 1.19.2 (the last with Python 3.8 wheels).
+   - sounddevice on laptops. All are permissively licensed, imported and never copied.
+
+1. **Source**, re-cut into 32 ms frames (512 samples at 16 kHz mono int16, what Silero takes):
+   - Laptop: a sounddevice callback into a queue. On macOS the terminal app owns the mic permission, and a denied grant gives silent zeros with no error, so say so on all-zero input.
+   - Robot: our own stdlib multicast reader (the stream: [[g1-builtin-apis]]), with SO_REUSEADDR so other programs can listen too. It warns on all-zero packets (a firmware fault) and on no packets (the assistant isn't in wake-up mode).
+   - A USB mic on PC2, if recordings show the onboard one is too noisy: ALSA through `arecord`, since PortAudio may be missing and PC2 has no sudo.
+   - A WAV file, for tests and tuning.
+2. **Gate:** listen only during a conversation, which [[talking]] opens once the robot has walked up to someone (on a laptop, from the start). The walk up is the opener, so there's no wake word or button. Mute while the robot speaks and for 0.5 s after (talking's `speaking` events). A 0.5 s ring buffer keeps the audio just before speech starts, so first syllables survive.
+3. **Voice detection:** Silero VAD v6 (`silero_vad.onnx`, MIT; fetched at setup from a pinned release and checked against its hash, not committed), on onnxruntime with one thread. Speech starts when the probability stays at or above 0.6 for 0.25 s and the RMS is above the measured noise floor plus a margin. It ends when the probability falls below 0.45. Utterances under 0.3 s are dropped; ones over 15 s are cut.
+4. **Turn end:**
+   - First version: 0.7 s of silence.
+   - Next: Pipecat's Smart Turn v3.2 (a BSD-2 ONNX model, used on its own without Pipecat). After 0.2 s of silence it judges the last 8 s of audio. If it says the turn is complete, the turn ends; otherwise listening waits up to 2.5 s more.
+   - Smart Turn's log-mel features: our own numpy code, or transformers 4.46.3, the last version for Python 3.8.
+5. **Speech-to-text, local first** ([[talking]]'s shared direction): each turn goes whole, as one clip, to a model on PC2's GPU.
+   - First choice: NVIDIA's Parakeet TDT 0.6B v2 through sherpa-onnx with onnxruntime-gpu 1.16.0, the build sherpa-onnx lists for Orin NX on CUDA 11.4. Estimated 0.15–0.35 s for a 4 s clip.
+   - CPU alternative: Moonshine streaming (`moonshine-voice`, MIT, Python 3.8 wheels for aarch64 and macOS), 0.25–0.5 s, but it uses the CPU all the while someone speaks.
+   - Cloud fallback, over plain HTTP since current vendor SDKs need Python 3.10+: OpenAI `gpt-transcribe`, Deepgram Nova-3 or Groq `whisper-large-v3-turbo`.
+   - Chosen by a bake-off of latency and errors on our own recordings. Parakeet's CC-BY-4.0 license needs attribution in the README.
+   - Vocabulary hints (HARP, Stanford, names): sherpa-onnx's hotwords where the model supports them, otherwise the cloud's keyword lists.
+6. **Filter:** drop a transcript if it is:
+   - empty
+   - a known hallucination ("Thank you for watching", "Thank you.")
+   - low-confidence where the backend reports it (Whisper's `no_speech_prob` above 0.6 with `avg_logprob` below −1)
+   - a repeat of what the robot just said (echo that leaked past the gate)
 
 **Publishes** (JSON on `std_msgs/String`, like `/harp/people`, [[feedback-minimal-setup]])
-- `/harp/heard`, one message per utterance: conversation id, text, start and end times, STT confidence and angle when given, and each stage's time (turn end, STT) for the latency budget.
-- Events on `/harp/events` (source `listen`): `speech_start` (for talking's LED or a nod) and `silence` (nothing said for N s in a conversation), which talking uses to end it.
+- `/harp/heard`, one message per utterance: conversation id, text, start and end times, confidence when given, and each stage's time (turn end, STT) for the latency budget.
+- Events on `/harp/events` (source `listen`):
+  - `state`: idle, listening, hearing or transcribing (for talking's LED)
+  - `speech_start`: for a nod
+  - `silence`: nothing said for N s in a conversation (talking uses it to end the conversation)
 
-**Measuring:** while testing, keep each utterance's WAV and transcript with the run. That lets us tune the VAD settings and compare STT backends on the same recordings. Check word error rate on a few test phrases said from 1 m, with the robot standing and walking. Record strangers only with their OK, and never commit recordings.
+**Not chosen**
+- Unitree's own ASR: another G1 team found it wrong too often, and its final result late or missing. Logged at most, for its angle.
+- A wake word: false triggers and memory use; the walk up opens the session instead.
+- Push-to-talk: it needs an operator. Kept as a fallback for noisy demos.
+- Noise suppression: it hurts Whisper-style STT.
+- Echo cancellation and interrupting: not until muting has been tried.
+- Pipecat and LiveKit Agents: they need Python 3.10+, so they serve as design references only.
+- TEN VAD and LiveKit's turn detector: their licenses restrict use.
+
+**On PC2:** a venv inside our testground folder, since `pip --user` would write outside it ([[robot-pc2]]). Run at nice 10.
+
+**Measuring:**
+- False starts per minute on noise-only recordings (fans, walking, a talking room).
+- Word errors on test phrases said from 1 m.
+- Time from turn end to transcript; target about 0.4 s locally.
+
+While testing, keep each utterance's WAV and transcript with the run. Record strangers only with their OK, and never commit recordings (they go to `robot-captures/`).
 
 **First steps**
-1. Laptop: mic → VAD → STT, printing transcripts and stage times.
-2. Robot, listening only (`testground/audio/`): record the mic multicast to WAV, standing and walking; log `rt/audio_msg`; note the voice firmware version. Switching the voice assistant's mode changes the robot for everyone: ask first.
-3. Choose the onboard or a USB mic from those recordings.
+1. Laptop: record test phrases and noise to WAV; build the chain on files, then live.
+2. Robot, listening only (`testground/audio/`): read the voice mode (1007), record the multicast mic standing and walking, note the firmware. Switching the mode changes the robot for everyone: ask first.
+3. From those recordings, choose the mic and the STT provider.
 
-**Open decisions:** the cloud STT provider; the onboard or a USB mic; whether to listen outside a conversation (to notice someone saying hello first).
+**Open decisions:**
+- the STT model (by the bake-off on PC2)
+- the onboard or a USB mic
+- where the code lives (a new `speech/` folder?)
+- whether to listen outside a conversation
