@@ -44,8 +44,10 @@ ENGAGE = 5.0             # m: farther objects are fixed forecasts
 ROUNDS = 6               # rounds of best responses (converged in tests by about 4)
 BETA = 6.                # weight of an expected collision against the prior (nats per unit)
 REACT_PRIOR = .6         # how much someone not yet seen either way is expected to play
-RISK_ALPHA = 1.          # the robot weighs the worst RISK_ALPHA share of each person's likely
-                         # motions (CVaR): 1 is the plain average, small is near the worst case
+RISK_ALPHA = .3          # the robot weighs the worst RISK_ALPHA share of each person's likely
+                         # motions (CVaR): 1 is the plain average, small is near the worst case.
+                         # Benchmark (90 worlds, aware): passed every check 17 / 19 / 26 / 21 /
+                         # 21 at 1 / 0.5 / 0.3 / 0.2 / 0.15 (the MPC: 27, at 46% more time)
 COMFORT_GAP = .26        # m past the robot's 0.40 m disc: about 0.30 m from its arms (0.355 m)
 HARD = 4.                # collision cost of body overlap per metre, beyond the comfort part
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
