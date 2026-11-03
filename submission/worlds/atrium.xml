@@ -1,5 +1,5 @@
 <!-- An atrium: an open 15 x 11 m hall with six pillars, a planter on the direct line to the
-     goal (11.2, 0.8), a kiosk and a bench. Three people cross at different speeds, one walks
+     goal (9.4, 0.6; Nav2's global costmap reaches 10 m from the start), a kiosk and a bench. Three people cross at different speeds, one walks
      slowly head-on round the planter, three stand talking north of it, one walks into the
      gap south of it and stops, a jogger comes from behind, a child darts to and fro and a
      wheelchair rolls along the north side. Scripted, they never react.
@@ -99,6 +99,6 @@
     <body name="wheelchair" mocap="true" pos="11.5 3.5 0">
       <geom name="wheelchair" type="cylinder" size="0.35 0.6" pos="0 0 0.6" rgba="0.3 0.3 0.35 1"/>
     </body>
-    <site name="goal" pos="11.2 0.8 0.01" size="0.15 0.01" type="cylinder" rgba="0.2 0.8 0.3 0.6"/>
+    <site name="goal" pos="9.4 0.6 0.01" size="0.15 0.01" type="cylinder" rgba="0.2 0.8 0.3 0.6"/>
   </worldbody>
 </mujoco>
