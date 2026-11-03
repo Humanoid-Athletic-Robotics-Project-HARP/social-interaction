@@ -2,7 +2,7 @@
 harp/lidar.py stands in for it). entrypoint.sh starts it outside the sim.
 
 On the G1, Unitree's lidar service (lidar_driver, which must be switched on:
-context/robot-pc2.md) publishes rt/utlidar/cloud_livox_mid360 (PointCloud2, about
+context/robot-services.md) publishes rt/utlidar/cloud_livox_mid360 (PointCloud2, about
 9.4 Hz, livox_frame) on the robot's DDS domain (ROBOT_DOMAIN, 0)
 over its network (ROBOT_INTERFACE, eth0), which HIM's launcher passes to our
 image; our ROS 2 runs on HIM's localhost graph instead. This reads the cloud

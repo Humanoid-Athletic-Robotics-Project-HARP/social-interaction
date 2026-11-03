@@ -3,7 +3,7 @@ name: g1-head-camera
 description: Read before using the G1's head camera (RealSense D435i) — to see ahead where the lidar is blind, detect people, or record depth or colour on PC2
 metadata:
   type: project
-  updated: 2026-11-01T23:41:56Z
+  updated: 2026-11-02T22:04:05Z
   covers: [testground/pc2/v4l2_survey.py, testground/camera/*]
 ---
 
@@ -20,8 +20,8 @@ Depth streams fine straight through V4L2 while `videohub` serves colour (tested
 won't stream alongside depth that way (EIO): it would need librealsense. Live view:
 `testground/camera/camera_viewer.py`; shared on ROS 2 by `testground/camera/depth_node.py`
 (15 fps depth image, camera info, point cloud; tested 2026-11-01 with the hybrid viewer
-reading it at 14–16 fps). Colour from `videohub`: [[robot-pc2]]. Recorded for offline work by
-`testground/camera/record_camera.py` (what exists: [[robot-reference-data]]). [[robot-pc2]]
+reading it at 14–16 fps). Colour from `videohub`: [[robot-services]]. Recorded for offline work by
+`testground/camera/record_camera.py` (what exists: [[robot-reference-data]]).
 
 **Where it looks** (official: Unitree's `unitree_ros` `g1_29dof_rev_1_0.urdf`, our
 revision): `d435_joint` on `torso_link` at (0.0576, 0.0175, 0.4299), pitched down
@@ -35,12 +35,13 @@ changing it would mean reworking the head mount. The older
 About 81% of depth pixels have a value indoors. With Intel's fields of view (depth 87° × 58°,
 colour 69° × 42°) depth covers 25° to 83° below the horizon: the floor from 0.16 m to
 2.7 m ahead, about ±56° wide at 1 m and ±46° at 2 m. Heights it sees ahead: up to
-0.76 m at 1 m, 0.30 m at 2 m (colour: 0.58 m at 1 m, floor only past 1.9 m).
+about 0.78 m at 1 m, 0.32 m at 2 m (colour: 0.58 m at 1 m, floor only past 1.9 m).
 
 **What that means:** it fills the lidar's blind cone ahead and its blind ring at the
 feet, but only near and low: a good obstacle sensor out to about 2.5 m, and a person
-in front shows only their legs (hips at 1 m, shins at 2 m), never a face. People
-farther than about 2 m ahead are seen by neither sensor; the lidar sees them anywhere
-beyond about 60° from straight ahead, out to about 11 m.
+in front shows only their legs (hips at 1 m, shins at 2 m), never a face. With the
+face visor off the lidar sees people ahead too, out to about 11 m, except in the wedges
+either side ([[g1-face-visor]]); with it on, people farther than about 2 m ahead are
+seen by neither sensor.
 
 **Next:** people at 1–3 m ahead in the viewer, and recordings for offline work.

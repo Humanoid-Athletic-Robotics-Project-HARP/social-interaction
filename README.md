@@ -98,6 +98,9 @@ unchanged, cloned next to this repo, and keep only our code here.
 - ✅ Sim: on its own, wander, walk up to people standing still and talk
   with them (`harp/behavior.py`, `course.py people`), with a stand-in for
   the detector (`harp/sim_people.py`) and for speech.
+- ✅ Sim: the lidar finds person candidates and the camera confirms them
+  on the way, before the last part of the walk up, in one walk; a pillar
+  is checked and passed over (`course.py decoys`).
 - ⬜ Robot: walk up to a person.
 
 ### Talk with people
@@ -304,14 +307,17 @@ two newest runs of each world keep a slim `trace.npz` (about 1 MB instead of
 53). `--replay RUN_FOLDER` still shows any run with its obstacles, and
 `--prune` prunes every folder in `runs/` now.
 
-The robot on its own, the loop the robot is for: it wanders within 2.5 m of
-where it started, walks up to anyone standing still it notices, stops
+The robot on its own, the loop the robot is for: it walks to points ahead of
+it, staying within 2.5 m of where it started, walks up to anyone standing
+still it notices, stops
 facing them, "talks" (the line it would say goes to `policy.log`) until they
-walk away or 30 s pass, turns around, then carries on. Until there is a
-person detector, the people come from a stand-in that finds them where the
-robot's sensors could: by the lidar wherever its head leaves it a view (with the
-face visor on, only off to the sides), and by the downward-looking camera
-within about 2 m ahead (`harp/sim_people.py`):
+walk away or 30 s pass, turns around, then carries on. The lidar finds
+candidates by their shape; the robot walks toward one until the
+downward-looking camera, which sees legs within about 2 m ahead, confirms a
+person, and then on up to them without stopping, or passes over something
+that isn't one. Until there is a person detector, a stand-in finds people,
+and person-shaped things such as pillars, where the robot's sensors could
+(`harp/sim_people.py`):
 
 ```bash
 python3 submission/course.py people
@@ -325,6 +331,14 @@ a nearer person standing in the lidar's blind wedge to the side:
 
 ```bash
 python3 submission/course.py people_ahead
+```
+
+`decoys` puts a pillar the lidar takes for a person nearer than a real
+person: the robot should check the pillar, pass over it, and walk up to the
+person:
+
+```bash
+python3 submission/course.py decoys
 ```
 
 The courses, from easiest to hardest, are `open_floor`, `one_box`, `slalom`

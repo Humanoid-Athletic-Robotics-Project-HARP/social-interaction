@@ -3,7 +3,7 @@ name: robot-reference-data
 description: Read when you need real recordings of the G1's lidar or camera (to check the sim, tune perception offline, or once the robot is out of reach) — what exists, where, and what's still missing
 metadata:
   type: project
-  updated: 2026-11-02T00:51:20Z
+  updated: 2026-11-02T22:04:05Z
   covers: [testground/lidar/record.py, testground/camera/record_camera.py]
 ---
 
@@ -28,7 +28,7 @@ ones (`2026-11-02/lidar/`, `2026-11-02/camera/`); the undated `lidar/` and `came
   `lidar_driver` over DDS (`record.py --source dds`), its IMU and `rt/lowstate`. Read with `testground/lidar/capture.py`,
   `report.py`, `view.py`. Results: [[g1-lidar-measured]].
 - `camera/trial-10s`, `trial-5s`: depth (16-bit PNG in mm, 848 × 480, 15 fps), colour
-  (videohub JPEGs, 1920 × 1080, 7–10 fps) and `rt/lowstate`; no analysis tool yet (any
+  (videohub JPEGs, 1920 × 1080, 10 fps between ~2 s stalls on failed requests, 3–8 fps on average) and `rt/lowstate`; no analysis tool yet (any
   image tool reads them; `meta.json` has the nominal intrinsics). Format:
   `testground/camera/record_camera.py`.
 
@@ -36,5 +36,5 @@ ones (`2026-11-02/lidar/`, `2026-11-02/camera/`); the undated `lidar/` and `came
 tape-measured wall at 1/2/4 m (range and depth noise), a person ahead at 1–3 m and
 walking past (colour and depth for person detection), boxes on the floor (blind ring),
 dark, shiny, glass and thin targets, the camera's own calibration, and anything while
-GR00T stands or walks (the posture gap in [[sim-vs-real]]). With `lidar_driver` on (as now, [[robot-pc2]]), record the lidar with
+GR00T stands or walks (the posture gap in [[sim-vs-real]]). With `lidar_driver` on (as now, [[robot-services]]), record the lidar with
 `record.py --source dds`; the raw stream (`--source udp`) needs it off.

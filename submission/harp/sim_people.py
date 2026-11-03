@@ -1,27 +1,31 @@
 """Stand-in for a person detector, for runs in HIM's simulator, until a real one exists.
 Its own process in a world's image when the task is the behavior loop (entrypoint.sh).
 
-It takes every mover in the world (harp/movers.py: all of them are people so far) where
-it is at that sim time, from the same copy of the world as the simulated lidar
+The lidar finds person candidates by their shape; the camera confirms a person by their
+legs. It takes every mover in the world (harp/movers.py: all of them are people so far)
+where it is at that sim time, and every fixed geom a lidar shape test would take for a
+person (a decoy: upright, CANDIDATE_WIDTH across and CANDIDATE_HEIGHT tall, standing on
+the floor, such as a pillar), from the same copy of the world as the simulated lidar
 (/harp/model/lidar_scene.xml) and its mover_start events, and the robot's true pose
-from /safety/policy_state. Each PERIOD of sim time it publishes the people the robot's
-real sensors could find (context/g1-head-camera.md, context/seeing-ahead-research.md):
-  - lidar: a point on their body (BODY above the floor) in a direction its head leaves
-    open (harp/lidar_mount.sees: with the face visor off, ahead and out past about 60 deg
-    to the sides; with it on, only past about 60 deg), within LIDAR_RANGE, with a ray from
-    the lidar reaching them first;
-  - camera: the D435i is pitched about 48 deg down (harp/camera_mount.py), so it sees a
-    person ahead only by their legs: a point LEGS above the floor at their centre inside
-    its colour view (COLOUR_FOV, where a detector would run, narrower than depth), within
-    CAMERA_RANGE, with a ray from the camera reaching them first.
-So with the visor on, people ahead are found only within about 2 m, and others off to
-the sides; with it off, ahead too, but not in the wedges either side. Each is placed
-with NOISE.
+from /safety/policy_state. Each PERIOD of sim time it publishes what the robot's real
+sensors could find (context/g1-head-camera.md, context/seeing-ahead-research.md):
+  - lidar, people and decoys: a point on them (BODY above the floor) in a direction its
+    head leaves open (harp/lidar_mount.sees: with the face visor off, ahead and out past
+    about 60 deg to the sides; with it on, only past about 60 deg), within LIDAR_RANGE,
+    with a ray from the lidar reaching them first;
+  - camera, people only (a decoy has no legs): the D435i is pitched about 48 deg down
+    (harp/camera_mount.py), so it sees a person ahead only by their legs: a point LEGS
+    above the floor at their centre inside its colour view (COLOUR_FOV, where a detector
+    would run, narrower than depth), within CAMERA_RANGE, with a ray from the camera
+    reaching them first.
+So with the visor off, candidates are found ahead and to the sides, but not in the
+wedges either side, and confirmed only within about 2 m ahead. Each is placed with NOISE.
 
 /harp/people, JSON on std_msgs/String, every frame, people or not:
-  {"frame": "base_link", "people": [{"id": "person", "x": 2.1, "y": -0.4, "seen_by": "lidar"}]}
-x ahead and y left of the robot, in m; seen_by is lidar or camera. The id stays with a
-person, as a tracker's would.
+  {"frame": "base_link", "people": [{"id": "person", "x": 2.1, "y": -0.4, "seen_by": ["lidar"]}]}
+x ahead and y left of the robot, in m; seen_by lists the sensors that see them now:
+lidar (a candidate) and camera (a person). The id stays with a person or decoy, as a
+tracker's would.
 """
 
 import json
@@ -46,6 +50,8 @@ LEGS = (0.1, 0.4, 0.7)   # m above the floor: points on a person the camera may 
 COLOUR_FOV = (69.0, 42.0)   # deg across and down: the D435i's colour camera
 CAMERA_RANGE = 2.0   # m: a detector finds people by their legs only this near
 NOISE = 0.05      # m, 1 sigma, on x and y
+CANDIDATE_WIDTH = (0.2, 0.7)    # m across: what a lidar shape test takes for a person
+CANDIDATE_HEIGHT = (1.0, 2.1)   # m tall
 SKIP = 0.4        # m of each ray left out: the robot's own head and arms
 
 
@@ -57,14 +63,37 @@ class SimPeople:
         self.movers = Movers(self.model)
         self.torso = self.model.body(lidar_mount.PARENT).id
         self.mount = lidar_mount.rotation()
-        self.bodies = {self.model.body_mocapid[b]: b for b in range(self.model.nbody)
-                       if self.model.body_mocapid[b] >= 0}
+        self.geoms = {self.model.body_mocapid[b]: self.geoms_of(b) for b in range(self.model.nbody)
+                      if self.model.body_mocapid[b] >= 0}
+        mujoco.mj_kinematics(self.model, self.data)
+        self.decoys = [g for g in range(self.model.ngeom) if self.person_shaped(g)]
         self.rng = np.random.default_rng()
         self.pub = node.create_publisher(String, "/harp/people", 10)
         node.create_subscription(String, events.TOPIC, self.on_event, events.latched())
         node.create_subscription(String, "/safety/policy_state", self.on_state,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self.next_frame = 0.0
+
+    def geoms_of(self, body):
+        return {g for g in range(self.model.ngeom) if self.model.geom_bodyid[g] == body}
+
+    def person_shaped(self, g):
+        """True if fixed geom g is upright, person-sized and on the floor (after kinematics)."""
+        m = self.model
+        if m.geom_bodyid[g] != 0 or m.geom_type[g] not in (mujoco.mjtGeom.mjGEOM_CYLINDER,
+                                                             mujoco.mjtGeom.mjGEOM_BOX):
+            return False
+        size, half = m.geom_size[g], self.half_height(g)
+        across = (2 * size[0], 2 * size[0] if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_CYLINDER
+                  else 2 * size[1])
+        upright = self.data.geom_xmat[g].reshape(3, 3)[2, 2] > 0.99
+        return (upright and all(CANDIDATE_WIDTH[0] <= w <= CANDIDATE_WIDTH[1] for w in across)
+                and CANDIDATE_HEIGHT[0] <= 2 * half <= CANDIDATE_HEIGHT[1]
+                and self.data.geom_xpos[g][2] - half < 0.3)
+
+    def half_height(self, g):
+        """Half the height of an upright cylinder or box geom."""
+        return self.model.geom_size[g][1 if self.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_CYLINDER else 2]
 
     def on_event(self, msg):
         """The lidar's mover_start events: when each mover sets off, as in its world."""
@@ -94,32 +123,37 @@ class SimPeople:
         lidar = torso_at + torso @ lidar_mount.POSITION
         camera, optical = torso_at + torso @ camera_mount.POSITION, torso @ camera_mount.rotation()
         c, s = math.cos(yaw), math.sin(yaw)
+        found = [(self.movers.names[i], self.data.mocap_pos[m], 0.0, self.geoms[m], True)
+                 for i, m in enumerate(self.movers.mocap)]
+        found += [(self.model.geom(g).name or f"geom{g}", self.data.geom_xpos[g],
+                   -self.half_height(g), {g}, False) for g in self.decoys]
         people = []
-        for i, mocap in enumerate(self.movers.mocap):
-            at, body = self.data.mocap_pos[mocap], self.bodies[mocap]
+        for name, at, floor, geoms, person in found:
+            base = at[2] + floor     # the floor under them: a decoy's position is its centre
             dx, dy = at[:2] - robot
             x, y = c * dx + s * dy, -s * dx + c * dy
+            seen_by = []
             if math.hypot(x, y) <= LIDAR_RANGE and any(
-                    self.lidar_sees(lidar, torso, np.array([at[0], at[1], at[2] + h]), body) for h in BODY):
-                by = "lidar"
-            elif any(self.in_view(camera, optical, np.array([at[0], at[1], h]))
-                     and self.in_sight(camera, np.array([at[0], at[1], h]), body) for h in LEGS):
-                by = "camera"
-            else:
+                    self.lidar_sees(lidar, torso, np.array([at[0], at[1], base + h]), geoms) for h in BODY):
+                seen_by.append("lidar")
+            if person and any(self.in_view(camera, optical, np.array([at[0], at[1], h]))
+                              and self.in_sight(camera, np.array([at[0], at[1], h]), geoms) for h in LEGS):
+                seen_by.append("camera")
+            if not seen_by:
                 continue
             x, y = np.array([x, y]) + self.rng.normal(0.0, NOISE, 2)
-            people.append({"id": self.movers.names[i], "x": round(float(x), 3), "y": round(float(y), 3),
-                           "seen_by": by})
+            people.append({"id": name, "x": round(float(x), 3), "y": round(float(y), 3),
+                           "seen_by": seen_by})
         return people
 
-    def lidar_sees(self, lidar, torso, point, body):
-        """True if the point (on the person) is in the lidar's field of view, where its head
-        leaves it open, and nothing is in the way."""
+    def lidar_sees(self, lidar, torso, point, geoms):
+        """True if the point (on a person or decoy, made of geoms) is in the lidar's field of
+        view, where its head leaves it open, and nothing is in the way."""
         in_torso = torso.T @ (point - lidar)
         x, y, z = self.mount.T @ in_torso
         elevation = math.degrees(math.atan2(z, math.hypot(x, y)))
         return (lidar_mount.ELEVATION[0] <= elevation <= lidar_mount.ELEVATION[1]
-                and lidar_mount.sees(in_torso)[0] and self.in_sight(lidar, point, body))
+                and lidar_mount.sees(in_torso)[0] and self.in_sight(lidar, point, geoms))
 
     @staticmethod
     def in_view(camera, optical, point):
@@ -130,8 +164,9 @@ class SimPeople:
                 and abs(math.degrees(math.atan2(x, z))) <= COLOUR_FOV[0] / 2
                 and abs(math.degrees(math.atan2(y, z))) <= COLOUR_FOV[1] / 2)
 
-    def in_sight(self, origin, point, body):
-        """True if a ray from origin to the point (on the person) hits them first."""
+    def in_sight(self, origin, point, geoms):
+        """True if a ray from origin to the point (on a person or decoy) hits one of its geoms
+        first."""
         to = point - origin
         length = np.linalg.norm(to)
         if length <= SKIP:
@@ -139,7 +174,7 @@ class SimPeople:
         to /= length
         geom = np.array([-1], dtype=np.int32)
         mujoco.mj_ray(self.model, self.data, origin + SKIP * to, to, None, 1, self.torso, geom)
-        return geom[0] >= 0 and self.model.geom_bodyid[geom[0]] == body
+        return geom[0] in geoms
 
 
 def main():

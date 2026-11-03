@@ -1,0 +1,31 @@
+<!-- A pillar the lidar takes for a person, for the behavior loop (harp/behavior.py;
+     course.py decoys runs it, the task is in decoys.yaml), with the face visor off.
+     pillar, 0.3 m across and 1.8 m tall, stands straight ahead 3 m out: the stand-in
+     detector (harp/sim_people.py) reports it as a lidar candidate, and the camera never
+     confirms it (it has no legs). person stands 3.5 m out, 70 deg to the left, where the
+     lidar sees them too. The robot should check the pillar first (the nearer), give up
+     on it as not a person, then walk up to person, the camera confirming them on the
+     way, in one walk. How movers work: submission/harp/movers.py.
+     python3 submission/course.py decoys -->
+<mujoco>
+  <custom>
+    <numeric name="person_duration" data="1"/>
+    <numeric name="person_trips" data="0"/>
+  </custom>
+  <default>
+    <default class="obstacle">
+      <geom type="cylinder" rgba="0.6 0.6 0.6 1"/>
+    </default>
+    <!-- About shoulder-wide and 1.7 m tall, standing just off the floor -->
+    <default class="person">
+      <geom type="cylinder" size="0.25 0.85" pos="0 0 0.86" rgba="0.3 0.4 0.8 1"/>
+    </default>
+  </default>
+  <worldbody>
+    <geom class="obstacle" name="pillar" size="0.15 0.9" pos="3.0 0 0.9"/>
+    <body name="person" mocap="true" pos="1.2 3.3 0">
+      <geom class="person" name="person"/>
+    </body>
+    <site name="person_end" pos="1.2 3.3 0"/>
+  </worldbody>
+</mujoco>

@@ -38,7 +38,8 @@ that as G1_TASK_COMMAND instead of its goal. Then outcome is succeeded if the lo
 and didn't stop on an error, seconds are from its start to its first talk, there's no end
 error, and summary.json adds loop: each talk's true distance to that person and how far
 the robot faced from them (medians over its start) and how it ended, how many wander goals and people
-noticed, and the farthest the robot got from its start.
+noticed, who it found not a person (not_people: candidates the camera never confirmed),
+and the farthest the robot got from its start.
 A route (--route NAME_OR_FILE from submission/routes, or --waypoint X Y [HEADING] for
 each point; --laps N, harp/route.py) replaces the world's goal: the run folder keeps
 it as route.yaml, the end error is from its last point, passed uses its criteria (none:
@@ -268,6 +269,10 @@ def talk_scores(world, trace, movers_started, talks, ends):
     movers = Movers(model, started=movers_started)
     scores = []
     for talk, end in zip(talks, ends):
+        if talk["person"] not in movers.names:    # a talk with something that isn't a person
+            scores.append({"person": talk["person"], "distance_m": None, "facing_deg": None,
+                           "ended": end and end["ended"], "seconds": end and end["seconds"]})
+            continue
         mocap = movers.mocap[movers.names.index(talk["person"])]
         start = (talk["sim_time"] if talk["sim_time"] is not None else math.inf) + TALK_SKIP
         during = (trace["time"] >= start) & (trace["time"] <= start + TALK_SCORED)
@@ -342,6 +347,7 @@ def score(run):
                       and e["person"] == t["person"]), None) for t in talks]),
             "wander_goals": sum(1 for e in loop if e["event"] == "wander_goal"),
             "noticed": sum(1 for e in loop if e["event"] == "noticed"),
+            "not_people": sorted({e["person"] for e in loop if e["event"] == "not_a_person"}),
             "farthest_m": round(float(np.linalg.norm(xy - xy[0], axis=1).max()), 2)}
     if route:
         summary["route"] = {"waypoints": len(route.waypoints) * route.laps, "laps": route.laps,
@@ -405,6 +411,9 @@ def check(summary, c):
         failed.append("min_talks")
     if "first_talk" in c and (not talks or talks[0]["person"] != c["first_talk"]):
         failed.append("first_talk")
+    found = (summary.get("loop") or {}).get("not_people", [])
+    if any(p not in found or p in {t["person"] for t in talks} for p in c.get("not_people", [])):
+        failed.append("not_people")
     low, high = c.get("talk_distance_m", (-math.inf, math.inf))
     if any(t["distance_m"] is None or not low <= t["distance_m"] <= high for t in talks):
         failed.append("talk_distance_m")
@@ -1031,7 +1040,8 @@ def run_and_score(run, args, route):
           + (f", talks {len(s['loop']['talks'])} ("
              + ", ".join(f"{t['person']} {t['distance_m']} m {t['facing_deg']} deg {t['ended']}"
                          for t in s["loop"]["talks"])
-             + f"), wander goals {s['loop']['wander_goals']}, farthest {s['loop']['farthest_m']} m"
+             + f"), not people {s['loop'].get('not_people') or 'none'}"
+             + f", wander goals {s['loop']['wander_goals']}, farthest {s['loop']['farthest_m']} m"
              if "loop" in s else ""))
     prune(run)
     slim(run_folders())

@@ -7,8 +7,8 @@ Tabs along the top switch between this combined view and the lidar's and the
 camera's own viewers (lidar_viewer.py, camera_viewer.py), all served from this one
 program, since only one program can read each sensor.
 
-The MID-360 can't see a cone of about 100 deg in front of the robot (its own head
-is in the way) nor the floor within about 1 m; the RealSense looks down at exactly
+The MID-360 can't see a cone of about 120 deg in front of the robot with the
+face visor on (its own head is in the way) nor the floor within about 1 m; the RealSense looks down at exactly
 that. This puts both in one frame, so the gaps the lidar leaves are filled where the
 camera sees:
 

@@ -36,7 +36,7 @@ SDK on its own CycloneDDS, not Foxy's.
 
 with `ROS_DOMAIN_ID` set to the depth node's domain (97, `ROS_LOCALHOST_ONLY=1` and
 `RMW_IMPLEMENTATION=rmw_fastrtps_cpp` when it runs on HARP's network) (it refuses 0, Unitree's: see
-`context/robot-pc2.md`). Until something publishes, both say "Not connected."
+`context/robot-services.md`). Until something publishes, both say "Not connected."
 
 Then open `http://ADDRESS:8082` (PC2's Wi-Fi address, in the main checkout's `.env`).
 `--camera-yaw DEG` turns the camera's points if they don't line up with the lidar's

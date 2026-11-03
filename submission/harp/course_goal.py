@@ -101,10 +101,12 @@ def cancel(node, handle, result):
     return result.done()
 
 
-def go_to(node, nav, point, deadline, interrupt=None):
+def go_to(node, nav, point, deadline, interrupt=None, handoff=None):
     """One Nav2 goal at (x, y, heading deg) by the monotonic deadline: its status, and
     its last feedback (or None). interrupt: checked while Nav2 drives; once it returns
-    True the goal is cancelled (INTERRUPTED)."""
+    True the goal is cancelled (INTERRUPTED), unless handoff then returns True too: the
+    goal is left driving (HANDED_OFF) for the caller to replace with its next goal at
+    once, which Nav2 takes over without stopping."""
     if not nav.wait_for_server(timeout_sec=max(0.0, deadline - time.monotonic())):
         return "TIMEOUT", None
     x, y, heading = point
@@ -130,6 +132,8 @@ def go_to(node, nav, point, deadline, interrupt=None):
     except BaseException:
         cancel(node, handle, result)    # don't leave Nav2 driving to a point nobody watches
         raise
+    if stop() and handoff and handoff():
+        return "HANDED_OFF", feedback.get("f")
     ended = "INTERRUPTED" if stop() else "TIMEOUT"
     return (ended if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
 

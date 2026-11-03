@@ -3,12 +3,12 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-11-02T02:46:39Z
+  updated: 2026-11-02T22:04:05Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
 **HARP's harness stops the robot, never our code** ([[him-sim2real]]). Our image only proposes joint commands through it; it never writes `rt/lowcmd`.
-- **Buttons** (the operator's remote, HIM's, replacing our old map; the teammate who set that rule was told, 2026-10-28): double Start damps at any time; double F3 switches to HIM's Holosoma recovery; D-pad Left + B hands control to our image once start-up balance is stable. Ctrl-C or `./submit.sh --mode real stop` ends the session.
+- **Buttons** (the operator's remote, HIM's): double Start damps at any time; double F3 switches to HIM's Holosoma recovery; D-pad Left + B hands control to our image once start-up balance is stable. Ctrl-C or `./submit.sh --mode real stop` ends the session.
 - **Automatic:** tilt past 42° or pelvis below 0.49 m (recovery if standing, else damping), torque, joint speed, base spin 6 rad/s, thrashing (enforced on the robot), 0.2 s command and observation deadlines, stale telemetry, battery and motor temperature, and a stability gate before handover. A stop latches until double Start damps and the robot is back in ready mode.
 - HIM's own docs: physical stopping is not yet accepted (a jerky T-pose stop shut down a joint).
 
@@ -18,7 +18,7 @@ Planned moves end their plan and request zero on lost valid odometry or excessiv
 
 Normal straight-walk and turn speed ramps ([[planned-moves]]) never delay the target/timeout zero request. The waypoint recorder ([[waypoint-recorder]]) only reads odometry; exiting it does not stop the active movement program.
 
-**Gap:** a lost lidar doesn't stop Nav2 on Foxy: nothing in it acts on a stale costmap. In the sim's course and behavior-loop runs ([[behavior-loop]]) `harp/approach_stop.py` holds zero from startup until usable lidar, its live transform and speed feedback arrive, and on 0.5 s without any of these receipts; failed route results latch zero until a new session ([[nav2-sim]]); on the robot nothing does yet.
+**Gap:** a lost lidar doesn't stop Nav2 on Foxy. In the sim `harp/approach_stop.py` holds zero until usable lidar, its transform and speed feedback arrive and whenever one is 0.5 s old, and a failed route latches zero ([[approach-stop]]); on the robot nothing does yet.
 
 **Predictive simulation mode:** the optional filter also checks cloud timestamps and observation-time transforms, command freshness and planning deadlines, and disables motion after route completion. In this mode Nav2's controller no longer stops for a blocked trajectory (`follow_when_blocked`), so the filter is the only check against moving objects downstream of Nav2; that is one reason it remains simulator-only; see [[predictive-avoidance]].
 
