@@ -157,6 +157,9 @@ def follow(route, pose, goal):
 
 
 def run(job):
+    import harp.game_planner as game
+    for name, value in job.get("set", {}).items():   # --set NAME=VALUE: a module constant
+        setattr(game, name, value)
     seed, crowd, core, world = job["seed"], job["crowd"], job["core"], job.get("world")
     rng = np.random.default_rng(seed*7+1)
     with tempfile.TemporaryDirectory() as folder:
@@ -191,6 +194,7 @@ def run(job):
     asked = fought = 0
     plan_times, reached_at, standing = [], None, 0.
     path_len, last_people, ghosts = 0., None, []
+    at_closest, pv, desired, at_fault, faults = {}, np.zeros((0, 2)), np.zeros(3), 0, []
     for step in range(int(limit/DT)):
         t = step*DT
         data.qpos[:2] = pose[:2]
@@ -244,19 +248,43 @@ def run(job):
         path_len += float(np.linalg.norm(move))
         standing += DT if np.linalg.norm(vel[:2]) < .05 and reached_at is None else 0.
         if len(people):
-            gap = float(np.min(np.linalg.norm(people-pose[:2], axis=1)-sizes-ARMS))
+            gaps = np.linalg.norm(people-pose[:2], axis=1)-sizes-ARMS
+            gap = float(np.min(gaps))
+            if gap < closest:
+                # Who closed the gap at the closest pass: the robot's and the person's speed
+                # toward each other, and what the planner had decided.
+                j = int(np.argmin(gaps))
+                toward = (people[j]-pose[:2])/max(float(np.linalg.norm(people[j]-pose[:2])), 1e-6)
+                c_, s_ = math.cos(pose[2]), math.sin(pose[2])
+                rv = np.array([c_*vel[0]-s_*vel[1], s_*vel[0]+c_*vel[1]])
+                pvj = pv[j] if last_people is not None and len(pv) > j else np.zeros(2)
+                at_closest = dict(t=round(t, 1), robot_closing=round(float(rv @ toward), 2),
+                                  person_closing=round(float(-pvj @ toward), 2), robot_speed=round(float(np.linalg.norm(rv)), 2),
+                                  mode=result.mode if 'result' in dir() else None,
+                                  solver=result.solver if 'result' in dir() else None, desired=[round(float(v), 2) for v in desired])
             closest = min(closest, gap)
             if gap < 0 and not touching:
                 contacts += 1
+                # At fault: the robot was walking toward that person (over 0.1 m/s) as it touched.
+                j = int(np.argmin(gaps))
+                toward = (people[j]-pose[:2])/max(float(np.linalg.norm(people[j]-pose[:2])), 1e-6)
+                c_, s_ = math.cos(pose[2]), math.sin(pose[2])
+                fault = float(np.array([c_*vel[0]-s_*vel[1], s_*vel[0]+c_*vel[1]]) @ toward) > .1
+                at_fault += fault
+                if fault and len(faults) < 5:
+                    faults.append(dict(t=round(t, 1), mode=result.mode, solver=result.solver,
+                                       stubborn=int(resp.stubborn.get(j+1, 0)), credit=round(float(planner.credits.get(j+1, 0.)), 2),
+                                       person_speed=round(float(np.linalg.norm(pv[j])) if len(pv) > j else 0., 2),
+                                       desired=[round(float(v), 2) for v in desired], command=[round(float(v), 2) for v in command]))
             touching = gap < 0
         fixed_close = min(fixed_close, distance_to(shapes, pose[:2])-ARMS)
         if reached_at is not None:
             break
     end = float(np.linalg.norm(pose[:2]-goal))
     return dict(job, reached=reached_at is not None and end < .35, time=reached_at, end=round(end, 2),
-                closest=round(closest, 3), contacts=contacts, wall=round(fixed_close, 3),
+                closest=round(closest, 3), contacts=contacts, at_fault=at_fault, wall=round(fixed_close, 3),
                 fight=round(fought/max(asked, 1), 3), path=round(path_len, 1), standing=round(standing, 1),
-                plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1))
+                plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1), at_closest=at_closest, faults=faults)
 
 
 def seeds(text):
@@ -274,13 +302,16 @@ def main():
     parser.add_argument("--worlds", nargs="*", default=[], help="named worlds too (e.g. building office atrium)")
     parser.add_argument("--crowds", nargs="+", default=["aware"], choices=["aware", "scripted"])
     parser.add_argument("--noise", default="clean", choices=["clean", "real"])
+    parser.add_argument("--set", nargs="*", default=[], metavar="NAME=VALUE",
+                        help="harp/game_planner.py module constants for this run, e.g. COMFORT_WEIGHT=4")
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2)-2))
     parser.add_argument("--out", help="also write the runs as JSON lines here")
     args = parser.parse_args()
     held = set(range(20261103, 20261111))
-    jobs = [dict(seed=s, crowd=c, core=k, noise=args.noise) for s in seeds(args.seeds) if s not in held
+    consts = {k: float(v) for k, v in (a.split("=", 1) for a in args.set)}
+    jobs = [dict(seed=s, crowd=c, core=k, noise=args.noise, set=consts) for s in seeds(args.seeds) if s not in held
             for c in args.crowds for k in args.cores]
-    jobs += [dict(seed=0, world=w, crowd=c, core=k, noise=args.noise)
+    jobs += [dict(seed=0, world=w, crowd=c, core=k, noise=args.noise, set=consts)
              for w in args.worlds for c in args.crowds for k in args.cores]
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     with Pool(args.jobs) as pool:
@@ -296,6 +327,7 @@ def main():
             n = len(rs)
             reached = [r for r in rs if r["reached"]]
             print(f"{core:5} {crowd:8} reached {len(reached)}/{n}  contacts {sum(r['contacts'] for r in rs)} "
+                  f"at fault {sum(r.get('at_fault', 0) for r in rs)} "
                   f"(runs with any {sum(r['contacts'] > 0 for r in rs)})  clearance>=0.30 {sum(r['closest'] >= .3 for r in rs)}/{n}"
                   f"  median time {np.median([r['time'] for r in reached]) if reached else None}"
                   f"  fight {np.mean([r['fight'] for r in rs]):.3f}  standing {np.mean([r['standing'] for r in rs]):.1f}s"

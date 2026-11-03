@@ -57,6 +57,10 @@ SIDEWAYS = 3.            # a sideways request costs this much more than forward 
 TURNING = .3             # turn-rate deviation weight (a round footprint doesn't turn)
 SWITCHING = 1.           # cost of changing the request from the last one, per (m/s)^2
 MODE_RADIUS = .12        # m/s: requests this close to the chosen one are averaged with it
+KEEP_RIGHT = 1.5         # nats against passing someone met head-on on the wrong side: people
+                         # keep right (HIM's walkers step right too), so the robot passing on its
+                         # left met them on the same side, and passes came close
+HEAD_ON = math.radians(135)   # walking at least this far from the robot's way counts as head-on
 STRIDE = 2               # collision costs every 2nd rollout step (0.2 s), for planning time
 
 
@@ -111,6 +115,28 @@ class GamePlanner(Planner):
             limit = np.minimum(c.robot_radius, body[:, 0]-.01)
             log = np.where(np.min(body[:, 1:], axis=1) < limit, -np.inf, log)
         return log
+
+    def _keep_right(self, paths, objects, pose):
+        """Log-prior penalty (n,) of robot paths that would pass someone met head-on with them
+        on its right: at closest approach to their straight walk, they should be on its left."""
+        penalty = np.zeros(len(paths))
+        heading = np.array([math.cos(pose[2]), math.sin(pose[2])])
+        for o in objects:
+            v = o[2:4]
+            speed = float(np.linalg.norm(v))
+            offset = o[:2]-pose[:2]
+            if (speed < .3 or float(np.linalg.norm(offset)) > ENGAGE or float(offset @ heading) <= 0
+                    or float(v @ heading) > math.cos(HEAD_ON)*speed):
+                continue
+            walk = o[None, :2]+self.times[:, None]*v[None]                  # (steps, 2)
+            gap = walk[None]-paths                                         # (n, steps, 2)
+            k = np.argmin(np.einsum('nsk,nsk->ns', gap, gap), axis=1)
+            rel = gap[np.arange(len(paths)), k]
+            moving = np.diff(paths, axis=1, append=paths[:, -1:])[np.arange(len(paths)), k]
+            moving = np.where(np.linalg.norm(moving, axis=1, keepdims=True) > 1e-6, moving, heading[None])
+            right = moving[:, 0]*rel[:, 1]-moving[:, 1]*rel[:, 0] < 0       # person on the robot's right
+            penalty += KEEP_RIGHT*right
+        return penalty
 
     def _people(self, objects):
         """Each moving object's cloud (m, SAMPLES, steps, 2): its tracked walk, with one
@@ -194,6 +220,8 @@ class GamePlanner(Planner):
         robot_log = self._robot_prior(seeds, paths, desired)
         if not np.isfinite(robot_log).any():
             robot_log = np.zeros(len(seeds))   # all through walls: let safety pick the least bad
+        if len(objects):
+            robot_log = robot_log-self._keep_right(paths, objects, pose)
         playing = objects[players]
         clouds, people_log = self._people(playing)
         react = self._reactivity(playing)
