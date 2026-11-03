@@ -147,9 +147,10 @@ class PredictiveAvoidance:
             heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1',
             people_margin=float(os.environ.get('HARP_PREDICTIVE_PEOPLE_MARGIN', '0'))))
         self.moved = set()   # ids of tracks seen moving: people, still people when they pause
-        # Out of a tight spot it is stuck in; HARP_PREDICTIVE_MAKE_WAY=0 turns it off (A/B runs).
+        # Out of a tight spot it is stuck in (HARP_PREDICTIVE_MAKE_WAY=1). Off by default: in HIM's
+        # office it made way 5-6 times a run but reached the goal no more often (0/3 either way).
         self.make_way = (MakeWay(self.planner.config.robot_radius)
-                         if os.environ.get('HARP_PREDICTIVE_MAKE_WAY', '1') != '0' else None)
+                         if os.environ.get('HARP_PREDICTIVE_MAKE_WAY', '0') == '1' else None)
         self.making_way = False
         self.responsiveness = Responsiveness()   # who gives way: the planner's forecast credit
         self.config = self.planner.config
