@@ -16,6 +16,12 @@ Stages:
            PREROLL s before the start are kept, so first syllables survive.
   text     the whole turn through Parakeet TDT 0.6B v2 (sherpa-onnx).
   filter   empty text and phrases speech models make up from noise are dropped.
+  mute     with the mic or the robot's, nothing is heard while talk.py says the robot is
+           speaking, and for TAIL s after, so it doesn't hear itself: talk.py sends
+           {"speaking": true} every 0.5 s while it plays and {"speaking": false} when it
+           stops, as UDP to MUTE_PORT on this computer. A mute ends HOLD s after the last
+           message anyway, so it can't stay deaf if talk.py stops. A turn cut off by it is
+           dropped.
 
 Each line: text, start and end (s into the stream), silence_s (the wait for the turn
 to end), stt_s (decoding time) and after_end_s (their sum: from the person going quiet
@@ -52,6 +58,10 @@ MAX_SPEECH = 15.0   # s: longer turns are cut and sent as they are
 PREROLL = 0.5       # s kept before speech starts
 FLOOR_MARGIN = 2.0  # a voiced frame is this many times louder than the noise floor (6 dB)
 MADE_UP = {"thank you.", "thank you for watching.", "thanks for watching.", "you", "bye."}
+MUTE_PORT = 28732   # UDP on this computer: talk.py's speaking messages (its LLM server is on 28731;
+                    # both below Linux's temporary-port range, and unused by common software)
+TAIL = 0.5          # s still muted after the robot stops speaking (the room's echo)
+HOLD = 1.0          # s a speaking message mutes for, unless another comes
 
 GROUP, PORT = "239.168.123.161", 5555   # the G1's mic stream, from PC1
 PC2 = "192.168.123.164"                  # PC2's address on the robot network
@@ -163,6 +173,32 @@ class Voice:
         self.context = frame[-CONTEXT:]
         return float(prob[0][0])
 
+    def reset(self):
+        """Forget the audio so far (after a mute, so the robot's own voice doesn't linger)."""
+        self.state[:] = 0
+        self.context[:] = 0
+
+
+class Mute:
+    """Whether the robot is speaking, from talk.py's messages on MUTE_PORT."""
+
+    def __init__(self, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("127.0.0.1", port))
+        self.sock.setblocking(False)
+        self.until = 0.0
+
+    def __call__(self):
+        """True while muted; reads every message waiting."""
+        while True:
+            try:
+                message = json.loads(self.sock.recv(1024))
+            except (BlockingIOError, ValueError):
+                break
+            now = time.monotonic()
+            self.until = now + (HOLD if message.get("speaking") else TAIL)
+        return time.monotonic() < self.until
+
 
 class Turns:
     """Frames and their speech probabilities in, finished turns out. Kept apart from Silero
@@ -205,6 +241,13 @@ class Turns:
             return self.start, end, audio
         return None
 
+    def skip(self):
+        """A frame not heard (muted): drop any turn in progress, keep the clock and the
+        room's noise floor."""
+        self.count += 1
+        self.speaking, self.voiced, self.quiet, self.frames = False, 0, 0, []
+        self.preroll.clear()
+
 
 class Text:
     """Parakeet TDT through sherpa-onnx: a whole turn in, its text out."""
@@ -246,6 +289,8 @@ def main():
     parser.add_argument("--iface", default=PC2, help="this computer's address on the robot network")
     parser.add_argument("--models", type=Path, default=None, help="where the models are")
     parser.add_argument("--provider", default="cpu", help="sherpa-onnx's device: cpu or cuda")
+    parser.add_argument("--no-mute", action="store_true", help="hear the robot speaking too")
+    parser.add_argument("--mute-port", type=int, default=MUTE_PORT, help="talk.py's speaking messages")
     args = parser.parse_args()
     if args.devices:
         import sounddevice
@@ -262,8 +307,20 @@ def main():
     log(f"models loaded in {time.perf_counter() - began:.1f} s")
     frames = (wav_frames(args.wav) if args.wav else mic_frames(args.device) if args.mic
               else robot_frames(args.iface))
+    mute = None if args.wav or args.no_mute else Mute(args.mute_port)
+    muted = False
     try:
         for frame in frames:
+            if mute and mute():
+                if not muted:
+                    log("muted: the robot is speaking")
+                muted = True
+                turns.skip()
+                continue
+            if muted:
+                muted = False
+                voice.reset()
+                log("listening")
             turn = turns.push(frame, voice(frame))
             if turn is None:
                 continue

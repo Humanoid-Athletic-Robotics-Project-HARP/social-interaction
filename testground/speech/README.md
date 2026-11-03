@@ -47,7 +47,7 @@ won't build on CUDA 11.4, use Ollama's `jetpack5` build. Then the model we chose
 Qwen3-4B-Instruct-2507 at Q4_K_M (Apache-2.0; `../../speech/README.md` has the pinned
 download), or Qwen3-1.7B to compare. Serve it on the GPU with two CPU threads:
 ```bash
-llama-server -m models/MODEL.gguf -ngl 99 -c 4096 -t 2 --port 8080
+llama-server -m models/MODEL.gguf -ngl 99 -c 4096 -t 2 --port 28731
 ```
 
 **Text-to-speech:** the same sherpa-onnx, with a voice folder from its
@@ -63,7 +63,7 @@ dataset's license first, since several (`lessac`, `ryan`, `hfc_*`) are non-comme
 
 In `speech/` on PC2, with the venv:
 ```bash
-nice -n 10 .venv/bin/python bench.py maxn-idle --note "MAXN, harness off" --vad models/silero_vad.onnx --stt models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 --stt-int8 --llm http://127.0.0.1:8080 --tts models/kokoro-multi-lang-v1_0 --tts-speaker 3 --tts-provider cuda
+nice -n 10 .venv/bin/python bench.py maxn-idle --note "MAXN, harness off" --vad models/silero_vad.onnx --stt models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 --stt-int8 --llm http://127.0.0.1:28731 --tts models/kokoro-multi-lang-v1_0 --tts-speaker 3 --tts-provider cuda
 ```
 
 Run it twice: with HARP's harness off, then running. The capture's `meta.json` records

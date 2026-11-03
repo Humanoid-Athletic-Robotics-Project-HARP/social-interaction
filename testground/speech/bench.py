@@ -17,7 +17,7 @@ skips its first run (loading, warm-up) in the summary.
 
   python3 bench.py NAME [--note "MAXN, HARP's harness running"] [--repeat 5]
       [--vad silero_vad.onnx] [--stt PARAKEET_DIR] [--stt-provider cuda]
-      [--llm http://127.0.0.1:8080] [--llm-model NAME]
+      [--llm http://127.0.0.1:28731] [--llm-model NAME]
       [--tts VOICE_DIR [--tts-speaker 3]] [--wavs DIR]
 
 writes captures/NAME/ beside this file:
@@ -318,7 +318,7 @@ def main():
     parser.add_argument("--stt", help="a sherpa-onnx NeMo transducer folder (Parakeet)")
     parser.add_argument("--stt-provider", default="cuda", choices=["cuda", "cpu"])
     parser.add_argument("--stt-int8", action="store_true", help="use the model's int8 files")
-    parser.add_argument("--llm", help="an OpenAI-compatible server, e.g. http://127.0.0.1:8080")
+    parser.add_argument("--llm", help="an OpenAI-compatible server, e.g. http://127.0.0.1:28731")
     parser.add_argument("--llm-model", default="", help="the model's name (Ollama needs it)")
     parser.add_argument("--tts", help="a sherpa-onnx voice folder (Kokoro or Piper/VITS)")
     parser.add_argument("--tts-speaker", type=int, default=0, help="the voice's speaker id (Kokoro af_heart: 3)")

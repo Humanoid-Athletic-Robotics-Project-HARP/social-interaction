@@ -84,6 +84,23 @@ class TestFarewell(unittest.TestCase):
             self.assertFalse(talk.FAREWELL.search(reply), reply)
 
 
+class TestEcho(unittest.TestCase):
+    def setUp(self):
+        self.talk = talk.Conversation.__new__(talk.Conversation)   # no models needed
+        self.talk.said = ["Hi, I'm HARP, a robot from Stanford. How's your day going?",
+                          "Oh, nice! What was the lecture about?"]
+
+    def test_own_voice_is_an_echo(self):
+        for heard in ("Hi I'm Harp, robot from Stanford. How's your day going?",
+                      "what was the lecture about"):
+            self.assertTrue(self.talk.echo(heard), heard)
+
+    def test_the_person_is_not(self):
+        # under three words is too short to tell: a person may well say "Oh nice." too
+        for heard in ("It was about machine learning.", "Pretty good, thanks!", "Nice.", "Oh nice."):
+            self.assertFalse(self.talk.echo(heard), heard)
+
+
 class TestGoodbye(unittest.TestCase):
     def test_goodbyes(self):
         for said in ("Okay, bye!", "I gotta go", "See you later", "I have to run now"):

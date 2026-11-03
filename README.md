@@ -36,7 +36,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | Move like a person | ✅ | ⬜ | Run it on the robot |
 | Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
 | Find people and walk up to them | 🟡 | ⬜ | Pick a person detector for the camera |
-| Talk with people | ⬜ | ⬜ | Join listening and talking on a laptop; record the robot's mic |
+| Talk with people | ⬜ | ⬜ | A live conversation on a laptop; record the robot's mic |
 | Run safely on the real robot | 🟡 | ⬜ | **Next:** first robot run of the move to a point through HARP's harness |
 
 ### Move like a person
@@ -112,8 +112,9 @@ unchanged, cloned next to this repo, and keep only our code here.
   sender on a laptop); next, on the robot.
 - 🟡 Speech-to-text → LLM → text-to-speech loop, on a laptop first: listening
   (`speech/listen.py`, Silero and Parakeet) and talking (`speech/talk.py`, Qwen3-4B on
-  llama.cpp, Kokoro or Piper voices) each work; next, together, with listening muted
-  while HARP speaks.
+  llama.cpp, Kokoro or Piper voices) work together (`listen.py --mic | talk.py
+  --heard`), listening muted while HARP speaks; tried with recorded voices, not yet with
+  a person.
 
 ### Run safely on the real robot
 

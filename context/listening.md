@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-03T02:51:56Z
+  updated: 2026-11-03T03:26:47Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -74,7 +74,14 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - the filter's short, empty and made-up checks
   - one JSON line per turn on stdout
 - The turn rules (`Turns`) are tested in `speech/tests/` without models.
-- Not built yet: the gate and the echo check (both need talking's `speaking` events), ROS 2 output, Smart Turn, a USB mic, and installing it on PC2. How `speech/` gets to PC2 is open: `sync.sh` pushes only `testground/`.
+- The mute (built 2026-11-03, with the mic or the robot's mic):
+  - `talk.py` sends `{"speaking": true}` every 0.5 s while it plays or makes a reply, and `false` when done, as UDP to port 28732 on the same computer.
+  - `listen.py` hears nothing until 0.5 s after `false`, or 1 s after the last `true` if `talk.py` dies.
+  - A turn cut off by it is dropped, and Silero's state is reset after it.
+  - On the robot this becomes the `speaking` ROS 2 event.
+  - The echo check is in `talk.py` (it knows what it said).
+- Tested on a laptop (2026-11-03), on the stand-in robot mic stream: person speech, then HARP's own greeting, then person speech. Without the mute the greeting was transcribed; with it, only the person's two lines, the second caught whole 1 s after HARP stopped. Not yet tried with a live person through real speakers and mic.
+- Not built yet: ROS 2 output, Smart Turn, a USB mic, and installing it on PC2. How `speech/` gets to PC2 is open: `sync.sh` pushes only `testground/`.
 - Measured on an M1 MacBook Air's CPU (2026-11-03), with macOS `say` voices, which are easier than a person at 1 m:
   - two sentences 1.5 s apart gave two turns; a 0.4 s pause stayed inside one turn
   - the text came out word for word, also with noise 15 dB below the speech

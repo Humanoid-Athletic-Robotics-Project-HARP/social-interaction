@@ -128,7 +128,7 @@ an M1 Mac its GPU code fails, so run it on the CPU as here; on newer Macs, try `
 without `--device none` for the GPU.
 
 ```bash
-llama-server -m ../../models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --device none -ngl 0 -c 4096 -t 4 --port 8080
+llama-server -m ../../models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --device none -ngl 0 -c 4096 -t 4 --port 28731
 ```
 
 That path is from this repo's main checkout; from a worktree, give the full path to
@@ -148,12 +148,20 @@ sound (which also waits for anything still playing, such as the greeting):
 {"event": "said", "text": "Oh, nice! What was the lecture about?", "llm_s": 0.603, "ready_s": 0.675, "first_sound_s": 0.676}
 ```
 
-To talk to it out loud, give it listening's transcripts. Use headphones: listening
-isn't muted yet while HARP speaks, so it would hear itself.
+To talk to it out loud, give it listening's transcripts, with the LLM server still
+running:
 
 ```bash
 .venv/bin/python listen.py --mic | .venv/bin/python talk.py --heard
 ```
+
+While HARP speaks, and while it works out a reply, listening stops hearing until 0.5 s
+after it has finished, so it doesn't answer itself. You can't interrupt it yet: wait
+until it has finished before you speak. `talk.py` tells `listen.py` over UDP on this
+computer, port 28732; the LLM server is on 28731. Both ports were picked to stay clear
+of common ones (8080–8082 are in use on PC2) and of Linux's temporary ports. Anything
+that still sounds like HARP's own words is dropped as an `echo` event. `--output-device`
+picks the speaker (`listen.py --devices` lists them).
 
 A word a voice can't say is skipped, and reported as an `unknown_words` event. Add it
 to that voice's file in `lexicon/`, in the same notation as its neighbours there.

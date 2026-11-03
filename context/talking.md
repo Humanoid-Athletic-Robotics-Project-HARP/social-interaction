@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-03T03:07:14Z
+  updated: 2026-11-03T03:26:47Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -59,7 +59,7 @@ Design for the talking half of a conversation, and what both halves share, and w
 
 **Publishes** (events on `/harp/events`, source `talk`):
 - `said`: text, time to first sound, each stage's time
-- `speaking`: on or off, for listening's gate
+- `speaking`: on or off, for listening's mute. On a laptop it goes as UDP to port 28732 instead ([[listening]] has the protocol).
 - `talk_done`: the reason
 
 **Measuring:** time from listening's turn end to first sound; target 1–1.5 s ([[speech-research]]). Keep each whole conversation's text in the run's log.
@@ -83,8 +83,12 @@ Design for the talking half of a conversation, and what both halves share, and w
   - After two sentences, `<bye>` is the grammar's only way on, so a model that wants to say more takes it. Asked for "multiple sentences", it did so 3 times out of 3, and the conversation ended.
   - So `<bye>` counts only if the reply sounds like a goodbye (`FAREWELL`) or the person said one. Otherwise it's an `ignored_bye` event and is kept out of the history.
 - The prompt has the model answer what was said, not always open with a reaction: "Hello" was getting "Oh, nice!". It never repeats a question, and rephrases when they're confused: "What" was getting the same reply again. Its examples for those cases are now often copied word for word.
+- Joined to listening (2026-11-03): `listen.py --mic | talk.py --heard`.
+  - While it plays audio, and while a reply is being made (`busy`, so the pause between two synthesized sentences doesn't unmute), it sends listening the speaking signal. Measured: on from each reply's start to its last sound, heartbeats at most 0.54 s apart.
+  - A transcript within 0.75 similarity of one of its last three lines, or a piece of one with three or more words, is dropped as an `echo` event.
+  - Ports (a teammate's ask: no common ones; 8080–8082 are taken on PC2 by our lidar, camera and hybrid viewers): `llama-server` on 28731, the speaking signal on 28732. Both are below Linux's temporary-port range (32768–60999).
+  - People can't interrupt it: it doesn't listen while it speaks.
 - Not built yet:
-  - muting listening while it speaks
   - the robot's PlayStream player and the LED
   - ROS 2 and the `behavior.py` handshake
   - the silence ending
@@ -95,7 +99,7 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Run back through `listen.py`, Kokoro's speech came back nearly word for word; Piper's was rougher ("Harr, A. Robart").
 
 **First steps**
-1. Laptop: join `talk.py` to `listen.py` with a "speaking" signal that mutes listening.
+1. Laptop: a live conversation through speakers and the mic; then about 50 scripted conversations to count false or missed goodbyes, repeated questions and made-up facts, with and without the grammar.
 2. Robot: a WAV through PlayStream, and a TtsMaker line; check the volume. Ask first: both make sound and use the voice service.
 3. The handshake in `behavior.py`, with the sim keeping its fixed wait.
 

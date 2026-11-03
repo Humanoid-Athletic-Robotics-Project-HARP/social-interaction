@@ -2,15 +2,19 @@
 robot's spoken reply out.
 
   python3 talk.py                      type what the person says, one line a turn
-  python3 listen.py --mic | python3 talk.py --heard   listening's transcripts (use
-                                       headphones: the robot's own voice isn't muted yet)
+  python3 listen.py --mic | python3 talk.py --heard   listening's transcripts, out loud
+
+While it speaks, and while it makes a reply, it tells listen.py to stop listening (UDP to
+MUTE_PORT, listen.py's docstring), so it doesn't hear itself. A transcript that is still
+its own voice (close to something it just said, ECHO) is dropped as an echo event.
 
 A conversation: a fixed greeting at once, then for each turn the reply from a local LLM
 (llama.cpp's llama-server, which must already be running: README.md), streamed. The reply
 is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
   - The reply's text: numbers spelled out, and any word the voice has no entry for
     reported (sherpa-onnx skips those).
-  - A filler plays if nothing is ready or playing FILLER s after the person's turn ended.
+  - A filler plays if the LLM has given no text, and nothing is playing, FILLER s after
+    the person's turn ended.
   - A fixed line instead on an LLM error, or if it hasn't answered in GIVE_UP s.
   - The end: the LLM's <bye> tag on a reply that sounds like a goodbye (FAREWELL), the
     person saying goodbye, MAX_TURNS turns or MAX_S s, or MISSES empty turns in a row.
@@ -18,8 +22,8 @@ is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
 Events, one JSON line each on stdout: said (text, and from the turn's end: llm_s to the
 first sentence, ready_s to its audio, first_sound_s to its sound, which also waits for
 anything still playing), unknown_words, ignored_bye (a <bye> on a reply that wasn't a
-goodbye), and done (reason). --save DIR keeps everything said as WAVs; --no-play stays
-silent.
+goodbye), echo, and done (reason). --save DIR keeps everything said as WAVs; --no-play
+stays silent; --output-device picks the speaker.
 
 Models in models/ beside the main checkout, like listen.py's. Plain Python that also runs
 on 3.8 (PC2's).
@@ -29,7 +33,9 @@ import argparse
 import json
 from pathlib import Path
 import queue
+from difflib import SequenceMatcher
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -39,7 +45,7 @@ import wave
 
 import numpy as np
 
-from listen import log, models_dir
+from listen import MUTE_PORT, log, models_dir
 
 HERE = Path(__file__).resolve().parent
 FILLER = 1.2       # s after the turn ends with nothing to say yet: a filler
@@ -48,6 +54,8 @@ MAX_TURNS = 8      # turns before it says goodbye itself
 MAX_S = 90.0       # s before it says goodbye itself
 MISSES = 2         # empty turns in a row before it says goodbye
 MAX_TOKENS = 60    # the LLM's reply, at most (two short sentences)
+HEARTBEAT = 0.5    # s between speaking messages to listen.py (it unmutes 1 s after the last)
+ECHO = 0.75        # a transcript this similar to something just said is the robot's own voice
 FIRST_WORDS = 4    # a comma ends a reply's first piece once this many words come before it
 CLAUSE_WORDS = 10  # ...and any later piece
 VOICES = {         # model folder, speaker, our own lexicon
@@ -208,21 +216,46 @@ class Voice:
 
 
 class Speaker:
-    """Plays audio in order on this computer, in its own thread, and keeps what it played."""
+    """Plays audio in order on this computer, in its own thread, and keeps what it played.
+    While it plays, or while a reply is being made (busy), it tells listen.py the robot is
+    speaking: {"speaking": true} as UDP to MUTE_PORT every HEARTBEAT s, then
+    {"speaking": false} once when it stops."""
 
-    def __init__(self, rate, play, save):
+    def __init__(self, rate, play, save, device=None, port=MUTE_PORT):
         self.rate, self.save, self.count = rate, save, 0
         self.queue = queue.Queue()
         self.stream = None
         if play:
             import sounddevice
-            self.stream = sounddevice.OutputStream(samplerate=rate, channels=1, dtype="float32")
+            self.stream = sounddevice.OutputStream(samplerate=rate, channels=1, dtype="float32",
+                                                   device=device)
             self.stream.start()
         if save:
             save.mkdir(parents=True, exist_ok=True)
         self.idle = threading.Event()
         self.idle.set()
+        self.busy = False
+        self.sock, self.port = socket.socket(socket.AF_INET, socket.SOCK_DGRAM), port
         threading.Thread(target=self.run, daemon=True).start()
+        threading.Thread(target=self.announce, daemon=True).start()
+
+    def announce(self):
+        speaking, last = False, 0.0
+        while True:
+            now = (self.busy or not self.idle.is_set())
+            if now and (not speaking or time.monotonic() - last >= HEARTBEAT):
+                self.send(True)
+                last = time.monotonic()
+            elif speaking and not now:
+                self.send(False)
+            speaking = now
+            time.sleep(0.05)
+
+    def send(self, speaking):
+        try:
+            self.sock.sendto(json.dumps({"speaking": speaking}).encode(), ("127.0.0.1", self.port))
+        except OSError:
+            pass   # nobody listening is fine
 
     def say(self, audio, started=None):
         """Queue audio; started(t) is called with the time its sound begins."""
@@ -295,7 +328,9 @@ class Conversation:
     def __init__(self, args):
         began = time.perf_counter()
         self.voice = Voice(args.voice, args.provider)
-        self.speaker = Speaker(self.voice.rate, not args.no_play, args.save)
+        self.speaker = Speaker(self.voice.rate, not args.no_play, args.save,
+                               args.output_device, args.mute_port)
+        self.said = []   # what it has said, newest last (for the echo check)
         self.canned = {line: self.voice(speakable(line))
                        for line in [GREETING, SORRY, LOST, CLOSE] + FILLERS}
         log(f"voice {args.voice} ready in {time.perf_counter() - began:.1f} s")
@@ -305,7 +340,20 @@ class Conversation:
         self.turns, self.misses, self.fillers = 0, 0, 0
 
     def event(self, name, **values):
+        if name == "said":
+            self.said.append(values["text"])
         print(json.dumps({"event": name, **values}), flush=True)
+
+    def echo(self, heard):
+        """True if what was heard is the robot's own voice, leaked past listening's mute:
+        close to something it said lately, or a piece of it."""
+        heard = " ".join(re.findall(r"[a-z']+", heard.lower()))
+        for said in self.said[-3:]:
+            said = " ".join(re.findall(r"[a-z']+", said.lower()))
+            if heard and (SequenceMatcher(None, heard, said).ratio() >= ECHO
+                          or (len(heard.split()) >= 3 and heard in said)):
+                return True
+        return False
 
     def warm(self):
         """Process the fixed start of the prompt once, so every turn reuses it from the cache
@@ -336,6 +384,13 @@ class Conversation:
             self.event("said", text=SORRY, canned=True)
             return None
         self.misses, self.turns = 0, self.turns + 1
+        self.speaker.busy = True   # listening stays muted until the whole reply has played
+        try:
+            return self.reply(heard, ended)
+        finally:
+            self.speaker.busy = False
+
+    def reply(self, heard, ended):
         self.messages.append({"role": "user", "content": heard.strip()})
         first, reply, spoken = {}, "", []
         filler = threading.Timer(FILLER, self.filler, args=(first,))
@@ -402,11 +457,15 @@ def main():
                         help="read listen.py's JSON lines instead of typed lines")
     parser.add_argument("--voice", default="kokoro", choices=sorted(VOICES))
     parser.add_argument("--provider", default="cpu", help="sherpa-onnx's device: cpu or cuda")
-    parser.add_argument("--llm", default="http://127.0.0.1:8080", help="llama-server's address")
+    parser.add_argument("--llm", default="http://127.0.0.1:28731", help="llama-server's address")
     parser.add_argument("--no-grammar", action="store_true", help="let the LLM write freely")
     parser.add_argument("--no-play", action="store_true", help="don't play the audio")
     parser.add_argument("--save", type=Path, help="keep everything said as WAVs here")
+    parser.add_argument("--output-device", help="the speaker's number or name (listen.py --devices)")
+    parser.add_argument("--mute-port", type=int, default=MUTE_PORT, help="where listen.py hears it's speaking")
     args = parser.parse_args()
+    if args.output_device and args.output_device.isdigit():
+        args.output_device = int(args.output_device)
 
     talk = Conversation(args)
     talk.warm()
@@ -418,6 +477,9 @@ def main():
             if turn.get("dropped") in ("short", "made_up"):   # coughs and noise, not turns
                 continue
             heard = turn.get("text", "")
+            if talk.echo(heard):
+                talk.event("echo", text=heard)
+                continue
         else:
             heard = line
         reason = talk.turn(heard) or reason
