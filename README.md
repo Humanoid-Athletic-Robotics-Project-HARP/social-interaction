@@ -305,6 +305,13 @@ keeps the route, recorder, GR00T adapter, and harness interfaces.
 Use `--avoidance reactive` for the default approach-stop behavior. Predictive
 mode currently accepts simulator Nav2 routes; use waypoints instead of planned
 straight moves. Model assumptions and validation: [predictive avoidance](context/predictive-avoidance.md).
+
+To test on a world no one has tuned against, generate one, commit it, then run it once:
+
+```bash
+python3 submission/generate_world.py --seed 20261111
+python3 submission/course.py heldout_20261111 --avoidance predictive --crowd aware
+```
 `course.py --replay RUN` replays a run with its walkers.
 
 Before each run it warns about viewers still up and memory pressure, and the
