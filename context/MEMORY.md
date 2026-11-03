@@ -17,6 +17,7 @@
 - [Course runs](course-runs.md) — before running, scoring, watching or replaying sim courses, or walking routes
 - [Git guidelines](git-guidelines.md) — whenever using git in any way: commits, merges, pull requests
 - [Worktrees](worktrees.md) — before making, using or removing a git worktree, or when two sessions use the sim on one computer
+- [External dependencies](external-dependencies.md) — before adding or borrowing outside code, packages or models: no copying, licenses, where they're recorded
 - [Untracked files](feedback-untracked-files.md) — before deleting files, cleaning a checkout, or removing a worktree or branch
 - [Run logs and views](sim-run-logs.md) — before changing what our image prints, a run's events.jsonl, the Rerun lidar view or replays' people
 - [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline or it ends inconclusive: why, what to check and do
@@ -35,6 +36,10 @@
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack
 - [G1 official docs](g1-official-docs.md) — for a Unitree doc page, or the robot's address, login and sensors
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
+- [Listening](listening.md) — before working on how the robot hears people: mic, turn end, speech-to-text
+- [Talking](talking.md) — before working on what the robot says, the speech processes' placement, or their handshake with behavior.py
+- [Talking research](talking-research.md) — when choosing the voice, the LLM, the speaker player or how conversations go: options, licenses, findings
+- [Speech research](speech-research.md) — when choosing a piece of the speech stack: options, speeds, other G1 projects
 - [Off-robot testing](off-robot-testing.md) — when considering another simulator
 - [RL ideas](rl-ideas.md) — when someone asks about reinforcement learning on the G1
 - [Person perception sources](person-perception-sources.md) — before evaluating or updating the pinned detector/tracker forks
