@@ -27,6 +27,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from harp import camera_mount, events
 from harp.approach_stop import CAMERA_AGE, CAMERA_MIN_Z, CAMERA_TOPIC, TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
+from harp.make_way import MakeWay, toward
 from harp.obstacle_tracker import STRUCTURE_ID, Tracker
 from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner, Responsiveness
 
@@ -34,6 +35,7 @@ PERIOD = CONTROL_PERIOD
 TIMEOUT = 0.5
 MAX_SCAN_AGE = 0.35
 MAX_SOLVE_TIME = 0.15
+MAKE_WAY_SHARE = .6   # of the planner's speed, walking to a make-way spot
 STATIC_TOPIC = "/harp/static_cloud"
 MOVING_SPEED = .15   # m/s: a fresh track at least this fast is left out of STATIC_TOPIC
 MOVING_SIZE = .7     # m: larger tracks (a merged blob, a wall piece) always stay in it
@@ -145,6 +147,10 @@ class PredictiveAvoidance:
             heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1',
             people_margin=float(os.environ.get('HARP_PREDICTIVE_PEOPLE_MARGIN', '0'))))
         self.moved = set()   # ids of tracks seen moving: people, still people when they pause
+        # Out of a tight spot it is stuck in; HARP_PREDICTIVE_MAKE_WAY=0 turns it off (A/B runs).
+        self.make_way = (MakeWay(self.planner.config.robot_radius)
+                         if os.environ.get('HARP_PREDICTIVE_MAKE_WAY', '1') != '0' else None)
+        self.making_way = False
         self.responsiveness = Responsiveness()   # who gives way: the planner's forecast credit
         self.config = self.planner.config
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
@@ -480,7 +486,18 @@ class PredictiveAvoidance:
             # spatial margin. Its future velocity is unknown, not a CV estimate
             # that can be extrapolated forever. Fresh scans still gate all motion.
             tracks = self.planning_tracks(stamp)
-            result = self.planner.plan(self.pose, self.velocity, self.desired,tracks,stamp,self.goal)
+            desired, goal = self.desired, self.goal
+            field = getattr(self.planner, 'field', None)
+            spot = self.make_way and self.make_way.update(
+                stamp, self.pose, self.goal, self.mode, tracks,
+                None if field is None else (lambda p: self.planner._field_at(p, 0)))
+            if spot is not None:
+                # Walk there instead of Nav2's way, with every usual check (harp/make_way.py).
+                desired, goal = toward(self.pose, spot, MAKE_WAY_SHARE*self.planner.config.speed), spot
+                if not self.making_way:
+                    print(events.record('predictive', 'make_way', spot=[round(float(v), 2) for v in spot]), flush=True)
+            self.making_way = spot is not None
+            result = self.planner.plan(self.pose, self.velocity, desired, tracks, stamp, goal)
             # A slow solve cannot renew an obsolete movement request.
             if time.monotonic()-now > MAX_SOLVE_TIME or not self.ready(time.monotonic(), self.clock()):
                 self.stop("planning_deadline", True)
