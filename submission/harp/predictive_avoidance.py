@@ -30,6 +30,7 @@ from harp.approach_stop import CAMERA_AGE, CAMERA_MIN_Z, CAMERA_TOPIC, TOPIC, ro
 from harp.lidar_mount import FRAME
 from harp.make_way import MakeWay, toward
 from harp.obstacle_tracker import STRUCTURE_ID, Tracker
+from harp.game_planner import GamePlanner
 from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner, Responsiveness
 
 PERIOD = CONTROL_PERIOD
@@ -142,7 +143,12 @@ class PredictiveAvoidance:
             raise ValueError('predictive speed must be within .05 to .6 m/s')
         gain = float(os.environ.get('HARP_PREDICTIVE_TRACKING_GAIN','.85'))
         lateral_gain = float(os.environ.get('HARP_PREDICTIVE_LATERAL_GAIN','.60'))
-        self.planner = Planner(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain,
+        # HARP_PREDICTIVE_PLANNER=game: the game-theoretic core (harp/game_planner.py); default
+        # mpc, the sampling MPC (harp/predictive_mpc.py), until the game core wins in HIM.
+        core = os.environ.get('HARP_PREDICTIVE_PLANNER', 'mpc')
+        if core not in ('mpc', 'game'):
+            raise ValueError('HARP_PREDICTIVE_PLANNER must be mpc or game')
+        self.planner = (GamePlanner if core == 'game' else Planner)(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain,
             cooperative=os.environ.get('HARP_PREDICTIVE_COOPERATIVE', '1') != '0',
             smoothing=os.environ.get('HARP_PREDICTIVE_SMOOTHING', '1') != '0',
             heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1',
@@ -322,6 +328,8 @@ class PredictiveAvoidance:
             tracks = self.process_scan(points, origin, base, stamp, camera)
             if self.pose is not None and self.velocity is not None and self.config.cooperative:
                 self.planner.credits = self.responsiveness.update(tracks, self.pose, self.velocity)
+                if hasattr(self.planner, 'stubborn'):
+                    self.planner.stubborn = self.responsiveness.stubborn
             present = {t.id for t in tracks}
             self.moved = {i for i in self.moved if i in present} | {
                 t.id for t in tracks if t.id < STRUCTURE_ID and t.last_seen == stamp

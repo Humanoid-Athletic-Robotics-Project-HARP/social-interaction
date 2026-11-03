@@ -162,6 +162,7 @@ class Planner:
         self.chosen = None             # that manoeuvre's request blocks (3, 3), while avoiding
         self.chosen_body = np.ones(3, dtype=bool)   # its blocks that turn with the robot
         self.planned_yaw = None        # heading at the last plan (held steps are turned back)
+        self.object_ids = np.zeros(0, dtype=np.int64)   # ids of _prepare's moving objects
 
     def _blocked(self, clearance=-math.inf, reason="invalid_input"):
         self.previous[:] = 0
@@ -499,9 +500,11 @@ class Planner:
         return (paths, firsts, np.min([r[2] for r in results], axis=0),
                 np.min([r[3] for r in results], axis=0), np.max([r[4] for r in results], axis=0))
 
-    def plan(self, pose, velocity, desired, tracks, now, goal=None):
+    def _prepare(self, pose, velocity, desired, tracks, now, goal):
+        """Checked inputs, objects near enough to matter and the fixed-geometry field:
+        (pose, velocity, desired, moving objects, geometry, steer), or a blocked Result.
+        Moving objects' track ids are left in self.object_ids."""
         c = self.config
-        started = time.monotonic()
         self.field = None
         try:
             self.goal = None if goal is None else np.asarray(goal,dtype=float)
@@ -524,6 +527,7 @@ class Planner:
                       for t, still in zip(tracks, fixed)]
             objects = np.asarray([[t.x, t.y, t.vx, t.vy, t.radius, t.uncertainty, k]
                                   for t, k in zip(tracks, credit)], dtype=float).reshape(-1, 7)
+            ids = np.array([getattr(t, 'id', 0) for t in tracks], dtype=np.int64)
             if (not np.isfinite(objects).all() or np.any(objects[:, 4:] < 0)
                     or any(not math.isfinite(t.last_seen) or t.last_seen > now+.05 for t in tracks)):
                 return self._blocked()
@@ -552,7 +556,7 @@ class Planner:
                      + np.minimum(objects[:, 5], c.max_collision_uncertainty)
                      + self._growth(objects)*span + c.acceleration*c.dt*c.dt + .2)
             near = np.linalg.norm(objects[:, :2]-pose[:2], axis=1) <= reach
-            objects, fixed = objects[near], fixed[near]
+            objects, fixed, ids = objects[near], fixed[near], ids[near]
         # Wall tiles and remembered surfaces are fixed; slow tracked objects (a
         # column, a standing person) join the field with forecast growth, so only
         # moving objects need exact swept checks under both walker models.
@@ -565,12 +569,21 @@ class Planner:
         if (fixed | slow).any():
             half = max(float(np.linalg.norm(velocity[:2])), c.speed)*self.times[-1]+.3
             self._build_field(objects[fixed | slow], pose, half, slow[fixed | slow])
-        objects = objects[~(fixed | slow)]
+        objects, self.object_ids = objects[~(fixed | slow)], ids[~(fixed | slow)]
         geometry = len(objects) or self.field is not None
         desired = self._linear_limit(np.clip(desired, -self.limits, self.limits), c.speed)
         if not self.initialized:
             self.previous[:] = self._linear_limit(velocity,c.speed)
             self.initialized = True
+        return pose, velocity, desired, objects, geometry, steer
+
+    def plan(self, pose, velocity, desired, tracks, now, goal=None):
+        c = self.config
+        started = time.monotonic()
+        prepared = self._prepare(pose, velocity, desired, tracks, now, goal)
+        if isinstance(prepared, Result):
+            return prepared
+        pose, velocity, desired, objects, geometry, steer = prepared
         self.urgent = False
         if len(objects):
             # An approaching object makes an escape urgent. Standing beside a wall
@@ -795,6 +808,7 @@ class Responsiveness:
 
     def __init__(self):
         self.credit, self.start, self.widening = {}, {}, {}
+        self.stubborn = {}   # id -> scans of keeping course into a conflict (a widening resets it)
 
     def update(self, tracks, pose, velocity):
         """tracks: planning tracks (odom); pose (x, y, yaw); velocity: the robot's body-frame
@@ -817,8 +831,10 @@ class Responsiveness:
                 self.widening[t.id] = self.widening.get(t.id, 0)+1 if widened else 0
                 if self.widening[t.id] >= SUSTAINED:
                     credit += CREDIT_STEP
+                    self.stubborn[t.id] = 0
                 elif not widened and miss < CONFLICT and when < HOLD_TIME and miss-held < .05:
                     credit -= 2*CREDIT_STEP
+                    self.stubborn[t.id] = self.stubborn.get(t.id, 0)+1
             else:
                 self.start.pop(t.id, None)
                 self.widening.pop(t.id, None)
@@ -827,4 +843,5 @@ class Responsiveness:
             self.credit.pop(gone, None)
             self.start.pop(gone, None)
             self.widening.pop(gone, None)
+            self.stubborn.pop(gone, None)
         return dict(self.credit)
