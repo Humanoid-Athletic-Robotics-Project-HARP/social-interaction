@@ -54,6 +54,10 @@ COMFORT_GAP = .40        # m past the robot's 0.40 m disc: 0.445 m from its arms
                          # 90 map-less worlds, aware: passed every check 15 / 17 / 21 at 0.26 /
                          # 0.33 / 0.40, the MPC 21; walkers who never react unchanged)
 HARD = 4.                # collision cost of body overlap per metre, beyond the comfort part
+RULE_GAP = .255          # m past the 0.40 m disc: 0.30 m from the arms, the clearance rule
+RULE = 10.               # cost per metre inside RULE_GAP (linear): the quadratic comfort part
+                         # made a pass just under the rule cheaper than a slow G1 sidestep, and
+                         # in 30 of 90 runs a walker passed under 0.20 m while the robot kept on
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
 SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY)
 CONTINGENCY_TIME = 2.5   # s a plan B must stay clear for if people don't react at all
@@ -178,6 +182,7 @@ class GamePlanner(Planner):
         comfort = body+COMFORT_GAP
         d = np.linalg.norm(paths[None, :, None, ::STRIDE, :]-clouds[:, None, :, ::STRIDE, :], axis=-1)
         soft = (np.maximum(0., comfort[:, None, None, None]-d)/COMFORT_GAP)**2
+        soft = soft+RULE*np.maximum(0., (body+RULE_GAP)[:, None, None, None]-d)
         hard = HARD*np.maximum(0., body[:, None, None, None]-d)
         return np.max((soft+hard)*weight, axis=-1)
 
