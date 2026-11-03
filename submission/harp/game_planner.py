@@ -48,7 +48,11 @@ RISK_ALPHA = .3          # the robot weighs the worst RISK_ALPHA share of each p
                          # motions (CVaR): 1 is the plain average, small is near the worst case.
                          # Benchmark (90 worlds, aware): passed every check 17 / 19 / 26 / 21 /
                          # 21 at 1 / 0.5 / 0.3 / 0.2 / 0.15 (the MPC: 27, at 46% more time)
-COMFORT_GAP = .26        # m past the robot's 0.40 m disc: about 0.30 m from its arms (0.355 m)
+COMFORT_GAP = .40        # m past the robot's 0.40 m disc: 0.445 m from its arms (0.355 m), so a
+                         # pass keeps the 0.30 m rule after tracking and response error. Planned
+                         # at the rule's edge (0.26), many real passes fell just under (benchmark,
+                         # 90 map-less worlds, aware: passed every check 15 / 17 / 21 at 0.26 /
+                         # 0.33 / 0.40, the MPC 21; walkers who never react unchanged)
 HARD = 4.                # collision cost of body overlap per metre, beyond the comfort part
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
 SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY)
