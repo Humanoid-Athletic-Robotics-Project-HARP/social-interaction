@@ -44,6 +44,8 @@ ENGAGE = 5.0             # m: farther objects are fixed forecasts
 ROUNDS = 6               # rounds of best responses (converged in tests by about 4)
 BETA = 6.                # weight of an expected collision against the prior (nats per unit)
 REACT_PRIOR = .6         # how much someone not yet seen either way is expected to play
+RISK_ALPHA = 1.          # the robot weighs the worst RISK_ALPHA share of each person's likely
+                         # motions (CVaR): 1 is the plain average, small is near the worst case
 COMFORT_GAP = .26        # m past the robot's 0.40 m disc: about 0.30 m from its arms (0.355 m)
 HARD = 4.                # collision cost of body overlap per metre, beyond the comfort part
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
@@ -52,6 +54,10 @@ CONTINGENCY_TIME = 2.5   # s a plan B must stay clear for if people don't react 
 STILL_SPEED = .15        # m/s: slower tracks count as standing in the hard check (velocity noise)
 TIE = .02                # m: violations this close count as equal when nothing is safe
 PERSON_SPREAD = (.35, .25)   # m/s velocity change and m/s^2 turn spread of a person's cloud
+REACTION = .5            # s before a person's change of pace or direction can start: without it
+                         # the equilibrium had a close walker sidestep at once, so the robot
+                         # kept walking in (benchmark: it closed 0.18 m of the last 2 s before
+                         # its closest passes, the MPC 0.07 m) and passes came closer
 PRIOR_TEMPERATURE = .08  # request cost (m/s)^2 per nat of robot prior: 2σ², σ = 0.2 m/s
 SIDEWAYS = 3.            # a sideways request costs this much more than forward (slow sidestep)
 TURNING = .3             # turn-rate deviation weight (a round footprint doesn't turn)
@@ -140,14 +146,15 @@ class GamePlanner(Planner):
 
     def _people(self, objects):
         """Each moving object's cloud (m, SAMPLES, steps, 2): its tracked walk, with one
-        unchanged sample and the rest changing pace and direction smoothly; log prior weights
-        (m, SAMPLES): off walls."""
+        unchanged sample and the rest changing pace and direction smoothly after REACTION;
+        log prior weights (m, SAMPLES): off walls."""
         t = self.times[None, None, :, None]
+        late = np.maximum(0., t-REACTION)
         dv = self.rng.normal(0., PERSON_SPREAD[0], (len(objects), SAMPLES, 1, 2))
         da = self.rng.normal(0., PERSON_SPREAD[1], (len(objects), SAMPLES, 1, 2))
         dv[:, 0], da[:, 0] = 0., 0.
         base = objects[:, None, None, :2]+objects[:, None, None, 2:4]*t
-        clouds = base+dv*t+.5*da*t*t
+        clouds = base+dv*late+.5*da*late*late
         log = np.zeros((len(objects), SAMPLES))
         if self.field is not None and len(objects):
             inside = self._field_at(clouds.reshape(-1, len(self.times), 2), 0)
@@ -187,13 +194,28 @@ class GamePlanner(Planner):
         total = np.sum(w, axis=-1, keepdims=True)
         return np.where(total > 0, w/np.maximum(total, 1e-300), 1./log.shape[-1])
 
+    @staticmethod
+    def _cvar(cost, weights, alpha):
+        """Per robot sample (n,), summed over people: the mean cost over the worst alpha share
+        of each person's weighted samples (cost (m, n, s), weights (m, s)); alpha 1: the mean."""
+        if alpha >= 1. or not cost.size:
+            return np.einsum('mrs,ms->r', cost, weights)
+        order = np.argsort(-cost, axis=2)                            # worst first
+        c = np.take_along_axis(cost, order, axis=2)
+        w = np.take_along_axis(np.broadcast_to(weights[:, None, :], cost.shape), order, axis=2)
+        before = np.cumsum(w, axis=2)-w
+        share = np.clip(alpha-before, 0., w)                         # mass of each in the tail
+        return np.sum(np.sum(c*share, axis=2), axis=0)/alpha
+
     def _equilibrium(self, robot_log, people_log, cost, react):
-        """Best-response rounds to the mixed equilibrium: robot weights (n,), people (m, s)."""
+        """Best-response rounds to the mixed equilibrium: robot weights (n,), people (m, s).
+        The robot's best response weighs each person's CVaR (RISK_ALPHA), people theirs by
+        expectation: a risk-sensitive robot in a game with risk-neutral people."""
         robot = self._normalise(robot_log)
         people = self._normalise(people_log)
         history = []
         for _ in range(ROUNDS):
-            expected = np.einsum('mrs,ms->r', cost, people)          # robot vs every person
+            expected = self._cvar(cost, people, RISK_ALPHA)          # robot vs every person
             robot = self._normalise(robot_log-BETA*expected)
             facing = np.einsum('mrs,r->ms', cost, robot)             # each person vs the robot
             people = self._normalise(people_log-BETA*react[:, None]*facing)

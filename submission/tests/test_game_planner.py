@@ -66,12 +66,20 @@ class GameCore(unittest.TestCase):
     def test_a_head_on_walker_who_never_reacts_is_passed_without_contact(self):
         closest, pose = episode(planner(), (6., .1), (-.8, 0.), (.5, 0., 0.))
         self.assertGreater(closest, BODY)
-        self.assertGreater(pose[0], 2.5)          # and it kept walking on
+        self.assertGreater(pose[0], 2.)           # and it kept walking on (10 s at 0.5 m/s, a pass)
 
     def test_a_crossing_walker_is_passed_without_contact(self):
         closest, pose = episode(planner(), (4., -3.), (0., .9), (.5, 0., 0.))
         self.assertGreater(closest, BODY)
         self.assertGreater(pose[0], 3.)
+
+    def test_cvar_is_the_mean_of_the_worst_share(self):
+        cost = np.array([[[0., 1., 2., 3.]]])
+        w = np.array([[.25, .25, .25, .25]])
+        self.assertAlmostEqual(GamePlanner._cvar(cost, w, 1.)[0], 1.5)
+        self.assertAlmostEqual(GamePlanner._cvar(cost, w, .25)[0], 3.)
+        self.assertAlmostEqual(GamePlanner._cvar(cost, w, .5)[0], 2.5)
+        self.assertAlmostEqual(GamePlanner._cvar(cost, w, .375)[0], (3*.25+2*.125)/.375)
 
     def test_who_plays(self):
         p = planner()

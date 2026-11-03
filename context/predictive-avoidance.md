@@ -3,8 +3,8 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-03T08:44:14Z
-  covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/game_planner.py, submission/harp/predictive_avoidance.py, submission/harp/detour.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py, submission/tests/test_detour.py, submission/tests/test_game_planner.py]
+  updated: 2026-11-03T11:23:29Z
+  covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/game_planner.py, submission/harp/predictive_avoidance.py, submission/harp/detour.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py, submission/tests/test_detour.py, submission/tests/test_game_planner.py, submission/planner_bench.py]
 ---
 
 **Selection:** `course.py --avoidance predictive` adds `avoidance` to task JSON. `entrypoint.sh` selects one `/cmd_vel_nav` → `/cmd_vel` filter; default is `approach_stop`. Predictive mode rejects hardware, missing-world and planned-move combinations. The same start-up check (`select`) rejects an unknown `crowd` and an aware crowd outside a simulator world. Nav2 owns route planning in the image; with predictive mode its controller keeps sending the path's command through a blocked trajectory (`FollowPath.follow_when_blocked`), so getting past moving objects is this filter's alone. It also republishes each scan without moving objects' returns on `/harp/static_cloud`, which Nav2's costmaps mark from in this mode. That cloud also leaves out the robot's own body (within 0.45 m of `base_link`). Lost-occupancy memory drops a remembered cell when rays pass beyond it, or when the scan measures returns within the cell with nothing in front (it is observed again); wall ends and block corners, tracked as objects and lost behind passing people, otherwise stayed remembered forever. **Cooperative contingency forecast (2026-11-02):** a straight-line forecast has every person walk into the robot; in HIM's building with people who give way, the robot slowed, sidestepped and switched modes up to 44 times a minute (the freezing-robot problem). Now an object seen giving way (`Responsiveness`: from within 4 m and closing, its own velocity change widening the pass by 0.15 m earns credit; an unchanged course passing within 1.3 m inside 3 s loses it, twice as fast; unknown objects get none) is expected to add separation once it can react: nothing in the first 1.2 s (`YIELD_DELAY`, about a stop from full speed), then up to 0.5 m at 0.6 m/s². That credit enters the swept clearance, the risk and the end-of-plan lane check. Unknown or unyielding objects keep the straight line, so the G1's slow sidestep still gets its time against a head-on walker. Smoothing: follow hysteresis (enter at 0.12 m clearance, stay at 0), a cost on sideways requests (a biped's sidestep is slow and unsteady), Nav2's turn rate kept on the filter's candidates, and tracks once seen moving stay out of `/harp/static_cloud`, so Nav2 doesn't replan around a person pausing to give way. `HARP_PREDICTIVE_COOPERATIVE=0` and `HARP_PREDICTIVE_SMOOTHING=0` (image layer) turn these off for A/B runs: both off is the planner before. Heading (research switch, with smoothing): avoidance steps hold their direction on the floor while the robot turns as Nav2 asks; a round footprint doesn't turn, and body-frame steps had made avoiding withhold Nav2's turn or turn against it (HIM, Nov 2). Off by default: `HARP_PREDICTIVE_HEADING=1` turns it on. In HIM it reached the goal faster but reversed heading more, because every dodge became a sidestep that Nav2 turned back from. HIM owns motors.
@@ -21,14 +21,28 @@ metadata:
 
 **Checks:** the unit tests (`submission/tests`; live DDS needs `ROS_LOCALHOST_ONLY=1` and a nonzero `ROS_DOMAIN_ID`) and HIM's courses (`course.py`). History: before HIM, the planner was tuned in a native MuJoCo walking-G1 crowd sim and a fast harness on one Mac (Nov 1); both needed the old `ros2/` stack, which main deleted, and were removed on Nov 2 with their result JSONs. Their numbers are in the branch history.
 
-**Game-theoretic core** (`harp/game_planner.py`, 2026-11-03; `HARP_PREDICTIVE_PLANNER=game`, default still `mpc`): the robot and the 8 nearest people within 5 m are players of one game, after BRNE (Sun et al., IJRR 2024; written from the paper, the GPL code not copied).
-- **Clouds:** the robot gets about 260 trajectories near Nav2's request (prior: deviation from the request with σ about 0.2 m/s, sideways 3× costlier, switching cost, walls). Each person gets 32 around their tracked walk.
-- **Rounds:** six rounds of Bayesian best responses reach a mixed-strategy Nash equilibrium. A person's weight on the game is ρ: 0.6 unknown, more with `Responsiveness` credit, 0 once `Responsiveness.stubborn` saw them keep course into a conflict three times.
-- **Safety, contingency style:** the most likely request is taken only if it keeps the body clear of every straight-line forecast for 1.2 s and leaves a plan B (about the same first request) keeping the comfort distance (0.26 m past the body) for 2.5 s; else a body plan B, else 1.2 s safety, else the least intrusive.
-- **Dropped from the MPC:** the straight pull toward the goal, which fought Nav2's route.
-- **Offline replay of the recorded HIM runs:** Nav2's turn-on-the-spot requests answered by walking on fell from 33% to 9% (office) and 11% to 3% (atrium). Planning p95 about 14 ms against 22 ms.
-- **Unit tests:** head-on and crossing walkers who never react are passed without contact.
-- **Known limit:** a faster walker who never reacts, overtaking from behind, can't be escaped by the G1's slow sidestep.
+**Game-theoretic core** (`harp/game_planner.py`, 2026-11-03; `HARP_PREDICTIVE_PLANNER=game`, default still `mpc`). The robot and the 8 nearest people within 5 m are players of one game, after BRNE (Sun et al., IJRR 2024; written from the paper, the GPL code not copied). Theory and limits: Lam's `project-setup/docs/game-core-theory.md` in the Documents project.
+- **Clouds:** the robot gets about 260 trajectories near Nav2's request (prior: deviation σ about 0.2 m/s, sideways 3× costlier, switching, walls, and `KEEP_RIGHT`: passing someone met head-on on the wrong side). Each person gets 32 around their tracked walk.
+- **Rounds:** six rounds of Bayesian best responses reach a mixed-strategy Nash equilibrium. A person's weight on the game is ρ: 0.6 unknown, more with `Responsiveness` credit, 0 once `Responsiveness.stubborn` saw them keep course into a conflict three times. `RISK_ALPHA` makes the robot weigh the worst share of each person's motions (CVaR); 1 is the plain average.
+- **Safety, contingency style:**
+  - the chosen request keeps the body clear of straight-line forecasts for 1.2 s, judged after the 0.2 s delay plus one period;
+  - tracks under 0.15 m/s count as standing;
+  - from inside a clearance, only getting closer is unsafe;
+  - it must leave a plan B keeping comfort (0.26 m past the body), else body, for 2.5 s; else 1.2 s safety alone; else least violation, ties by weight.
+- **Results must be plain Python:** a numpy bool in `alert` crashed the filter in HIM (its JSON event), which looked like the robot freezing.
+- **Dropped from the MPC:** the straight goal pull, which fought Nav2.
+- **Benchmark** (`submission/planner_bench.py`, 30 worlds, realistic noise), MPC → game:
+
+  | | Aware | Scripted |
+  |---|---|---|
+  | Reached | 27 → 28 | 18 → 26 |
+  | Median time (s) | 56 → 33 | 67 → 52 |
+  | Nav2 turn requests walked through | 0.40 → 0.01 | |
+  | Contacts the robot caused | 2 → 2 | 20 → 40 |
+  | Closest pass ≥ 0.30 m | 11 → 3 of 30 | |
+
+  The game core is decisive; the MPC is timid but keeps wider passes.
+- **Tried and dropped** (no measurable help): a comfort tier, a 4 s plan B against stubborn people, a heavier comfort weight, not closing in when nothing is safe, and the forecast's spread in the hard check.
 
 **Status (2026-11-03, HIM only, 0.5 m/s, aware crowd):** building about 5 of 6 at the goal, office and atrium 0 of 6 each (main's `approach_stop` 0 of 2 each: Nav2 gives up with walkers in its map). Held-out worlds (`generate_world.py`, generated and committed before one run each, planner frozen at `a7ac76f`): see the branch's lab notes; closest passes stay under 0.30 m. Root cause of the remaining failures: people are forecast as never reacting, so in a crowd standing or turning looks like a collision and the filter dodges against Nav2's heading (about a third of Nav2's turn-on-the-spot requests in the office). Atrium "pillar contacts" before Nov 3 were a scoring bug ([[course-runs]]).
 

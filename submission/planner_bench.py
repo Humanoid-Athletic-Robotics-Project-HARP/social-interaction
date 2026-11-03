@@ -9,8 +9,10 @@ seed) or a named world. In it:
   scripted Movers don't), driven by the robot's true position;
 - the robot is a kinematic G1: HIM's measured GR00T response (0.85 forward, 0.67 sideways),
   0.1 s delay, 0.25 s lag, acceleration limits;
-- the route comes from a stand-in for Nav2: A* on the known fixed obstacles (inflated
-  0.5 m) and a pure-pursuit follower that turns on the spot when far off its heading;
+- the route comes from a stand-in for Nav2: A* on the known fixed obstacles and on people
+  standing still (as predictive mode's Nav2 keeps still objects in its map), inflated 0.5 m,
+  replanned every 2 s, and a pure-pursuit follower that turns on the spot when far off its
+  heading;
 - the planner sees tracks (true positions and velocities with small noise; with --noise
   real, the tracker's typical faults too: velocity noise up to 0.2 m/s, most on slow
   objects, and people near the robot sometimes left behind as remembered still objects for
@@ -193,7 +195,8 @@ def run(job):
     closest, fixed_close, contacts, touching = math.inf, math.inf, 0, False
     asked = fought = 0
     plan_times, reached_at, standing = [], None, 0.
-    path_len, last_people, ghosts = 0., None, []
+    path_len, last_people, ghosts, history = 0., None, [], []
+    recent, closing_by = [], {}
     at_closest, pv, desired, at_fault, faults = {}, np.zeros((0, 2)), np.zeros(3), 0, []
     for step in range(int(limit/DT)):
         t = step*DT
@@ -201,8 +204,13 @@ def run(job):
         movers.apply(data, t)
         people = np.array([data.mocap_pos[m][:2] for m in movers.mocap])
         if step % PLAN_EVERY == 0:
+            history = (history+[people.copy()])[-6:]
             if step % (PLAN_EVERY*10) == 0:
-                route = plan_route(shapes, tuple(pose[:2]), goal, bounds) or route
+                # People still for the last second join the map, as still objects do in Nav2's.
+                still = ([("cyl", float(p[0]), float(p[1]), float(r)) for p, q, r in zip(people, history[0], sizes)
+                          if np.linalg.norm(p-q) < .15 and np.linalg.norm(p-pose[:2]) < SENSE]
+                         if len(history) == 6 else [])
+                route = plan_route(shapes+still, tuple(pose[:2]), goal, bounds) or route
             desired = follow(route, pose, goal)
             pv = (people-last_people)/(DT*PLAN_EVERY) if last_people is not None else np.zeros_like(people)
             last_people = people.copy()
@@ -250,6 +258,17 @@ def run(job):
         if len(people):
             gaps = np.linalg.norm(people-pose[:2], axis=1)-sizes-ARMS
             gap = float(np.min(gaps))
+            recent.append((pose[:2].copy(), people.copy()))
+            del recent[:-int(2./DT)]
+            if gap < closest and len(recent) > 1:
+                # Who closed the gap over the last 2 s: the robot's and the person's share.
+                j_ = int(np.argmin(gaps))
+                robot_share = person_share = 0.
+                for (r0, p0), (r1, p1) in zip(recent, recent[1:]):
+                    u = (p1[j_]-r1)/max(float(np.linalg.norm(p1[j_]-r1)), 1e-6)
+                    robot_share += float((r1-r0) @ u)
+                    person_share += float(-(p1[j_]-p0[j_]) @ u)
+                closing_by = dict(robot=round(robot_share, 2), person=round(person_share, 2))
             if gap < closest:
                 # Who closed the gap at the closest pass: the robot's and the person's speed
                 # toward each other, and what the planner had decided.
@@ -284,7 +303,8 @@ def run(job):
     return dict(job, reached=reached_at is not None and end < .35, time=reached_at, end=round(end, 2),
                 closest=round(closest, 3), contacts=contacts, at_fault=at_fault, wall=round(fixed_close, 3),
                 fight=round(fought/max(asked, 1), 3), path=round(path_len, 1), standing=round(standing, 1),
-                plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1), at_closest=at_closest, faults=faults)
+                plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1), at_closest=at_closest, faults=faults,
+                closing_by=closing_by)
 
 
 def seeds(text):
