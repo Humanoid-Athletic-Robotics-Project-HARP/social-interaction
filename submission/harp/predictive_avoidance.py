@@ -45,12 +45,14 @@ MOVED_DISTANCE = .3  # m a track must have travelled from where it was first see
                      # moving: a pillar seen in part as the robot came had a filter velocity of
                      # 0.24-0.31 m/s for 5 s, so it left Nav2's map for good and Nav2 kept
                      # planning through it while the filter stood the robot (HIM atrium)
-STILL_RETURN = 8.    # s a track must stay within STILL_RADIUS of one spot to count as still
-STILL_RADIUS = .15   # again: being seen moving had been forever, so when a walker passing a
-                     # pillar dragged its track 0.25 m (HIM atrium, Nov 3) the pillar left Nav2's
-                     # map for the rest of the run, Nav2 planned through it and the filter stood
-                     # the robot at the gap for 80 s. 8 s is longer than a pause to give way
-                     # (HIM's walkers turn back after 6 s blocked); stiller than that is in the way.
+HOME_RADIUS = .15    # m: a track back this near where it was first seen is not moving. Seen
+                     # moving had been forever: a walker passing a pillar dragged its track
+                     # 0.25 m and back (HIM atrium, Nov 3), the pillar stayed out of Nav2's map,
+                     # Nav2 planned through it and the filter stood the robot at the gap for 80 s.
+                     # A person who walked and stopped elsewhere stays out, as before: letting
+                     # tracks still for 8 s back in had stopped people join Nav2's map, and
+                     # map-less Nav2 detoured through unseen space (held-out worlds 1 of 8 at
+                     # the goal, against 3 of 4 with this rule)
 SELF_RADIUS = .45    # m from base_link: the robot's own torso and arms (seen up to 0.42 m)
 # The head depth camera (approach_stop.CAMERA_TOPIC) joins each lidar scan when its frame is
 # within CAMERA_AGE: its points go to the tracker and, without moving objects, to STATIC_TOPIC.
@@ -107,34 +109,26 @@ def static_mask(points_xy, tracks, stamp, base_xy=None, moved=(), displaced=None
 
 class MotionHistory:
     """Which tracks count as moving, for STATIC_TOPIC: update(tracks, stamp) -> (moved,
-    displaced). A track is displaced once it has travelled MOVED_DISTANCE from where it was
-    first seen, and moved once fresh, compact, fast and displaced; it stays moved (a person
-    pausing to give way stays out of Nav2's map) until it has stood within STILL_RADIUS of
-    one spot for STILL_RETURN, which also makes that spot its new start."""
+    displaced). A track is displaced while it is over MOVED_DISTANCE from where it was first
+    seen, and moved once fresh, compact, fast and displaced; it stays moved (a person pausing
+    to give way stays out of Nav2's map) until it is back within HOME_RADIUS of that spot.
+    home=False is the rule before: moved for good."""
 
-    def __init__(self, still_return=STILL_RETURN):
-        self.still_return = still_return   # inf: seen moving is forever (the rule before)
+    def __init__(self, home=True):
+        self.home = home
         self.moved = set()
-        self.first_xy = {}   # id -> where it was first seen, or last came to rest
-        self.still = {}      # id -> (spot, since): where it has stayed, from when
+        self.first_xy = {}   # id -> where it was first seen
 
     def update(self, tracks, stamp):
         present = {t.id for t in tracks}
-        for kept in (self.first_xy, self.still):
-            for gone in set(kept)-present:
-                kept.pop(gone)
+        self.first_xy = {i: xy for i, xy in self.first_xy.items() if i in present}
         self.moved &= present
         for t in tracks:
             self.first_xy.setdefault(t.id, (t.x, t.y))
-            spot, since = self.still.get(t.id, ((t.x, t.y), stamp))
-            if math.hypot(t.x-spot[0], t.y-spot[1]) > STILL_RADIUS:
-                spot, since = (t.x, t.y), stamp
-            self.still[t.id] = (spot, since)
-            if stamp-since >= self.still_return and t.id in self.moved:
-                self.moved.discard(t.id)
-                self.first_xy[t.id] = (t.x, t.y)
-        displaced = {t.id for t in tracks
-                     if math.hypot(t.x-self.first_xy[t.id][0], t.y-self.first_xy[t.id][1]) > MOVED_DISTANCE}
+        away = {t.id: math.hypot(t.x-self.first_xy[t.id][0], t.y-self.first_xy[t.id][1]) for t in tracks}
+        if self.home:
+            self.moved -= {i for i, d in away.items() if d <= HOME_RADIUS}
+        displaced = {i for i, d in away.items() if d > MOVED_DISTANCE}
         self.moved |= {t.id for t in tracks if t.id < STRUCTURE_ID and t.last_seen == stamp
                        and t.radius < MOVING_SIZE and math.hypot(t.vx, t.vy) >= MOVING_SPEED
                        and t.id in displaced}
@@ -203,10 +197,10 @@ class PredictiveAvoidance:
             smoothing=os.environ.get('HARP_PREDICTIVE_SMOOTHING', '1') != '0',
             heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1',
             people_margin=float(os.environ.get('HARP_PREDICTIVE_PEOPLE_MARGIN', '0'))))
-        # HARP_PREDICTIVE_STILL_RETURN=inf (image layer): seen moving stays forever, for A/B runs.
-        self.motion = MotionHistory(float(os.environ.get('HARP_PREDICTIVE_STILL_RETURN', STILL_RETURN)))
+        # HARP_PREDICTIVE_MOVED_HOME=0 (image layer): seen moving stays forever, for A/B runs.
+        self.motion = MotionHistory(os.environ.get('HARP_PREDICTIVE_MOVED_HOME', '1') != '0')
         self.moved = set()       # ids of tracks seen moving: people, still people when they pause
-        self.displaced = set()   # ids that have travelled MOVED_DISTANCE since they were still
+        self.displaced = set()   # ids now over MOVED_DISTANCE from where they were first seen
         # Out of a tight spot it is stuck in (HARP_PREDICTIVE_MAKE_WAY=1). Off by default: in HIM's
         # office it made way 5-6 times a run but reached the goal no more often (0/3 either way).
         self.make_way = (MakeWay(self.planner.config.robot_radius)

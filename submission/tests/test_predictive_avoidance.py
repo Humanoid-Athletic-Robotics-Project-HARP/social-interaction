@@ -467,41 +467,28 @@ class StaticCloud(unittest.TestCase):
         self.assertEqual(static_mask(points, tracks, stamp, displaced={2}).tolist(), [True, False])
         self.assertEqual(static_mask(points, tracks, stamp).tolist(), [False, False])  # old rule
 
-    def test_a_still_object_seen_moving_once_returns_to_nav2s_map(self):
-        # HIM atrium: a walker passing a pillar dragged its track 0.25 m at 0.43 m/s; seen
-        # moving for good, the pillar left Nav2's map and the robot stood at the gap for 80 s.
+    def test_a_still_object_dragged_and_back_returns_to_nav2s_map(self):
+        # HIM atrium: a walker passing a pillar dragged its track 0.25 m at 0.43 m/s and back;
+        # seen moving for good, the pillar left Nav2's map and the robot stood at the gap 80 s.
         from harp.obstacle_tracker import Track
-        from harp.predictive_avoidance import STILL_RETURN, MotionHistory
-        history = MotionHistory()
-        history.update([Track(1, 6.4, 2.2, 0., 0., .37, .05, 0., 9)], 0.)
-        moved, displaced = history.update([Track(1, 6.2, 2.45, .43, 0., .37, .05, .1, 9)], .1)
-        self.assertEqual((moved, displaced), ({1}, {1}))
-        for k in range(int(STILL_RETURN/.1)):   # back at rest from 0.2 s: maybe only a pause
-            t = .2+.1*k
-            moved, _ = history.update([Track(1, 6.4, 2.2, .02, 0., .37, .05, t, 9)], t)
-            self.assertEqual(moved, {1})
-        t = .2+STILL_RETURN+.05
-        moved, displaced = history.update([Track(1, 6.41, 2.2, .02, 0., .37, .05, t, 9)], t)
-        self.assertEqual((moved, displaced), (set(), set()))
-        # Walking on again, it has to travel MOVED_DISTANCE once more to leave the map.
-        moved, _ = history.update([Track(1, 6.6, 2.2, .5, 0., .37, .05, t+.1, 9)], t+.1)
-        self.assertEqual(moved, set())
-        moved, _ = history.update([Track(1, 6.8, 2.2, .5, 0., .37, .05, t+.2, 9)], t+.2)
-        self.assertEqual(moved, {1})
-        # HARP_PREDICTIVE_STILL_RETURN=inf: the rule before, seen moving for good.
-        before = MotionHistory(math.inf)
-        before.update([Track(1, 6.4, 2.2, 0., 0., .37, .05, 0., 9)], 0.)
-        before.update([Track(1, 6.2, 2.45, .43, 0., .37, .05, .1, 9)], .1)
-        moved, _ = before.update([Track(1, 6.4, 2.2, .02, 0., .37, .05, 60., 9)], 60.)
-        self.assertEqual(moved, {1})
+        from harp.predictive_avoidance import MotionHistory
+        for home, after in ((True, set()), (False, {1})):   # home=False: the rule before
+            history = MotionHistory(home)
+            history.update([Track(1, 6.4, 2.2, 0., 0., .37, .05, 0., 9)], 0.)
+            moved, displaced = history.update([Track(1, 6.2, 2.45, .43, 0., .37, .05, .1, 9)], .1)
+            self.assertEqual((moved, displaced), ({1}, {1}))
+            moved, displaced = history.update([Track(1, 6.41, 2.2, .02, 0., .37, .05, .2, 9)], .2)
+            self.assertEqual((moved, displaced), (after, set()))
 
-    def test_a_walker_pausing_to_give_way_stays_out_of_nav2s_map(self):
+    def test_a_walker_who_stopped_elsewhere_stays_out_of_nav2s_map(self):
+        # Letting a track still for 8 s back in had stopped people join Nav2's map, and Nav2
+        # without a map detoured through unseen space (held-out worlds, Nov 3).
         from harp.obstacle_tracker import Track
         from harp.predictive_avoidance import MotionHistory
         history = MotionHistory()
-        for k in range(10):   # walks 1 m, then stands 5 s
+        for k in range(10):   # walks 1 m, then stands a minute
             history.update([Track(3, .1*k, 0., 1., 0., .25, .05, .1*k, 9)], .1*k)
-        for k in range(50):
+        for k in range(600):
             moved, _ = history.update([Track(3, .9, 0., 0., 0., .25, .05, 1.+.1*k, 9)], 1.+.1*k)
         self.assertEqual(moved, {3})
 
