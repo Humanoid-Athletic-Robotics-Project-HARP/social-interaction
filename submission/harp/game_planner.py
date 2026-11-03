@@ -102,9 +102,12 @@ class GamePlanner(Planner):
         if self.field is not None:
             c = self.config
             wall = self._field_at(paths[:, 1:], 1, self.times[1:])-c.robot_radius
-            body = self._field_at(paths[:, 1:], 0, self.times[1:])-c.robot_radius
+            body = self._field_at(paths, 0)
             log = log-BETA*np.max(np.maximum(0., c.margin-wall)/c.margin, axis=1)
-            log = np.where(np.min(body, axis=1) < 0., -np.inf, log)
+            # Already too close (a standing person or a remembered object beside it): only
+            # getting closer is ruled out, or every path is and the robot never moves again.
+            limit = np.minimum(c.robot_radius, body[:, 0]-.01)
+            log = np.where(np.min(body[:, 1:], axis=1) < limit, -np.inf, log)
         return log
 
     def _people(self, objects):
@@ -260,10 +263,15 @@ class GamePlanner(Planner):
         c = self.config
         out = np.full(len(paths), np.inf)
         steps = int(np.searchsorted(self.times, horizon))+1
+        # From inside the clearance already (HIM: a few cm, from a standing person or a
+        # remembered object), only getting closer counts as unsafe: required at most the
+        # distance it starts at. Requiring the full clearance froze the robot for good.
         if len(objects):
             future = objects[None, :, :2]+self.times[:steps, None, None]*objects[None, :, 2:4]
             d = np.linalg.norm(paths[:, :steps, None, :]-future[None], axis=-1)-objects[None, None, :, 4]
-            out = np.minimum(out, np.min(d, axis=(1, 2))-c.robot_radius-gap)
+            need = np.minimum(c.robot_radius+gap, d[:, 0, :]-.01)          # (paths, objects)
+            out = np.minimum(out, np.min(np.min(d[:, 1:], axis=1)-need, axis=1))
         if self.field is not None:
-            out = np.minimum(out, np.min(self._field_at(paths, 0), axis=1)-c.robot_radius)
+            d = self._field_at(paths, 0)
+            out = np.minimum(out, np.min(d[:, 1:], axis=1)-np.minimum(c.robot_radius, d[:, 0]-.01))
         return out

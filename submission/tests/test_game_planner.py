@@ -101,6 +101,17 @@ class GameCore(unittest.TestCase):
         paths, _ = p._rollout(np.tile(r.command, (3, 1))[None], np.zeros(3), np.array([.3, 0., 0.]))
         self.assertGreaterEqual(p._safe(paths, np.zeros((0, 7)))[0], 0.)
 
+    def test_starting_too_close_to_something_it_still_moves_away(self):
+        # HIM: a few cm inside the clearance of a standing person or a remembered object, every
+        # path counted as unsafe and the robot stood there for the rest of the run.
+        p = planner()
+        still = [Track(STRUCTURE_ID, 0., .35, 0., 0., .05, .05, 0., 9)]   # its centre 0.35 m away: inside the 0.40 m disc
+        for k in range(3):
+            r = p.plan((0., 0., 0.), (0., 0., 0.), (.4, 0., 0.), still, k*.2, None)
+        self.assertGreater(r.command[0], .1)            # walks on along the wall, not frozen
+        paths, _ = p._rollout(np.tile(r.command, (3, 1))[None], np.zeros(3), np.zeros(3))
+        self.assertGreaterEqual(p._safe(paths, np.zeros((0, 7)))[0], 0.)
+
     def test_planning_time_with_eight_people(self):
         p = planner()
         rng = np.random.default_rng(1)
