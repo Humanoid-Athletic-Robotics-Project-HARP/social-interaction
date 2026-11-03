@@ -225,12 +225,15 @@ def show_events(run):
 def geom_distance(model, data, g, o, limit):
     """mj_geomDistance from geom g to geom o, checked. For a capsule and a cylinder MuJoCo 3.3
     now and then returns 0 with nearest points far from both geoms (HIM atrium runs, Nov 3:
-    8 of 3.1 million robot-to-fixed pairs, each a pillar "contact" with the foot 0.66 m away).
-    A result whose nearest point is off geom g is replaced by the exact distance when g is a
-    sphere or capsule and o a cylinder (the case seen); any other is kept as it came."""
+    8 of 3.1 million robot-to-fixed pairs, each a pillar "contact" with the foot 0.66 m away;
+    once its nearest points were on both geoms but 0.62 m apart, a wheelchair "contact").
+    A result not borne out by its own nearest points (off geom g, or not as far apart as
+    it says) is replaced by the exact distance when g is a sphere or capsule and o a
+    cylinder (the case seen); any other is kept as it came."""
     fromto = np.zeros(6)
     d = mujoco.mj_geomDistance(model, data, g, o, limit, fromto)
-    if d > 0 or np.linalg.norm(fromto[:3] - data.geom_xpos[g]) <= model.geom_rbound[g] + 1e-6:
+    if d > 0 or (abs(np.linalg.norm(fromto[3:] - fromto[:3]) - abs(d)) <= 1e-3
+                 and np.linalg.norm(fromto[:3] - data.geom_xpos[g]) <= model.geom_rbound[g] + 1e-6):
         return d
     exact = rounded_to_cylinder(model, data, g, o)
     return d if exact is None else min(exact, limit)

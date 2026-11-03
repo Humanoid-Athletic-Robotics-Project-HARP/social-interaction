@@ -136,6 +136,15 @@ class CheckedDistance(unittest.TestCase):
             self.assertEqual(course.geom_distance(self.model, self.data, 3, 0, 2.), 0.)  # other shapes kept
         self.assertGreater(exact, .5)
 
+    def test_a_zero_whose_nearest_points_are_apart_is_replaced(self):
+        foot = self.data.geom_xpos[1].copy()
+        def apart(model, data, g, o, limit, fromto):
+            fromto[:] = [*foot, 6.25, 2.04, .04]   # on both geoms, but far apart: not 0
+            return 0.
+        exact = course.rounded_to_cylinder(self.model, self.data, 1, 0)
+        with patch.object(course.mujoco, "mj_geomDistance", apart):
+            self.assertAlmostEqual(course.geom_distance(self.model, self.data, 1, 0, 2.), exact)
+
 
 class LoggedPaths(unittest.TestCase):
     EVENTS = [{"source": "lidar", "event": "crowd", "mode": "aware", "movers": ["p"]},
