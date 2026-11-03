@@ -57,6 +57,12 @@ class AwareWalkers(unittest.TestCase):
         self.assertLess(max(np.linalg.norm(a - s) for (t, a), (_, s) in zip(aware, scripted)
                             if t < 9.5), .25)
 
+    def test_a_walker_with_no_trips_stands_where_it_is_in_both_crowds(self):
+        standing = world(extra="").replace('<numeric name="p_route" data="6 0"/>',
+                                           '<numeric name="p_route" data="6 0"/><numeric name="p_trips" data="0"/>')
+        for kind in (Movers, AwareMovers):
+            self.assertLess(max(np.linalg.norm(xy) for _, xy in walk(standing, kind, (3., 20.), 5.)), .01)
+
     def test_a_bigger_mover_keeps_its_gap_from_its_own_edge(self):
         # A trolley (0.9 x 0.6 m) came within 0.1 m of the robot when sized as a person.
         xml = world().replace('<geom type="cylinder" size=".25 .85"/>',

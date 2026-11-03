@@ -61,6 +61,7 @@ CAMERA_PERIOD = 1 / 15   # s of sim time between camera frames (the robot's at 1
 # in livox_frame, so the sim uses the same names.
 TOPIC = lidar_mount.TOPIC
 REAR_TOPIC = lidar_mount.REAR_TOPIC
+MOVERS_TOPIC = "/harp/movers"   # an aware crowd: {"names": [...], "xy": [[x, y], ...]} each scan
 SCENE = "/harp/model/lidar_scene.xml"
 XYZ_FIELDS = [PointField(name=c, offset=4 * i, datatype=PointField.FLOAT32, count=1)
               for i, c in enumerate("xyz")]
@@ -86,6 +87,9 @@ class SimLidar:
         self.rear_pub = node.create_publisher(PointCloud2, REAR_TOPIC, 10)
         self.camera = depth_camera.DepthCamera(self.model, self.rng)
         self.camera_pub = node.create_publisher(PointCloud2, CAMERA_TOPIC, 10)
+        # An aware crowd's true positions each scan, for harp/view_feed.py (scripted movers it
+        # can work out itself from their mover_start events).
+        self.movers_pub = node.create_publisher(String, MOVERS_TOPIC, 1)
         print(depth_camera.describe(), flush=True)
         print(f"Sim lidar: face visor {'on' if lidar_mount.VISOR else 'off'}", flush=True)
         self.events = Events(node, "lidar")
@@ -127,6 +131,8 @@ class SimLidar:
             self.next_scan = max(self.next_scan + PERIOD, t)
             if self.aware:
                 print(path_event(t, self.movers.positions), flush=True)
+                self.movers_pub.publish(String(data=json.dumps(dict(
+                    names=self.movers.names, xy=np.round(self.movers.positions, 3).tolist()))))
             self.publish(self.pub, lidar_mount.FRAME, points)
             self.publish(self.rear_pub, lidar_mount.REAR_FRAME, points * (-1.0, -1.0, 1.0))
         if t >= self.next_frame:

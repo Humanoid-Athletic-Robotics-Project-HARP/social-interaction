@@ -203,6 +203,9 @@ class AwareMovers(Movers):
         self.heading = np.ones(len(self.names))     # 1 out, -1 back, 0 done (trips)
         self.legs = [0] * len(self.names)           # one-way walks finished
         self.rest = [None] * len(self.names)        # where a mover done with its trips stands
+        for i, trips in enumerate(self.trips):
+            if trips == 0:   # never walks, as a scripted mover: someone standing
+                self.heading[i], self.rest[i] = 0, self.positions[i].copy()
         self.side = np.zeros(len(self.names))       # side it is passing the robot on (+1 left
                                                     # of their relative motion, -1 right), 0 none
         self.blocked = np.zeros(len(self.names))    # s it has stood though it wants to walk
