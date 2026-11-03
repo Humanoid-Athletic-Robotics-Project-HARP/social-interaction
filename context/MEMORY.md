@@ -17,6 +17,7 @@
 - [Course runs](course-runs.md) — before running, scoring, watching or replaying sim courses, or walking routes
 - [Git guidelines](git-guidelines.md) — whenever using git in any way: commits, merges, pull requests
 - [Worktrees](worktrees.md) — before making, using or removing a git worktree, or when two sessions use the sim on one computer
+- [External dependencies](external-dependencies.md) — before adding or borrowing outside code, packages or models: no copying, licenses, where they're recorded
 - [Untracked files](feedback-untracked-files.md) — before deleting files, cleaning a checkout, or removing a worktree or branch
 - [Run logs and views](sim-run-logs.md) — before changing what our image prints, a run's events.jsonl, the Rerun lidar view or replays' people
 - [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline or it ends inconclusive: why, what to check and do

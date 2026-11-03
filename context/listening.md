@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-03T02:04:41Z
+  updated: 2026-11-03T02:13:38Z
   covers: [speech/*, speech/tests/*]
 ---
 
@@ -11,7 +11,7 @@ Design for the listening half of a conversation, and what of it is built (**Buil
 
 **Its job (decided, a teammate's call, 2026-11-02; ask before changing the split):** turn sound into one final transcript per thing a person says during a conversation. It doesn't decide what the words mean or what to answer ([[talking]] does). It ends where text begins, so each half is tested alone: listening prints transcripts; talking takes typed lines.
 
-**Shape:** one process, a chain of stages, each with one job and a swappable backend. Every stage also runs on a WAV file, so it is tuned and tested on recordings without a robot or a person. Plain Python that runs on 3.8. Dependencies (all permissively licensed, imported and never copied):
+**Shape:** one process, a chain of stages, each with one job and a swappable backend. Every stage also runs on a WAV file, so it is tuned and tested on recordings without a robot or a person. Plain Python that runs on 3.8. Dependencies (all permissively licensed, imported and never copied, [[external-dependencies]]):
    - Laptops: `speech/requirements.txt`, which needs Python 3.12 (numpy 2.5.4, onnxruntime 1.19.2, sherpa-onnx, sounddevice).
    - PC2: NVIDIA's onnxruntime-gpu 1.16.0 (the last for CUDA 11.4) and a GPU build of sherpa-onnx.
    - A cloud backend would add requests.
@@ -31,7 +31,7 @@ Design for the listening half of a conversation, and what of it is built (**Buil
    - First choice: NVIDIA's Parakeet TDT 0.6B v2 through sherpa-onnx with onnxruntime-gpu 1.16.0, the build sherpa-onnx lists for Orin NX on CUDA 11.4. Estimated 0.15–0.35 s for a 4 s clip.
    - CPU alternative: Moonshine streaming (`moonshine-voice`, MIT, Python 3.8 wheels for aarch64 and macOS), 0.25–0.5 s, but it uses the CPU all the while someone speaks.
    - Cloud fallback, over plain HTTP since current vendor SDKs need Python 3.10+: OpenAI `gpt-transcribe`, Deepgram Nova-3 or Groq `whisper-large-v3-turbo`.
-   - Chosen by a bake-off of latency and errors on our own recordings. Parakeet's CC-BY-4.0 license needs attribution in the README.
+   - Chosen by a bake-off of latency and errors on our own recordings. Parakeet's CC-BY-4.0 credit is in the README's Licenses.
    - Vocabulary hints (HARP, Stanford, names): sherpa-onnx's hotwords where the model supports them, otherwise the cloud's keyword lists.
 6. **Filter:** drop a transcript if it is:
    - empty

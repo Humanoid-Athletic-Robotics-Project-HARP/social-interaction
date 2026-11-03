@@ -3,7 +3,7 @@ name: speech-research
 description: Read when choosing or revisiting a piece of the speech stack (mic, turn detection, STT, LLM, TTS, frameworks): the options, their published speeds, and what other G1 projects found
 metadata:
   type: reference
-  updated: 2026-11-03T01:37:14Z
+  updated: 2026-11-03T02:13:38Z
   covers: []
 ---
 
@@ -49,7 +49,7 @@ Research from 2026-11-02, nothing tried by us. Speeds are published figures, mos
 - SensePC "Babis": a session opened by seeing a person (YOLO) or a wake word, at most 6 questions, ended by 12 s of silence; fully local Whisper and LLM were too slow (over 4 s) and throttled.
 - Marvik: a wake word gave 11 false triggers an hour; audio took them a month to get right.
 
-**Licenses** (from each LICENSE file, 2026-11-02; we import permissive packages as dependencies and never copy code)
+**Licenses** (from each LICENSE file, 2026-11-02; the rule: [[external-dependencies]])
 - Permissive: Silero VAD code and model (MIT); smart-turn code and weights (BSD-2); onnxruntime, faster-whisper, CTranslate2, Whisper code and weights, whisper.cpp, sounddevice, PortAudio, webrtcvad (MIT); Moonshine code and its English and streaming weights (MIT); sherpa-onnx (Apache-2.0, each model its own); Pipecat (BSD-2); LiveKit Agents (Apache-2.0); unitree_sdk2 and unitree_sdk2_python (BSD-3); unitree-openai-voice (MIT); whisper_ros (MIT).
 - Attribution: Parakeet weights (CC-BY-4.0).
 - Avoid: TEN VAD (Apache-2.0 plus a no-compete clause); LiveKit's turn-detector weights (only within LiveKit Agents); some Vosk models (AGPL, LGPL); Moonshine's older non-English models (non-commercial).

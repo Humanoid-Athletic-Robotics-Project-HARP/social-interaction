@@ -477,3 +477,12 @@ walker client and NVIDIA's GR00T-WholeBodyControl networks (NVIDIA Open Model
 License, with their `LICENSE` and provenance) and its G1 model (from MuJoCo
 Menagerie); Unitree's unitree_sdk2_python (BSD-3); and Eclipse CycloneDDS
 (EPL-2.0).
+
+`speech/` installs, as packages (`speech/requirements.txt`): sherpa-onnx (Apache-2.0),
+onnxruntime (MIT), python-sounddevice (MIT) and numpy (BSD-3). It downloads two models
+into `models/` beside this repo; neither is stored here:
+- [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT)
+- [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) by NVIDIA,
+  under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). We use it as
+  sherpa-onnx converted it: to ONNX, with int8 weights
+  (`sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8`).

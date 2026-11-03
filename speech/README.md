@@ -17,7 +17,7 @@ mkdir -p models && curl -L -o models/silero_vad.onnx https://raw.githubuserconte
 echo "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  models/silero_vad.onnx" | shasum -a 256 -c
 ```
 
-Then NVIDIA's Parakeet TDT 0.6B v2 for sherpa-onnx (CC-BY-4.0, below). The archive is
+Then NVIDIA's Parakeet TDT 0.6B v2 for sherpa-onnx (CC-BY-4.0, credited in the README's Licenses). The archive is
 482 MB:
 
 ```bash
@@ -76,9 +76,5 @@ Tests of the turn rules (no models needed):
 
 ## Licenses
 
-We use these as packages and models, never copying their code:
-- [Silero VAD](https://github.com/snakers4/silero-vad) (MIT)
-- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0)
-- [onnxruntime](https://github.com/microsoft/onnxruntime) (MIT)
-- [python-sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT)
-- Speech-to-text: [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) by NVIDIA, licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/), in sherpa-onnx's int8 export.
+Each package and model, its license, and the credit Parakeet's license asks for, is in
+the [README's Licenses](../README.md#licenses).
