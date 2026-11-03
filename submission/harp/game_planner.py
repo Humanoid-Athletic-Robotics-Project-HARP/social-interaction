@@ -55,6 +55,10 @@ COMFORT_GAP = .40        # m past the robot's 0.40 m disc: 0.445 m from its arms
                          # 0.33 / 0.40, the MPC 21; walkers who never react unchanged)
 HARD = 4.                # collision cost of body overlap per metre, beyond the comfort part
 RULE_GAP = .255          # m past the 0.40 m disc: 0.30 m from the arms, the clearance rule
+WALL_RULE = 3.3          # the same per metre for walls and fixed objects (the robot's prior): 90
+                         # map-less worlds, passed every check with walls 9 / 17 / 20 / 21 and
+                         # reached 85 / 83 / 83 / 78 at 0 / 1 / 3.3 / 10 (the MPC: 6, 80); doors under
+                         # 1.3 m leave no way to keep 0.30 m from both sides, and 10 made it hesitate
 RULE = 10.               # cost per metre inside RULE_GAP (linear): the quadratic comfort part
                          # made a pass just under the rule cheaper than a slow G1 sidestep, and
                          # in 30 of 90 runs a walker passed under 0.20 m while the robot kept on
@@ -130,6 +134,10 @@ class GamePlanner(Planner):
             # getting closer is ruled out, or every path is and the robot never moves again.
             limit = np.minimum(c.robot_radius, body[:, 0]-.01)
             log = np.where(np.min(body[:, 1:], axis=1) < limit, -np.inf, log)
+            # The clearance rule counts walls too: with only the 7 cm margin the arms passed
+            # walls at about 0.12 m (benchmark: 53 of 90 runs under 0.30 m from a wall).
+            inside = np.max(np.maximum(0., c.robot_radius+RULE_GAP-body[:, 1:]), axis=1)
+            log = log-BETA*WALL_RULE*inside
         return log
 
     def _keep_right(self, paths, objects, pose):

@@ -406,6 +406,8 @@ def main():
                 continue
             n = len(rs)
             reached = [r for r in rs if r["reached"]]
+            passed = sum(r["reached"] and r["contacts"] == 0 and min(r["closest"], r["wall"]) >= .3 for r in rs)
+            print(f"{core:5} {crowd:8} passed every check (walls too) {passed}/{n}")
             print(f"{core:5} {crowd:8} reached {len(reached)}/{n}  contacts {sum(r['contacts'] for r in rs)} "
                   f"at fault {sum(r.get('at_fault', 0) for r in rs)} "
                   f"(runs with any {sum(r['contacts'] > 0 for r in rs)})  clearance>=0.30 {sum(r['closest'] >= .3 for r in rs)}/{n}"

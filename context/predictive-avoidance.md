@@ -3,7 +3,7 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-03T13:05:24Z
+  updated: 2026-11-03T13:53:42Z
   covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/game_planner.py, submission/harp/predictive_avoidance.py, submission/harp/detour.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py, submission/tests/test_detour.py, submission/tests/test_game_planner.py, submission/planner_bench.py]
 ---
 
