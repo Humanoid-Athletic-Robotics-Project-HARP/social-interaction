@@ -12,7 +12,9 @@ seed) or a named world. In it:
 - the route comes from a stand-in for Nav2: A* on the known fixed obstacles and on people
   standing still (as predictive mode's Nav2 keeps still objects in its map), inflated 0.5 m,
   replanned every 2 s, and a pure-pursuit follower that turns on the spot when far off its
-  heading;
+  heading. With --map seen it plans as Nav2 does here without a map: walls only where seen
+  (within 6 m, in line of sight), forgotten 15 s after last seen, unseen space free; and the
+  filter's detour patience (harp/detour.py) runs on its paths;
 - the planner sees tracks (true positions and velocities with small noise; with --noise
   real, the tracker's typical faults too: velocity noise up to 0.2 m/s, most on slow
   objects, and people near the robot sometimes left behind as remembered still objects for
@@ -41,6 +43,7 @@ sys.path.insert(0, HERE)
 import mujoco  # noqa: E402
 import generate_world  # noqa: E402
 from harp import events  # noqa: E402
+from harp.detour import DetourPatience, path_length  # noqa: E402
 from harp.game_planner import GamePlanner  # noqa: E402
 from harp.movers import AwareMovers, Movers  # noqa: E402
 from harp.obstacle_tracker import STRUCTURE_ID, Track  # noqa: E402
@@ -97,6 +100,48 @@ def tiles(shapes):
         for t in np.arange(-hy, hy+1e-9, TILE):
             out += [(cx-hx+r, cy+t, r), (cx+hx-r, cy+t, r)]
     return np.array(out)
+
+
+FORGET = 15.              # s an unseen wall mark lasts in Nav2's global costmap (STVL decay)
+
+
+class SeenMap:
+    """Wall tiles as Nav2's map-less global costmap holds them: seen within SENSE in line of
+    sight of the robot (rays checked on the true occupancy), forgotten FORGET s later."""
+
+    def __init__(self, shapes, wall, bounds, cell=.1):
+        x0, x1, y0, y1 = bounds
+        self.origin, self.cell = np.array([x0, y0]), cell
+        nx, ny = int((x1-x0)/cell)+1, int((y1-y0)/cell)+1
+        X, Y = np.meshgrid(x0+np.arange(nx)*cell, y0+np.arange(ny)*cell, indexing="ij")
+        occupied = np.zeros((nx, ny), bool)
+        for s in shapes:
+            if s[0] == "box":
+                occupied |= (np.abs(X-s[1]) <= s[3]) & (np.abs(Y-s[2]) <= s[4])
+            else:
+                occupied |= np.hypot(X-s[1], Y-s[2]) <= s[3]
+        self.occupied, self.wall = occupied, wall
+        self.seen = np.full(len(wall), -math.inf)
+
+    def update(self, xy, t):
+        if not len(self.wall):
+            return
+        offset = self.wall[:, :2]-xy
+        dist = np.linalg.norm(offset, axis=1)
+        near = np.flatnonzero(dist < SENSE)
+        if not len(near):
+            return
+        # Sample each ray up to just short of the tile; blocked if any sample is occupied.
+        f = np.linspace(0., 1., 60)[None, :]
+        stop = np.maximum(dist[near]-self.wall[near, 2]-.15, 0.)/np.maximum(dist[near], 1e-6)
+        pts = xy[None, None, :]+offset[near, None, :]*(f*stop[:, None])[..., None]
+        ij = np.clip(np.round((pts-self.origin)/self.cell).astype(int), 0, np.array(self.occupied.shape)-1)
+        blocked = self.occupied[ij[..., 0], ij[..., 1]].any(axis=1)
+        self.seen[near[~blocked]] = t
+
+    def shapes(self, t):
+        keep = t-self.seen <= FORGET
+        return [("cyl", float(x), float(y), float(r)) for x, y, r in self.wall[keep]]
 
 
 def plan_route(shapes, start, goal, bounds, inflate=.5, cell=.1):
@@ -183,9 +228,15 @@ def run(job):
     xs = [p for s in shapes for p in ((s[1]-s[3], s[1]+s[3]) if s[0] == "box" else (s[1]-s[3], s[1]+s[3]))]
     ys = [p for s in shapes for p in ((s[2]-s[4], s[2]+s[4]) if s[0] == "box" else (s[2]-s[3], s[2]+s[3]))]
     bounds = (min(xs+[-2.])-1, max(xs+[goal[0]])+1, min(ys+[-2.])-1, max(ys+[2.])+1)
-    route = plan_route(shapes, (0., 0.), goal, bounds)
+    seen_map = SeenMap(shapes, wall, bounds) if job.get("map") == "seen" else None
+    if seen_map is not None:
+        seen_map.update(np.zeros(2), 0.)
+    route = plan_route(shapes if seen_map is None else seen_map.shapes(0.), (0., 0.), goal, bounds)
     if route is None:
         return dict(job, error="no route")
+    detour = DetourPatience() if seen_map is not None else None
+    if detour is not None:
+        detour.update(0., path_length(route))
     planner = CORES[core](Config(speed=SPEED, tracking_gain=.85, lateral_tracking_gain=.6))
     resp = Responsiveness()
     pose, vel = np.zeros(3), np.zeros(3)
@@ -210,8 +261,15 @@ def run(job):
                 still = ([("cyl", float(p[0]), float(p[1]), float(r)) for p, q, r in zip(people, history[0], sizes)
                           if np.linalg.norm(p-q) < .15 and np.linalg.norm(p-pose[:2]) < SENSE]
                          if len(history) == 6 else [])
-                route = plan_route(shapes+still, tuple(pose[:2]), goal, bounds) or route
+                known = shapes if seen_map is None else seen_map.shapes(t)
+                route = plan_route(known+still, tuple(pose[:2]), goal, bounds) or route
+                if detour is not None:
+                    detour.update(t, path_length(route))
+            if seen_map is not None and step % (PLAN_EVERY*5) == 0:
+                seen_map.update(pose[:2].copy(), t)
             desired = follow(route, pose, goal)
+            if detour is not None and detour.waiting(t) and desired.any():
+                desired = np.zeros(3)   # the filter stands for the short way
             pv = (people-last_people)/(DT*PLAN_EVERY) if last_people is not None else np.zeros_like(people)
             last_people = people.copy()
             real = job.get("noise") == "real"
@@ -243,8 +301,8 @@ def run(job):
             if abs(desired[0]) < .05 and abs(desired[2]) > .2:
                 asked += 1
                 fought += command[0] > .25
-            if not desired.any() and reached_at is None:
-                reached_at = t
+            if reached_at is None and math.hypot(goal[0]-pose[0], goal[1]-pose[1]) < .2:
+                reached_at = t   # arrived (a zero request can also be detour patience waiting)
         queue.append(command.copy())
         target = queue.pop(0)*GAINS
         change = np.clip((target-vel)*DT/LAG, -ACCEL*DT, ACCEL*DT)
@@ -322,6 +380,8 @@ def main():
     parser.add_argument("--worlds", nargs="*", default=[], help="named worlds too (e.g. building office atrium)")
     parser.add_argument("--crowds", nargs="+", default=["aware"], choices=["aware", "scripted"])
     parser.add_argument("--noise", default="clean", choices=["clean", "real"])
+    parser.add_argument("--map", default="known", choices=["known", "seen"],
+                        help="the Nav2 stand-in's map: known walls, or only those seen recently (as in HIM)")
     parser.add_argument("--set", nargs="*", default=[], metavar="NAME=VALUE",
                         help="harp/game_planner.py module constants for this run, e.g. COMFORT_WEIGHT=4")
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2)-2))
@@ -329,9 +389,9 @@ def main():
     args = parser.parse_args()
     held = set(range(20261103, 20261111))
     consts = {k: float(v) for k, v in (a.split("=", 1) for a in args.set)}
-    jobs = [dict(seed=s, crowd=c, core=k, noise=args.noise, set=consts) for s in seeds(args.seeds) if s not in held
+    jobs = [dict(seed=s, crowd=c, core=k, noise=args.noise, set=consts, map=args.map) for s in seeds(args.seeds) if s not in held
             for c in args.crowds for k in args.cores]
-    jobs += [dict(seed=0, world=w, crowd=c, core=k, noise=args.noise, set=consts)
+    jobs += [dict(seed=0, world=w, crowd=c, core=k, noise=args.noise, set=consts, map=args.map)
              for w in args.worlds for c in args.crowds for k in args.cores]
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     with Pool(args.jobs) as pool:
