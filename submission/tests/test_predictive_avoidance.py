@@ -455,6 +455,18 @@ class StaticCloud(unittest.TestCase):
         message = cloud_message(PointCloud2().header, points[keep])
         np.testing.assert_allclose(xyz(message), points[keep], atol=1e-6)
 
+    def test_a_still_object_with_a_noisy_velocity_stays_in_nav2s_map(self):
+        # HIM atrium: a pillar seen in part had a filter velocity of 0.24-0.31 m/s for 5 s; it
+        # left Nav2's map, Nav2 planned through it and the filter stood the robot for good.
+        from harp.obstacle_tracker import Track
+        from harp.predictive_avoidance import static_mask
+        stamp = 2.
+        tracks = [Track(1, 0., 0., .3, 0., .3, .05, stamp, 9),     # pillar: fast, not displaced
+                  Track(2, 3., 0., .8, 0., .3, .05, stamp, 9)]     # walker: fast and displaced
+        points = np.array([[0., .1], [3., .1]])
+        self.assertEqual(static_mask(points, tracks, stamp, displaced={2}).tolist(), [True, False])
+        self.assertEqual(static_mask(points, tracks, stamp).tolist(), [False, False])  # old rule
+
     def test_the_robots_own_body_never_reaches_nav2(self):
         # HIM's lidar sees the torso and arms up to 0.42 m away, just past Nav2's 0.4 m
         # footprint. Marked and inflated, they boxed in the robot's own cell, so Nav2's

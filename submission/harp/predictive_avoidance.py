@@ -41,6 +41,10 @@ MAKE_WAY_SHARE = .6   # of the planner's speed, walking to a make-way spot
 STATIC_TOPIC = "/harp/static_cloud"
 MOVING_SPEED = .15   # m/s: a fresh track at least this fast is left out of STATIC_TOPIC
 MOVING_SIZE = .7     # m: larger tracks (a merged blob, a wall piece) always stay in it
+MOVED_DISTANCE = .3  # m a track must have travelled from where it was first seen to count as
+                     # moving: a pillar seen in part as the robot came had a filter velocity of
+                     # 0.24-0.31 m/s for 5 s, so it left Nav2's map for good and Nav2 kept
+                     # planning through it while the filter stood the robot (HIM atrium)
 SELF_RADIUS = .45    # m from base_link: the robot's own torso and arms (seen up to 0.42 m)
 # The head depth camera (approach_stop.CAMERA_TOPIC) joins each lidar scan when its frame is
 # within CAMERA_AGE: its points go to the tracker and, without moving objects, to STATIC_TOPIC.
@@ -73,7 +77,7 @@ def untransform_points(points, transform):
     return (points - np.array([p.x, p.y, p.z])) @ rotation(quat / norm)
 
 
-def static_mask(points_xy, tracks, stamp, base_xy=None, moved=()):
+def static_mask(points_xy, tracks, stamp, base_xy=None, moved=(), displaced=None):
     """Returns not on an object seen moving in this scan (a person, a trolley) or before
     (moved: track ids), nor on the robot itself (within SELF_RADIUS of base_xy).
 
@@ -81,14 +85,16 @@ def static_mask(points_xy, tracks, stamp, base_xy=None, moved=()):
     never seen moving, unseen or large stays, so Nav2 still plans around it. A person
     pausing to give way had joined Nav2's map, and its replanned path swung the robot's
     heading. The robot's own returns lie just past Nav2's footprint; marked and inflated,
-    they enclosed its start cell.
+    they enclosed its start cell. displaced: ids that have travelled MOVED_DISTANCE (None: any
+    fast track counts); a fast track that hasn't moved is a still object with a noisy velocity.
     """
     keep = np.ones(len(points_xy), bool)
     if base_xy is not None:
         keep &= np.hypot(points_xy[:, 0]-base_xy[0], points_xy[:, 1]-base_xy[1]) > SELF_RADIUS
     for t in tracks:
         if (t.id < STRUCTURE_ID and t.last_seen == stamp and t.radius < MOVING_SIZE
-                and (math.hypot(t.vx, t.vy) >= MOVING_SPEED or t.id in moved)):
+                and ((math.hypot(t.vx, t.vy) >= MOVING_SPEED and (displaced is None or t.id in displaced))
+                     or t.id in moved)):
             keep &= np.hypot(points_xy[:, 0]-t.x, points_xy[:, 1]-t.y) > t.radius+.05
     return keep
 
@@ -156,6 +162,8 @@ class PredictiveAvoidance:
             heading=os.environ.get('HARP_PREDICTIVE_HEADING', '0') == '1',
             people_margin=float(os.environ.get('HARP_PREDICTIVE_PEOPLE_MARGIN', '0'))))
         self.moved = set()   # ids of tracks seen moving: people, still people when they pause
+        self.first_xy = {}   # id -> where the track was first seen
+        self.displaced = set()   # ids that have travelled MOVED_DISTANCE from there
         # Out of a tight spot it is stuck in (HARP_PREDICTIVE_MAKE_WAY=1). Off by default: in HIM's
         # office it made way 5-6 times a run but reached the goal no more often (0/3 either way).
         self.make_way = (MakeWay(self.planner.config.robot_radius)
@@ -333,9 +341,14 @@ class PredictiveAvoidance:
                 if hasattr(self.planner, 'stubborn'):
                     self.planner.stubborn = self.responsiveness.stubborn
             present = {t.id for t in tracks}
+            self.first_xy = {i: xy for i, xy in self.first_xy.items() if i in present}
+            for t in tracks:
+                self.first_xy.setdefault(t.id, (t.x, t.y))
+            self.displaced = {t.id for t in tracks
+                              if math.hypot(t.x-self.first_xy[t.id][0], t.y-self.first_xy[t.id][1]) > MOVED_DISTANCE}
             self.moved = {i for i in self.moved if i in present} | {
                 t.id for t in tracks if t.id < STRUCTURE_ID and t.last_seen == stamp
-                and t.radius < MOVING_SIZE and math.hypot(t.vx, t.vy) >= MOVING_SPEED}
+                and t.radius < MOVING_SIZE and math.hypot(t.vx, t.vy) >= MOVING_SPEED and t.id in self.displaced}
         except TransformException:
             # DDS can deliver a scan before its TF. Retry one bounded pending scan,
             # keeping its original timestamp; the watchdog still holds zero if stale.
@@ -348,12 +361,12 @@ class PredictiveAvoidance:
         self.pending_cloud = None
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
         moved = self.moved if self.config.smoothing else ()
-        static = local[static_mask(points[:, :2], self.last_tracks, stamp, base[:2], moved)]
+        static = local[static_mask(points[:, :2], self.last_tracks, stamp, base[:2], moved, self.displaced)]
         if camera is not None:
             # The camera's still points too (its floor left out), in the lidar's frame: Nav2
             # marks only from here in predictive mode, so walkers' legs stay out of its costmaps.
             seen = camera[0][camera[0][:, 2] >= CAMERA_MIN_Z]
-            seen = seen[static_mask(seen[:, :2], self.last_tracks, stamp, base[:2], moved)]
+            seen = seen[static_mask(seen[:, :2], self.last_tracks, stamp, base[:2], moved, self.displaced)]
             static = np.vstack([static, untransform_points(seen, world)]).astype(np.float32)
         self.static_out.publish(cloud_message(cloud.header, static))
         credits = getattr(self.planner, 'credits', {})
