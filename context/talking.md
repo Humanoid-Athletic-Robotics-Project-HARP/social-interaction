@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-03T02:51:56Z
+  updated: 2026-11-03T03:07:14Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -66,7 +66,9 @@ Design for the talking half of a conversation, and what both halves share, and w
 
 **Built** (`speech/talk.py`, 2026-11-03; setup and use: `speech/README.md`)
 - What it does: typed lines or `listen.py`'s JSON lines in, through `llama-server` (Qwen3-4B, streamed), to a sherpa-onnx voice (`--voice kokoro` or `piper`), out through this computer's speakers (`--no-play`, `--save DIR`).
-  - The greeting, fillers ("Oh, okay." and "Ah." after 1.2 s: "Hmm" came out as "Hammel"), "Sorry, I didn't catch that" and the closing line are rendered at start.
+  - The greeting, fillers, "Sorry, I didn't catch that" and the closing line are rendered at start.
+  - The fillers are "Let me think." and "Let me see." ("Hmm" came out as "Hammel"). One plays only if the LLM has given no text 1.2 s after the turn ends, and nothing is still playing. Keying it on the audio being ready instead made one play before every Kokoro reply on a CPU.
+  - A reply's first piece is cut at the first comma with 4 words before it (later pieces: 10), so its sound starts sooner.
   - The prompt's fixed start is processed once at start, so each turn is cached.
   - Its prompt rules out offering help or going places; without that, it offered to help find food.
   - Events are JSON lines on stdout.
@@ -74,9 +76,13 @@ Design for the talking half of a conversation, and what both halves share, and w
 - Words: sherpa-onnx skips any word missing from a voice's lexicon. So `talk.py` writes one combined lexicon at start:
   - our `speech/lexicon/` entries first, then the voice's own list
   - plus each word's -s and -'s forms where missing (Kokoro's list lacks "students", "robots", "what's", "how's")
+  - Piper's list lacked "or" and "her" (added). Of 210 very common words, both lists now have all.
   - one file, because a Piper voice reads its `word || sounds` format only from a single lexicon; a comma-separated list made it skip every word
   - numbers are spelled out, and "G1" is said as "gee one"; left as it was, the spelled-out digit turned it into "Gone"
-- A GBNF grammar (on by default; `--no-grammar` turns it off) allows only two plain sentences and an optional `<bye>`. It stops emoji and lists. Against a prompt asking for emoji, the model escaped straight to `<bye>`, so watch for early goodbyes.
+- A GBNF grammar (on by default; `--no-grammar` turns it off) allows only two plain sentences and an optional `<bye>`. It stops emoji and lists.
+  - After two sentences, `<bye>` is the grammar's only way on, so a model that wants to say more takes it. Asked for "multiple sentences", it did so 3 times out of 3, and the conversation ended.
+  - So `<bye>` counts only if the reply sounds like a goodbye (`FAREWELL`) or the person said one. Otherwise it's an `ignored_bye` event and is kept out of the history.
+- The prompt has the model answer what was said, not always open with a reaction: "Hello" was getting "Oh, nice!". It never repeats a question, and rephrases when they're confused: "What" was getting the same reply again. Its examples for those cases are now often copied word for word.
 - Not built yet:
   - muting listening while it speaks
   - the robot's PlayStream player and the LED

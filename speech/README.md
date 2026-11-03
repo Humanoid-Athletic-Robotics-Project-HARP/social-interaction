@@ -140,11 +140,12 @@ That path is from this repo's main checkout; from a worktree, give the full path
 ```
 
 `--voice piper` picks the other voice. `--no-play --save DIR` stays silent and keeps
-what it said as WAVs. Each thing it says is one JSON line on stdout, with the time
-from the end of your line to its first sound:
+what it said as WAVs. Each thing it says is one JSON line on stdout, with the times
+from the end of your line to the LLM's first sentence, to its audio, and to its first
+sound (which also waits for anything still playing, such as the greeting):
 
 ```json
-{"event": "said", "text": "Oh, nice! What was the lecture about?", "llm_s": 0.603, "first_sound_s": 0.676}
+{"event": "said", "text": "Oh, nice! What was the lecture about?", "llm_s": 0.603, "ready_s": 0.675, "first_sound_s": 0.676}
 ```
 
 To talk to it out loud, give it listening's transcripts. Use headphones: listening

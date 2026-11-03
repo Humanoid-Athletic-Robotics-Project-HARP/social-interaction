@@ -54,8 +54,34 @@ class TestPieces(unittest.TestCase):
     def test_short_clause_waits_for_the_sentence(self):
         self.assertEqual(list(talk.pieces(["Oh, ", "nice to meet you."])), ["Oh, nice to meet you."])
 
+    def test_first_piece_is_cut_sooner(self):
+        stream = ["I don't know it from experience, ", "like humans do. I follow rules, ",
+                  "and maths is one of them."]
+        self.assertEqual(list(talk.pieces(stream)),
+                         ["I don't know it from experience,", "like humans do.",
+                          "I follow rules, and maths is one of them."])
+
+    def test_a_comma_too_early_is_not_a_cut(self):
+        stream = ["Oh, that sounds like a really long and tiring day for anyone, ", "so rest up."]
+        self.assertEqual(list(talk.pieces(stream)),
+                         ["Oh, that sounds like a really long and tiring day for anyone,", "so rest up."])
+
     def test_end_tag_is_its_own_piece(self):
         self.assertEqual(list(talk.pieces(["Bye now! ", "<bye>"])), ["Bye now!", "<bye>"])
+
+
+class TestFarewell(unittest.TestCase):
+    def test_replies_that_end_a_conversation(self):
+        for reply in ("No problem, it was lovely meeting you. Have a great day!", "Okay, bye for now!",
+                      "Enjoy your lunch!", "Take care!"):
+            self.assertTrue(talk.FAREWELL.search(reply), reply)
+
+    def test_replies_that_dont(self):
+        # the ones the grammar pushed into a <bye> when asked for more sentences
+        for reply in ("I know that because I was taught math facts by the team that built me. "
+                      "It's like how you learn basic rules in school.",
+                      "I'm HARP! A robot from Stanford."):
+            self.assertFalse(talk.FAREWELL.search(reply), reply)
 
 
 class TestGoodbye(unittest.TestCase):

@@ -10,14 +10,16 @@ A conversation: a fixed greeting at once, then for each turn the reply from a lo
 is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
   - The reply's text: numbers spelled out, and any word the voice has no entry for
     reported (sherpa-onnx skips those).
-  - A filler plays if nothing is ready FILLER s after the person's turn ended.
+  - A filler plays if nothing is ready or playing FILLER s after the person's turn ended.
   - A fixed line instead on an LLM error, or if it hasn't answered in GIVE_UP s.
-  - The end: the LLM's <bye> tag, the person saying goodbye, MAX_TURNS turns or MAX_S s,
-    or MISSES empty turns in a row.
+  - The end: the LLM's <bye> tag on a reply that sounds like a goodbye (FAREWELL), the
+    person saying goodbye, MAX_TURNS turns or MAX_S s, or MISSES empty turns in a row.
 
 Events, one JSON line each on stdout: said (text, and from the turn's end: llm_s to the
-first sentence, first_sound_s), unknown_words, and done (reason). --save DIR keeps
-everything said as WAVs; --no-play stays silent.
+first sentence, ready_s to its audio, first_sound_s to its sound, which also waits for
+anything still playing), unknown_words, ignored_bye (a <bye> on a reply that wasn't a
+goodbye), and done (reason). --save DIR keeps everything said as WAVs; --no-play stays
+silent.
 
 Models in models/ beside the main checkout, like listen.py's. Plain Python that also runs
 on 3.8 (PC2's).
@@ -46,14 +48,15 @@ MAX_TURNS = 8      # turns before it says goodbye itself
 MAX_S = 90.0       # s before it says goodbye itself
 MISSES = 2         # empty turns in a row before it says goodbye
 MAX_TOKENS = 60    # the LLM's reply, at most (two short sentences)
-CLAUSE_WORDS = 10  # a comma ends a piece once this many words have built up
+FIRST_WORDS = 4    # a comma ends a reply's first piece once this many words come before it
+CLAUSE_WORDS = 10  # ...and any later piece
 VOICES = {         # model folder, speaker, our own lexicon
     "kokoro": ("kokoro-multi-lang-v1_0", 3, "kokoro-en.txt"),            # af_heart
     "piper": ("vits-piper-en_US-ljspeech-medium", 0, "piper-en.txt"),
 }
 
 GREETING = "Hi, I'm HARP, a robot from Stanford. How's your day going?"
-FILLERS = ["Oh, okay.", "Ah."]   # words both voices have ("Hmm" came out as "Hammel")
+FILLERS = ["Let me think.", "Let me see."]   # words both voices have ("Hmm" came out as "Hammel")
 SPOKEN = {"G1": "gee one"}     # said as letters, not read as a word
 SORRY = "Sorry, I didn't catch that."
 LOST = "Sorry, I lost my train of thought. What were you saying?"
@@ -61,6 +64,11 @@ CLOSE = "I should let you go. It was lovely talking with you, have a great day!"
 GOODBYE = re.compile(r"\b(bye|goodbye|see you|see ya|gotta go|got to go|have to go|need to go|"
                      r"have to run|gotta run|i'm off)\b", re.I)
 END_TAG = "<bye>"
+# The reply must sound like a goodbye for its END_TAG to count: when the grammar has used up
+# its two sentences, END_TAG is the only way on, so a model that wanted to say more takes it.
+FAREWELL = re.compile(r"\b(bye|goodbye|see you|take care|have a (good|great|nice|lovely|wonderful)|"
+                      r"(nice|lovely|great|good) (meeting|talking|chatting|to meet)|enjoy (your|the))\b",
+                      re.I)
 
 SYSTEM = f"""You are HARP, a friendly humanoid robot built by students on Stanford's HARP \
 robotics team. You walk around campus and stop to chat with people. You are talking out \
@@ -68,10 +76,14 @@ loud with someone standing about one metre in front of you, and you have just sa
 "{GREETING}"
 
 How you talk:
-- One or two short sentences each time, in plain spoken words. No lists, emoji, \
-symbols or stage directions.
-- Start with a short reaction to what they said ("Oh, nice!", "Ha, fair enough."), then \
-at most one simple question about them, their day or what they're up to.
+- One or two short sentences each time, in plain spoken words, even if they ask for \
+more. No lists, emoji, symbols or stage directions.
+- Answer what they actually said. A short reaction ("Oh, nice!", "Ha, fair enough.") \
+fits when they tell you something; a greeting gets a greeting, and a question gets an \
+answer.
+- Then at most one simple question about them, their day or what they're up to. Never \
+ask a question you've already asked; ask something new.
+- If they seem confused or say "What?", say what you meant in other, simpler words.
 - Be warm and curious. Talk about them, not about yourself.
 - You only know what they tell you. Don't claim to see, remember or have done things. If \
 they ask what you are: a Unitree G1 humanoid robot running software the team wrote; you \
@@ -83,6 +95,10 @@ can walk and talk but can't use your arms yet.
 with {END_TAG}
 
 Examples:
+Person: Hello!
+HARP: Hi there! What are you up to today?
+Person: What?
+HARP: Sorry, I was just asking what you're doing today.
 Person: Pretty good, just got out of class.
 HARP: Oh, nice! What was the class about?
 Person: Organic chemistry, it was rough.
@@ -253,17 +269,24 @@ def stream_reply(url, messages, grammar):
 
 
 def pieces(stream):
-    """Text to speak, cut at sentence ends, and at commas once a clause is long enough."""
-    text = ""
+    """Text to speak, cut at sentence ends, and at the first comma with enough words before
+    it: FIRST_WORDS for a reply's first piece, so its sound starts sooner, CLAUSE_WORDS
+    after that (shorter pieces sound flat)."""
+    text, words = "", FIRST_WORDS
     for piece in stream:
         text += piece
         while True:
-            end = re.search(r"[.!?](\s|$)", text) or (
-                len(text.split()) >= CLAUSE_WORDS and re.search(r"[,;:](\s)", text))
+            end = re.search(r"[.!?](\s|$)", text)
+            for comma in re.finditer(r"[,;:]\s", text):
+                if end and comma.start() > end.start():
+                    break
+                if len(text[:comma.start()].split()) >= words:
+                    end = comma
+                    break
             if not end:
                 break
             yield text[:end.end()].strip()
-            text = text[end.end():]
+            text, words = text[end.end():], CLAUSE_WORDS
     if text.strip():
         yield text.strip()
 
@@ -330,6 +353,7 @@ class Conversation:
                 if "llm" not in first:
                     first["llm"] = time.perf_counter() - ended
                 audio = self.voice(say)
+                first.setdefault("ready", time.perf_counter() - ended)
                 self.speaker.say(audio, None if spoken else
                                  (lambda t: first.setdefault("sound", t - ended)))
                 spoken.append(say)
@@ -339,11 +363,17 @@ class Conversation:
             self.speaker.say(self.canned[LOST])
         finally:
             filler.cancel()
-        self.messages.append({"role": "assistant", "content": reply})
+        text = reply.replace(END_TAG, "").strip()
+        bye = END_TAG in reply and bool(FAREWELL.search(text) or GOODBYE.search(heard))
+        if END_TAG in reply and not bye:
+            self.event("ignored_bye", text=text)
+        # The history keeps only a goodbye that counts, so the model doesn't think it left.
+        self.messages.append({"role": "assistant", "content": text + (" " + END_TAG if bye else "")})
         self.speaker.wait()
-        self.event("said", text=reply.replace(END_TAG, "").strip(),
-                   llm_s=round(first.get("llm", 0), 3), first_sound_s=round(first.get("sound", 0), 3))
-        if END_TAG in reply:
+        self.event("said", text=text, llm_s=round(first.get("llm", 0), 3),
+                   ready_s=round(first.get("ready", 0), 3),
+                   first_sound_s=round(first.get("sound", 0), 3))
+        if bye:
             return "bye"
         if GOODBYE.search(heard):
             return "goodbye"
@@ -352,7 +382,9 @@ class Conversation:
         return None
 
     def filler(self, first):
-        if "sound" not in first and "llm" not in first:
+        """Fill the pause, but only while the LLM has said nothing yet and nothing is still
+        playing (once there's text, its audio follows within the voice's synthesis time)."""
+        if "llm" not in first and self.speaker.idle.is_set():
             line = FILLERS[self.fillers % len(FILLERS)]
             self.fillers += 1
             self.speaker.say(self.canned[line])
