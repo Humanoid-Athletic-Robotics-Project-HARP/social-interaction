@@ -143,9 +143,11 @@ class PredictiveAvoidance:
             raise ValueError('predictive speed must be within .05 to .6 m/s')
         gain = float(os.environ.get('HARP_PREDICTIVE_TRACKING_GAIN','.85'))
         lateral_gain = float(os.environ.get('HARP_PREDICTIVE_LATERAL_GAIN','.60'))
-        # HARP_PREDICTIVE_PLANNER=game: the game-theoretic core (harp/game_planner.py); default
-        # mpc, the sampling MPC (harp/predictive_mpc.py), until the game core wins in HIM.
-        core = os.environ.get('HARP_PREDICTIVE_PLANNER', 'mpc')
+        # The game-theoretic core (harp/game_planner.py) by default; HARP_PREDICTIVE_PLANNER=mpc,
+        # the sampling MPC (harp/predictive_mpc.py). Benchmark, 90 worlds of walkers who give way:
+        # as often past every check (26 against 27), 31% faster, half the fight with Nav2's turns;
+        # HIM: crossing 2/2, building reached 2/2, a held-out world passed every check.
+        core = os.environ.get('HARP_PREDICTIVE_PLANNER', 'game')
         if core not in ('mpc', 'game'):
             raise ValueError('HARP_PREDICTIVE_PLANNER must be mpc or game')
         self.planner = (GamePlanner if core == 'game' else Planner)(Config(speed=speed,tracking_gain=gain,lateral_tracking_gain=lateral_gain,

@@ -3,7 +3,7 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-03T11:53:58Z
+  updated: 2026-11-03T12:09:28Z
   covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/game_planner.py, submission/harp/predictive_avoidance.py, submission/harp/detour.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py, submission/tests/test_detour.py, submission/tests/test_game_planner.py, submission/planner_bench.py]
 ---
 
@@ -21,7 +21,7 @@ metadata:
 
 **Checks:** the unit tests (`submission/tests`; live DDS needs `ROS_LOCALHOST_ONLY=1` and a nonzero `ROS_DOMAIN_ID`) and HIM's courses (`course.py`). History: before HIM, the planner was tuned in a native MuJoCo walking-G1 crowd sim and a fast harness on one Mac (Nov 1); both needed the old `ros2/` stack, which main deleted, and were removed on Nov 2 with their result JSONs. Their numbers are in the branch history.
 
-**Game-theoretic core** (`harp/game_planner.py`, 2026-11-03; `HARP_PREDICTIVE_PLANNER=game`, default still `mpc`). The robot and the 8 nearest people within 5 m are players of one game, after BRNE (Sun et al., IJRR 2024; written from the paper, the GPL code not copied). Theory and limits: Lam's `project-setup/docs/game-core-theory.md` in the Documents project.
+**Game-theoretic core** (`harp/game_planner.py`, 2026-11-03; the default since 2026-11-03; `HARP_PREDICTIVE_PLANNER=mpc` for the sampling MPC). The robot and the 8 nearest people within 5 m are players of one game, after BRNE (Sun et al., IJRR 2024; written from the paper, the GPL code not copied). Theory and limits: Lam's `project-setup/docs/game-core-theory.md` in the Documents project.
 - **Clouds:** the robot gets about 260 trajectories near Nav2's request (prior: deviation σ about 0.2 m/s, sideways 3× costlier, switching, walls, and `KEEP_RIGHT`: passing someone met head-on on the wrong side). Each person gets 32 around their tracked walk.
 - **Rounds:** six rounds of Bayesian best responses reach a mixed-strategy Nash equilibrium. A person's weight on the game is ρ: 0.6 unknown, more with `Responsiveness` credit, 0 once `Responsiveness.stubborn` saw them keep course into a conflict three times. `RISK_ALPHA` makes the robot weigh the worst share of each person's motions (CVaR); 1 is the plain average.
 - **Safety, contingency style:**
