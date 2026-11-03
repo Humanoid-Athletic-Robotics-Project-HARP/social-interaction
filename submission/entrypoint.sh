@@ -16,6 +16,9 @@ NAV2_WAIT=15   # s our node waits at most for Nav2 to be configured (HIM waits 3
 source /opt/ros/foxy/setup.bash
 source /example/install/setup.bash
 source /harp_ws/install/setup.bash
+# Validate before starting any command producer. Select one filter, never two.
+avoidance_filter=$(PYTHONPATH="/harp:$PYTHONPATH" python3 -m harp.avoidance_config)
+export HARP_AVOIDANCE_FILTER="$avoidance_filter"   # nav2.launch.py follows it
 # HIM's sim profile finds only 5 participants; ours lists peers for 32 (harp/fastdds_profile.py).
 if [[ "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" == /fastdds.xml ]]; then
   python3 /harp/harp/fastdds_profile.py > /tmp/harp_fastdds.xml
@@ -46,7 +49,8 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   mkdir -p "${ROS_LOG_DIR:-${ROS_HOME:-$HOME/.ros}/log}"
   PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
   nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
-  PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/approach_stop.py &
+  OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH="/harp:$PYTHONPATH" \
+    nice -n 10 python3 "/harp/harp/${avoidance_filter}.py" &
   if [[ "${G1_TASK_COMMAND:-}" == *'"behavior"'* ]]; then
     PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/sim_people.py &
     PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/behavior.py &

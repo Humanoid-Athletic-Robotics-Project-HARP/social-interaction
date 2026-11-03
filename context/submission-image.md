@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (the image, entrypoint, Dockerfile, worlds) or debugging what runs inside a run
 metadata:
   type: project
-  updated: 2026-11-02T22:04:05Z
+  updated: 2026-11-03T07:54:26Z
   covers: [submission/**]
 ---
 
@@ -13,7 +13,7 @@ metadata:
 
 **Size:** `submission.tar` is about 306 MB; HIM sets no limit, and `ros:foxy-ros-base` alone is 252 MB. The `Dockerfile` has two stages: `build` compiles (CycloneDDS, HIM's interfaces, our Graceful port) and pip-installs; the image copies in only the results. Foxy's debs name far more than they load (STVL names all of PCL and so VTK and Mesa; `behaviortree_cpp_v3` names `libboost-all-dev` and so OpenMPI and Flang, 950 MB), so the image installs empty stand-in debs under those names and only the libraries STVL and Nav2 load come in; it also uninstalls OpenCV, SymPy and PyOpenGL (pulled in, never imported). If a new package fails to load a library, `ldd` its `.so` in the image and add the real runtime package, not the stand-in's name.
 
-**Worlds** (`submission/worlds/`, criteria in `NAME.yaml`): `stage_world.py` writes HIM's scene (the G1, `safety_floor`, fixed obstacles; movers left out, or HIM would hold them still where they start) and the image's copy with movers. Defaults go in a named class (`obstacle`), never the top-level default, so worlds include next to HIM's G1. Comments are stripped (their "--" breaks XML parsers).
+**Worlds** (`submission/worlds/`, criteria in `NAME.yaml`; `heldout_N` are random ones from `generate_world.py`, [[course-runs]]): `stage_world.py` writes HIM's scene (the G1, `safety_floor`, fixed obstacles; movers left out, or HIM would hold them still where they start) and the image's copy with movers. Defaults go in a named class (`obstacle`), never the top-level default, so worlds include next to HIM's G1. Comments are stripped (their "--" breaks XML parsers).
 
 **In a world's image** (`entrypoint.sh`): `harp/lidar.py` (the head lidar, and the head depth camera from the same state, `harp/depth_camera.py`), Nav2 (`nav2/`, [[nav2-sim]]), `harp/approach_stop.py` (between Nav2 and our node, [[approach-stop]]), `harp/course_goal.py` or, for a `{"behavior": ...}` task, `harp/behavior.py` with the stand-in detector `harp/sim_people.py` ([[behavior-loop]]), and `harp/view_feed.py` ([[sim-run-logs]]), each its own process, beside `harp_node.py`; with a `{"to": ...}` target only the move runs, since one thing drives `/cmd_vel`. They start first, and `harp_node.py` only once Nav2 is configured ([[sim-deadline-stops]]).
 - The lidar must stay out of the policy's process: publishing its 190 KB cloud there made the node miss HIM's 0.2 s deadline.
@@ -25,3 +25,5 @@ metadata:
 **On the robot** HIM's launcher (`setup.sh`) runs our image with `--network host --ipc=host`, its ROS settings (`ROS_DOMAIN_ID` 97 in hardware mode, 98 in its other modes; `ROS_LOCALHOST_ONLY` 1, `rmw_fastrtps_cpp`), `ROBOT_INTERFACE`/`ROBOT_DOMAIN` and a few `G1_*` variables (plus `--runtime nvidia` with `G1_NVIDIA=1`), but no devices. So the image can't open the depth camera (or any USB device); a sensor node that needs one runs on PC2 with the same three ROS settings, and our container sees its topics ([[robot-services]]). `entrypoint.sh` starts the lidar relay when `G1_EXECUTION_MODE` isn't `sim` ([[lidar-nav2-research]]).
 
 **Foxy rclpy gotchas:** set a message's `data` from an `array.array("B", ...)`, not `bytes` (which checks every byte: 124 ms for an 800 KB image against 1 ms); a subscriber to large messages (images) needs reliable QoS (best effort dropped most 800 KB depth images); `rclpy.spin` never wakes for signals, so spin in short steps.
+
+**Predictive filter:** a simulator Nav2 task can select the tracker/NMPC filter instead of `approach_stop` (`--avoidance predictive`; [[predictive-avoidance]] for the design, switches and HIM results). The image includes SciPy (pinned with NumPy for Python 3.8). HIM's sim passes only `G1_TASK_COMMAND` into the container, so a test of another setting (`HARP_PREDICTIVE_*`) needs an image layer (`FROM harp-submission-…:local` plus `ENV`) and `HARP_IMAGE=that:tag` for `course.py`. `--crowd aware` (task JSON `"crowd"`) has the world's movers give way to the robot in the lidar (`harp/movers.py` `AwareMovers`); the lidar logs their paths (`crowd` and `movers` events) and scoring and the replay follow them. A trace HIM left cut off is reported as not scored.

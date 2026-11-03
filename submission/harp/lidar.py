@@ -24,15 +24,19 @@ of view.
 The robot's own body is in the cloud, as on the real robot: the shoulders and
 arms show up as points and shadow what is behind them. The head's own geoms (part of
 torso_link) are skipped; lidar_mount.sees stands in for them. Moving obstacles (movers.py) exist
-only here. The camera casts at its own CAMERA_PERIOD from the same states.
+only here: scripted, or with the task's "crowd": "aware" (course.py
+--crowd aware), giving way to the robot's true pose. The camera casts at its own CAMERA_PERIOD from the same states.
 
 It is a separate process from harp_node because publishing a 190 KB cloud
 from inside the policy's process made it miss HIM's 0.2 s command deadline.
-Events go to /harp/events: mover_start (mover, starts_at) when a mover sets off.
+Events go to /harp/events: mover_start (mover, starts_at) when a mover sets off. An aware
+crowd also prints, for scoring and the replay (not on /harp/events): crowd (its movers) at
+start, then movers (t, xy: where each is) every scan.
 """
 
 import array
 import json
+import os
 import sys
 
 import mujoco
@@ -44,7 +48,7 @@ from std_msgs.msg import Header, String
 
 from harp import camera_mount, depth_camera, lidar_mount
 from harp.events import Events, latched
-from harp.movers import Movers
+from harp.movers import AwareMovers, Movers, crowd_event, crowd_mode, path_event
 
 RAYS_PER_S = 200_000         # the real MID-360's points a second, no-echo ones included
 MIN_RANGE, MAX_RANGE = 0.1, 40.0   # m
@@ -57,6 +61,7 @@ CAMERA_PERIOD = 1 / 15   # s of sim time between camera frames (the robot's at 1
 # in livox_frame, so the sim uses the same names.
 TOPIC = lidar_mount.TOPIC
 REAR_TOPIC = lidar_mount.REAR_TOPIC
+MOVERS_TOPIC = "/harp/movers"   # an aware crowd: {"names": [...], "xy": [[x, y], ...]} each scan
 SCENE = "/harp/model/lidar_scene.xml"
 XYZ_FIELDS = [PointField(name=c, offset=4 * i, datatype=PointField.FLOAT32, count=1)
               for i, c in enumerate("xyz")]
@@ -70,7 +75,11 @@ class SimLidar:
         self.node = node
         self.model = mujoco.MjModel.from_xml_path(str(scene))
         self.data = mujoco.MjData(self.model)
-        self.movers = Movers(self.model)
+        aware = crowd_mode(os.environ.get("G1_TASK_COMMAND", "")) == "aware"
+        self.movers = (AwareMovers if aware else Movers)(self.model)
+        self.aware = aware and bool(self.movers.names)
+        if self.aware:
+            print(crowd_event(self.movers.names), flush=True)
         self.torso = self.model.body(lidar_mount.PARENT).id
         self.mount = lidar_mount.rotation()
         self.rng = np.random.default_rng()
@@ -78,6 +87,9 @@ class SimLidar:
         self.rear_pub = node.create_publisher(PointCloud2, REAR_TOPIC, 10)
         self.camera = depth_camera.DepthCamera(self.model, self.rng)
         self.camera_pub = node.create_publisher(PointCloud2, CAMERA_TOPIC, 10)
+        # An aware crowd's true positions each scan, for harp/view_feed.py (scripted movers it
+        # can work out itself from their mover_start events).
+        self.movers_pub = node.create_publisher(String, MOVERS_TOPIC, 1)
         print(depth_camera.describe(), flush=True)
         print(f"Sim lidar: face visor {'on' if lidar_mount.VISOR else 'off'}", flush=True)
         self.events = Events(node, "lidar")
@@ -117,6 +129,10 @@ class SimLidar:
             points = np.concatenate(self.pending)
             self.pending = []
             self.next_scan = max(self.next_scan + PERIOD, t)
+            if self.aware:
+                print(path_event(t, self.movers.positions), flush=True)
+                self.movers_pub.publish(String(data=json.dumps(dict(
+                    names=self.movers.names, xy=np.round(self.movers.positions, 3).tolist()))))
             self.publish(self.pub, lidar_mount.FRAME, points)
             self.publish(self.rear_pub, lidar_mount.REAR_FRAME, points * (-1.0, -1.0, 1.0))
         if t >= self.next_frame:

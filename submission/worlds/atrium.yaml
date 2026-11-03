@@ -1,0 +1,7 @@
+# Pass criteria for course tests on this world (runs check, summary.json); as building's.
+must_succeed: true
+max_time_s: 100
+min_clearance_m: 0.30
+max_contacts: 0
+max_recoveries: 3
+max_end_error_m: 0.35

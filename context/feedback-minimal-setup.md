@@ -3,7 +3,7 @@ name: feedback-minimal-setup
 description: Read before adding new nodes, packages, messages or tooling — build only what the current goal needs, prefer open code
 metadata:
   type: feedback
-  updated: 2026-11-02T06:06:36Z
+  updated: 2026-11-03T07:54:26Z
   covers: [submission/Dockerfile, submission/entrypoint.sh]
 ---
 

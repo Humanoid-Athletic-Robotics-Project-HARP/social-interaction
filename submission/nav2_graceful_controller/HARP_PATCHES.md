@@ -16,6 +16,11 @@ renamed exceptions and includes:
   commands zero and tries again for this long before raising its error. Jazzy's controller
   server does this for every controller (its `failure_tolerance`); Foxy's aborts the path on the
   first error, and each abort was a recovery (6 of them on `crossing` while the person passed).
+- `follow_when_blocked` (bool, default false; HARP, not upstream): when no candidate trajectory
+  is collision-free, return the first step of the farthest candidate's trajectory instead of
+  stopping (`failure_tolerance`) and aborting. Only for a filter downstream that checks every
+  command against what it sees (`nav2/nav2.launch.py` sets it with predictive avoidance); with
+  the reactive `approach_stop` it stays false.
 - Foxy has one controller exception, `nav2_core::PlannerException` (`nav2_core/exceptions.hpp`); it
   replaces `ControllerException`, `ControllerTFError`, `InvalidPath` and `NoValidControl`.
 - `min_by`, `first_after_integrated_distance` and `calculate_path_length`, which Foxy's

@@ -77,9 +77,10 @@ unchanged, cloned next to this repo, and keep only our code here.
   stands if the lidar goes quiet (`harp/approach_stop.py`), tested with a
   person crossing the robot's path (`crossing`) and one walking toward it
   (`oncoming`).
-- ⬜ Sim: stand before someone crossing reaches the robot's path, not once
-  they're in it: a moving-object detector (scans compared in `odom`, the
-  points that moved grouped and their speed tracked).
+- 🟡 Predict moving obstacles from LiDAR tracks and request slower motion,
+  standing, or a checked sideways escape (`--avoidance predictive`). Tested in
+  HIM's sim (crossing, the box route, the building with scripted and aware
+  walkers); not yet on the robot.
 - 🟡 Robot: real lidar data in ROS 2, then the same walk. The lidar is
   recorded and measured on the robot (`testground/lidar/`), and reaches ROS 2
   through Unitree's `lidar_driver` service and `harp/lidar_relay.py` (tried on
@@ -286,6 +287,33 @@ python3 submission/course.py one_box
 Add `--view` to watch each run live at the address printed (press Start
 there to watch it from the beginning; the run doesn't wait for it). It closes
 the viewer 10 s after the run, before the next one.
+
+To test predictive avoidance on a Nav2 course, a waypoint route, or the
+building with walkers who give way to the robot:
+
+```bash
+python3 submission/course.py crossing --avoidance predictive --tag predictive
+python3 submission/course.py one_box --route rectangle --avoidance predictive --tag predictive-route
+python3 submission/course.py building --avoidance predictive --crowd aware --tag predictive-building
+```
+
+Build the image first. Predictive mode tracks generic LiDAR objects, checks future
+clearance, and publishes `/harp/obstacle_alert` whenever its chosen motion is not
+certifiably clear or lost occupancy is unresolved. The alert is a JSON
+signal for an indicator or speaker consumer. It selects one command filter and
+keeps the route, recorder, GR00T adapter, and harness interfaces.
+Use `--avoidance reactive` for the default approach-stop behavior. Predictive
+mode currently accepts simulator Nav2 routes; use waypoints instead of planned
+straight moves. Model assumptions and validation: [predictive avoidance](context/predictive-avoidance.md).
+
+To test on a world no one has tuned against, generate one, commit it, then run it once:
+
+```bash
+python3 submission/generate_world.py --seed 20261111
+python3 submission/course.py heldout_20261111 --avoidance predictive --crowd aware
+```
+`course.py --replay RUN` replays a run with its walkers.
+
 Before each run it warns about viewers still up and memory pressure, and the
 run's `run.json` keeps the computer's memory during the run (`host_memory`).
 

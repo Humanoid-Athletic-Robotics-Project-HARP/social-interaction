@@ -50,9 +50,9 @@ class Nav2Clearing(unittest.TestCase):
 
     def test_front_clearing_only_with_the_visor_off(self):
         with patch.object(lidar_mount, "VISOR", False):
-            off = self.sources(self.launch.params())
+            off = self.sources(self.launch.parameters_for())
         with patch.object(lidar_mount, "VISOR", True):
-            on = self.sources(self.launch.params())
+            on = self.sources(self.launch.parameters_for())
         self.assertEqual(len(off), 2)
         self.assertTrue(all("lidar_front_clearing" in s for s in off))
         self.assertEqual(len(on), 2)

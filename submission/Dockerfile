@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-foxy-visualization-msgs libboost-dev git \
     && rm -rf /var/lib/apt/lists/*
 # ONNX Runtime 1.16.3 and MuJoCo 3.2.3 are the newest for Foxy's Python 3.8 on ARM64.
-RUN python3 -m pip install --no-cache-dir numpy==1.24.4 onnxruntime==1.16.3 PyYAML==6.0.2 \
+RUN python3 -m pip install --no-cache-dir numpy==1.24.4 scipy==1.10.1 onnxruntime==1.16.3 PyYAML==6.0.2 \
     mujoco==3.2.3 "zipp>=3.1"
 # Unitree's SDK, for harp/lidar_relay.py on the robot: CycloneDDS 0.10.2 (the version the SDK's
 # bindings need; no wheel exists for Python 3.8 on ARM64) and the SDK at the commit in the README.

@@ -12,7 +12,8 @@ policy.log into the run's view.jsonl. First "world", once: the world's fixed obs
   lidar     [x, y, z, qw, qx, qy, qz]  livox_frame in base_link (/tf)
   points    the latest cloud in livox_frame, one point per VOXEL m cube, at most
             MAX_POINTS: int16 cm (x, y, z per point), zlib, base64
-  people    {name: [x, y]}  each mover in the world (movers.py, from mover_start events)
+  people    {name: [x, y]}  each mover in the world (movers.py, from mover_start events; an
+            aware crowd's from harp/lidar.py's /harp/movers, as it gives way)
   plan      [[x, y], ...]  Nav2's latest plan in odom (/plan), every PLAN_STEP-th pose
   costmap   every COSTMAP_EVERY frames: Nav2's local costmap in odom (origin [x, y],
             resolution, width, height, cells: OccupancyGrid values as uint8, zlib, base64)
@@ -81,6 +82,8 @@ class ViewFeed:
         best_effort = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         node.create_subscription(String, "/safety/policy_state", self.on_state, best_effort)
         node.create_subscription(String, events.TOPIC, self.on_event, events.latched())
+        node.create_subscription(String, "/harp/movers", self.on_movers, best_effort)
+        self.live_people = None    # an aware crowd's true positions (harp/lidar.py), when sent
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(TFMessage, "/tf", self.on_tf, 50)
         node.create_subscription(PointCloud2, CLOUD, self.on_cloud, best_effort)
@@ -106,6 +109,10 @@ class ViewFeed:
 
     def on_state(self, msg):
         self.state = msg.data      # parsed only when a frame goes out
+
+    def on_movers(self, msg):
+        record = json.loads(msg.data)
+        self.live_people = {name: round_list(xy) for name, xy in zip(record["names"], record["xy"])}
 
     def on_event(self, msg):
         record = json.loads(msg.data)
@@ -152,7 +159,9 @@ class ViewFeed:
         if self.cloud is not None:
             frame["points"] = packed(np.round(thinned(self.cloud) * 100), np.int16)
             self.cloud = None
-        if self.movers and self.movers.names and t is not None:
+        if self.live_people is not None:   # walkers that give way: where the lidar has them
+            frame["people"] = self.live_people
+        elif self.movers and self.movers.names and t is not None:
             self.movers.apply(self.world_data, t)
             frame["people"] = {name: round_list(self.world_data.mocap_pos[m][:2])
                                for name, m in zip(self.movers.names, self.movers.mocap)}

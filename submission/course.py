@@ -25,11 +25,14 @@ moved out of policy.log: submission/lidar_view.py --run shows them), and our sum
   seconds, recoveries   from course_goal's goal_result
   path_m, end_error_m   from the true pose (end: distance from the goal site)
   closest_m, contacts   true distance from the robot's body to every obstacle,
-                        movers included (replayed from their mover_start events;
-                        HIM's physics never sees movers, so these are the only contacts)
+                        movers included (replayed from their mover_start events, or for
+                        an aware crowd from the paths the lidar logged; HIM's physics
+                        never sees movers, so these are the only contacts)
   speed_near_people_mps  the robot's fastest true speed while a mover within PEOPLE_NEAR
                         was coming closer (harp/approach_stop.py should have it standing)
   drift_m    leg odometry against the truth at the last "odom" line
+  crowd      scripted, or aware: --crowd aware has the world's movers give way to the
+             robot (harp/movers.py AwareMovers) instead of keeping to their routes
 A world whose criteria give a task (people.yaml: the behavior loop, harp/behavior.py) runs
 that as G1_TASK_COMMAND instead of its goal. Then outcome is succeeded if the loop started
 and didn't stop on an error, seconds are from its start to its first talk, there's no end
@@ -63,9 +66,8 @@ world loses STRIPPED (about 52 of its 53 MB), once the scene rebuilt from run.js
 scene/ (HIM's G1 read at HIM's commit) matches the one in the trace. Runs from before
 run.json kept a scene get theirs filled in the same way. --replay RUN serves HIM's replay
 with the scene put back, from a copy of the trace; a stripped run's thrash panel is empty.
-Its movers walk there too, replayed from their mover_start events like the scoring's:
-HIM's replay poses only the joints, so each mover becomes a body with a free joint whose
-pose is added to every frame (the world from scene/MOVERS_WORLD, or the run's commit).
+HIM's live viewer never shows movers (only our lidar sees them); the replay does, walking
+where scoring placed them (an aware crowd: where the lidar logged them).
 Each run, with its scoring and pruning, and --prune and --score hold checkout.py's
 machine-wide lock: one build or sim at a time, waiting for whoever holds it.
 
@@ -86,7 +88,7 @@ import sys
 import tempfile
 import threading
 import time
-import xml.etree.ElementTree as ET
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -133,6 +135,7 @@ sys.path.insert(0, str(HERE))
 import stage_world  # noqa: E402
 from harp.leg_odometry import wrap_angle, yaw_of  # noqa: E402
 from harp.movers import Movers, obstacle_geoms  # noqa: E402
+from harp.movers import CROWDS, Movers, logged_path, obstacle_geoms  # noqa: E402
 from harp.route import route_from_data  # noqa: E402
 
 SCENES = checkout.STAGE / "scenes"
@@ -219,13 +222,50 @@ def show_events(run):
         print(f"{when}  {e.get('source', '-'):10} {e['event']:16} {fields}")
 
 
-def clearance(world, trace, movers_started):
+def geom_distance(model, data, g, o, limit):
+    """mj_geomDistance from geom g to geom o, checked. For a capsule and a cylinder MuJoCo 3.3
+    now and then returns 0 with nearest points far from both geoms (HIM atrium runs, Nov 3:
+    8 of 3.1 million robot-to-fixed pairs, each a pillar "contact" with the foot 0.66 m away;
+    once its nearest points were on both geoms but 0.62 m apart, a wheelchair "contact").
+    A result not borne out by its own nearest points (off geom g, or not as far apart as
+    it says) is replaced by the exact distance when g is a sphere or capsule and o a
+    cylinder (the case seen); any other is kept as it came."""
+    fromto = np.zeros(6)
+    d = mujoco.mj_geomDistance(model, data, g, o, limit, fromto)
+    if d > 0 or (abs(np.linalg.norm(fromto[3:] - fromto[:3]) - abs(d)) <= 1e-3
+                 and np.linalg.norm(fromto[:3] - data.geom_xpos[g]) <= model.geom_rbound[g] + 1e-6):
+        return d
+    exact = rounded_to_cylinder(model, data, g, o)
+    return d if exact is None else min(exact, limit)
+
+
+def rounded_to_cylinder(model, data, g, o):
+    """Signed distance from a sphere or capsule g to a cylinder o (None for other shapes):
+    its axis sampled every few mm, each point measured to the cylinder exactly."""
+    sphere, capsule, cylinder = (int(t) for t in (
+        mujoco.mjtGeom.mjGEOM_SPHERE, mujoco.mjtGeom.mjGEOM_CAPSULE, mujoco.mjtGeom.mjGEOM_CYLINDER))
+    if int(model.geom_type[o]) != cylinder or int(model.geom_type[g]) not in (sphere, capsule):
+        return None
+    half = model.geom_size[g][1] if int(model.geom_type[g]) == capsule else 0.0
+    axis = data.geom_xmat[g].reshape(3, 3)[:, 2]
+    points = data.geom_xpos[g] + np.linspace(-half, half, 65)[:, None] * axis
+    local = (points - data.geom_xpos[o]) @ data.geom_xmat[o].reshape(3, 3)
+    radius, height = model.geom_size[o][:2]
+    across = np.hypot(local[:, 0], local[:, 1]) - radius
+    along = np.abs(local[:, 2]) - height
+    outside = np.hypot(np.maximum(across, 0), np.maximum(along, 0))
+    inside = np.minimum(np.maximum(across, along), 0)
+    return float((outside + inside).min() - model.geom_size[g][0])
+
+
+def clearance(world, trace, movers_started, path=None):
     """From the truth: the closest robot-to-obstacle distance, how many separate contacts,
     and the robot's fastest speed (over SPEED_WINDOW samples) while a mover nearer than
-    PEOPLE_NEAR was coming closer (None without movers)."""
+    PEOPLE_NEAR was coming closer (None without movers). path: an aware crowd's logged
+    paths (logged_path), which the movers then follow."""
     model = mujoco.MjModel.from_xml_path(str(world))
     data = mujoco.MjData(model)
-    movers = Movers(model, started=movers_started)
+    movers = Movers(model, started=movers_started, path=path)
     obstacles = obstacle_geoms(model)
     body = [g for g in range(model.ngeom)
             if model.geom_bodyid[g] > 0 and model.body_mocapid[model.geom_bodyid[g]] < 0
@@ -246,7 +286,7 @@ def clearance(world, trace, movers_started):
         apart = now_apart
         now = set()
         for o in obstacles:
-            d = min(mujoco.mj_geomDistance(model, data, g, o, CLEARANCE_MAX, None) for g in body)
+            d = min(geom_distance(model, data, g, o, CLEARANCE_MAX) for g in body)
             closest = min(closest, d)
             if d <= 0.0:
                 now.add(o)
@@ -294,6 +334,7 @@ def score(run):
     events, odom = read_log(run)
     result = next((e for e in events if e.get("event") == "goal_result"), None)
     started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
+    logged = logged_path(events)
     route = load_route(run / "route.yaml") if (run / "route.yaml").is_file() else None
     behavior = '"behavior"' in ((meta.get("sim") or {}).get("task_command") or "")
     loop = [dict(e, sim_time=sim_time_of(e, odom)) for e in events if e.get("source") == "behavior"]
@@ -304,7 +345,7 @@ def score(run):
             else mujoco.MjModel.from_xml_path(str(world)).site("goal").pos[:2])
     xy = trace["qpos"][:, :2]
     path = float(np.linalg.norm(np.diff(xy, axis=0), axis=1).sum())
-    closest, contacts, near_speed = clearance(world, trace, started)
+    closest, contacts, near_speed = clearance(world, trace, started, logged)
     drift = (round(float(np.hypot(*(np.array(odom[-1]["legs"][:2]) - odom[-1]["truth"][:2]))), 3)
              if odom else None)
 
@@ -333,7 +374,7 @@ def score(run):
         "path_m": round(path, 2),
         "end_error_m": None if goal is None else round(float(np.linalg.norm(xy[-1] - goal)), 3),
         "closest_m": closest, "contacts": contacts, "speed_near_people_mps": near_speed,
-        "drift_m": drift,
+        "drift_m": drift, "crowd": "scripted" if logged is None else "aware",
     }
     if behavior:
         summary["loop"] = {
@@ -531,12 +572,12 @@ def same_model(a, b):
 
 
 def saved_model(run):
-    """The compiled scene HIM saved in the run's trace, or None once stripped, or if HIM's
-    trace was cut off (it writes it last, and a stopped plant can leave it half written)."""
+    """The compiled scene HIM saved in the run's trace, or None once stripped (or if the
+    trace can't be read: HIM's sim stopped while writing it, say; then it is left as it is)."""
     try:
         trace = np.load(run / "trace.npz")
-    except zipfile.BadZipFile:
-        print(f"{run.name}: trace.npz is cut off; leaving it as it is", flush=True)
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        print(f"{run.name}: can't read trace.npz ({e}); leaving it as it is", flush=True)
         return None
     with trace:
         if "model" not in trace.files:
@@ -758,7 +799,29 @@ def watch_live(process, run):
             report.write_bytes(kept)
 
 
-def run_once(name, tag, route=None, view=False):
+def course_task(existing, route=None, avoidance=None, crowd=None):
+    """Preserve the task's independent options when adding a route, avoidance mode or crowd."""
+    from harp.avoidance_config import select
+    task = json.loads(existing or "{}")
+    if route is not None or avoidance is not None or crowd is not None:
+        if not isinstance(task, dict):
+            task = {}
+        if route is not None:
+            # An explicit route replaces a prior planned move, as it did before
+            # avoidance options existed. Otherwise entrypoint would skip Nav2.
+            task.pop("to", None)
+            task.pop("moves", None)
+            task["route"] = route.data()
+        if avoidance is not None:
+            task["avoidance"] = avoidance
+        if crowd is not None:
+            task["crowd"] = crowd
+    text = json.dumps(task)
+    select(text)
+    return text
+
+
+def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None):
     criteria = world_criteria(name) or {}
     max_time = route_time(route) if route else criteria.get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
@@ -767,9 +830,10 @@ def run_once(name, tag, route=None, view=False):
     env = dict(os.environ)
     if route:
         (run / "route.yaml").write_text(yaml.safe_dump(route.data(), sort_keys=False))
-        env["G1_TASK_COMMAND"] = json.dumps({"route": route.data()})   # for harp/course_goal.py
-    elif "task" in criteria:
-        env["G1_TASK_COMMAND"] = json.dumps(criteria["task"])   # e.g. harp/behavior.py's loop
+    existing = env.get("G1_TASK_COMMAND")
+    if not route and "task" in criteria:
+        existing = json.dumps(criteria["task"])   # e.g. harp/behavior.py's loop
+    env["G1_TASK_COMMAND"] = course_task(existing, route, avoidance, crowd)
     (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
                                                   tag=tag)) + "\n")
     for note in memory_warnings():
@@ -801,80 +865,52 @@ def run_once(name, tag, route=None, view=False):
     return run
 
 
-def movers_world(run):
-    """The run's world with its movers (XML text), or None: saved in scene/, else the
-    world at the run's commit."""
-    saved = run / "scene" / MOVERS_WORLD
-    if saved.is_file():
-        return saved.read_text()
-    meta = json.loads((run / "run.json").read_text())
-    if not meta.get("world") or not meta.get("commit"):
+def replay_movers(run, qpos, times):
+    """(model, qpos) with the run's movers walking, for HIM's replay viewer, or None for a
+    world without movers. HIM's sim never had them and its viewer draws joint positions, so
+    the model is the world's NAME_replay.xml (each mover a free body after the G1's joints)
+    and each pose gets where every mover was at that sim time, as scoring places them."""
+    name = json.loads((run / "run.json").read_text()).get("world")
+    if not name:
         return None
-    shown = subprocess.run(["git", "-C", str(REPO), "show",
-                            f"{meta['commit']}:submission/worlds/{meta['world']}.xml"],
-                           capture_output=True, text=True)
-    return shown.stdout if shown.returncode == 0 else None
-
-
-def with_movers(run, parts):
-    """The run's scene with each mover as a body with a free joint, and parts["qpos"] with
-    each mover's pose added to every frame (replayed from its mover_start events); None if
-    the run has no movers or its scene can't be rebuilt."""
-    meta = json.loads((run / "run.json").read_text())
-    sim, name = meta.get("sim") or {}, meta.get("world")
-    text = movers_world(run)
-    if not (text and name and sim.get("scene") and sim.get("him_commit")):
+    stage_world.main(name, MODEL, SCENES)
+    try:
+        events, _ = read_log(run)
+    except FileNotFoundError:
+        events = []
+    started = {e["mover"]: e["starts_at"] for e in events if e.get("event") == "mover_start"}
+    movers_model = mujoco.MjModel.from_xml_path(str(SCENES / (name + "_all.xml")))
+    movers = Movers(movers_model, started=started, path=logged_path(events))
+    if not movers.mocap:
         return None
-    root = ET.fromstring(re.sub(r"<!--.*?-->", "", text, flags=re.S))   # as stage_world.py
-    bodies = [b for b in root.find("worldbody").findall("body") if b.get("mocap") == "true"]
-    if not bodies:
-        return None
-    world = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
-    motion = Movers(world, started={e["mover"]: e["starts_at"] for e in read_log(run)[0]
-                                    if e.get("event") == "mover_start"})
-    for body in bodies:
-        del body.attrib["mocap"]
-        body.insert(0, ET.Element("freejoint"))
-        if body.find("inertial") is None:   # a free body needs mass; only its pose is used
-            body.insert(1, ET.Element("inertial", pos="0 0 0", mass="1", diaginertia="1 1 1"))
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        shutil.copytree(run / "scene", tmp, dirs_exist_ok=True)
-        scene = (tmp / sim["scene"]).read_text()
-        if f'"{name}_fixed.xml"' not in scene:
-            return None
-        ET.ElementTree(root).write(tmp / "replay_world.xml")
-        (tmp / "replay.xml").write_text(scene.replace(f'"{name}_fixed.xml"', '"replay_world.xml"'))
-        try:
-            model = build_model(tmp, "replay.xml", sim["him_commit"])
-        except (ValueError, OSError):
-            return None
-    robot_nq = parts["qpos"].shape[1]
-    if model.nq != robot_nq + 7 * len(motion.names):
-        return None
-    data = mujoco.MjData(world)
-    qpos = np.zeros((len(parts["qpos"]), model.nq))
-    qpos[:, :robot_nq] = parts["qpos"]
-    for frame, t in enumerate(parts["time"]):
-        motion.apply(data, float(t))
-        for i, mover in enumerate(motion.names):
-            adr = model.jnt_qposadr[model.body(mover).jntadr[0]]
-            qpos[frame, adr:adr + 3] = data.mocap_pos[motion.mocap[i]]
-            qpos[frame, adr + 3:adr + 7] = data.mocap_quat[motion.mocap[i]]
-    parts["qpos"] = qpos
-    return model
+    model = mujoco.MjModel.from_xml_path(str(SCENES / (name + "_replay.xml")))
+    starts = [int(model.jnt_qposadr[model.joint(n + "_replay").id]) for n in movers.names]
+    if model.nq != qpos.shape[1] + 7 * len(starts) or min(starts) < qpos.shape[1]:
+        raise ValueError(f"{run.name}: the replay scene's joints don't extend the trace's")
+    data = mujoco.MjData(movers_model)
+    poses = np.zeros((len(qpos), model.nq))
+    poses[:, :qpos.shape[1]] = qpos
+    for row, t in zip(poses, times):
+        movers.apply(data, t)
+        for start, mocap in zip(starts, movers.mocap):
+            row[start:start + 3] = data.mocap_pos[mocap]
+            row[start + 3] = 1.0   # upright
+    return model, poses
 
 
 def replay(run, seconds=None):
-    """Serve HIM's replay of a run, with its scene put back if the trace was stripped and its
-    movers walking, from a copy of the trace (HIM writes view/ beside it): for seconds, or
-    until Ctrl-C."""
+    """Serve HIM's replay of a run, with its movers walking and its scene put back if the
+    trace was stripped, from a copy of the trace (HIM writes view/ beside it): for seconds,
+    or until Ctrl-C."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         with np.load(run / "trace.npz") as trace:
             parts = {k: trace[k] for k in trace.files}
-        model = with_movers(run, parts)
-        if model is None and "model" not in parts:
+        people = replay_movers(run, parts["qpos"], parts["time"])
+        model = None
+        if people:
+            model, parts["qpos"] = people
+        elif "model" not in parts:
             model = rebuild_model(run)
         if model is not None:
             parts["model"] = np.empty(mujoco.mj_sizeModel(model), dtype=np.uint8)
@@ -889,6 +925,8 @@ def replay(run, seconds=None):
                 time.sleep(0.5)
             url = next((line.split()[-1] for line in log_path.read_text().splitlines()
                         if line.startswith("Open http")), None)
+            if url and people:
+                overview_camera(tmp / "view" / "index.html", people[0], run.name)
             if not url:
                 print(f"{run.name}: no replay:\n{log_path.read_text()}", flush=True)
             elif seconds is None:
@@ -901,6 +939,29 @@ def replay(run, seconds=None):
                 print(f"{run.name}: replay at {url} for {seconds:.0f} s", flush=True)
                 time.sleep(seconds)
             stop(server, run.name)
+
+
+VIEWER_CAMERA = ("camera.position.set(2.2, -2.2, 1.4);", "controls.target.set(0, 0, 0.8);")
+
+
+def overview_camera(page, model, name):
+    """Start HIM's replay page (our temporary copy, never HIM's files) looking over the
+    whole world, its goal included, instead of from beside the start: from there walkers
+    near the start filled the view and the robot walked out of sight."""
+    fixed = [g for g in range(model.ngeom) if model.geom_bodyid[g] == 0
+             and model.geom_type[g] != mujoco.mjtGeom.mjGEOM_PLANE]
+    if not fixed or not page.is_file():
+        return
+    reach = np.abs(model.geom_size[fixed, :2]).max(axis=1, keepdims=True)
+    low = (model.geom_pos[fixed, :2] - reach).min(axis=0)
+    high = (model.geom_pos[fixed, :2] + reach).max(axis=0)
+    (cx, cy), size = (low + high) / 2, float(max(high - low))
+    text = page.read_text()
+    if not all(line in text for line in VIEWER_CAMERA):
+        print(f"{name}: HIM's replay page changed; kept its own camera", flush=True)
+        return
+    text = text.replace(VIEWER_CAMERA[0], f"camera.position.set({cx:.2f}, {cy - .9 * size:.2f}, {.9 * size:.2f});")
+    page.write_text(text.replace(VIEWER_CAMERA[1], f"controls.target.set({cx:.2f}, {cy:.2f}, 0);"))
 
 
 def stop(process, name, wait=15):
@@ -926,6 +987,11 @@ def main():
     parser.add_argument("world", nargs="?", help="a world in submission/worlds")
     parser.add_argument("--tag", help="added to the run folder's name")
     parser.add_argument("--repeat", type=positive, default=1)
+    parser.add_argument("--avoidance", choices=("reactive", "predictive"),
+                        help="Nav2 command filter (default: existing reactive stop)")
+    parser.add_argument("--crowd", choices=CROWDS,
+                        help="the world's movers: scripted routes (default), or aware: they "
+                             "give way to the robot")
     where = parser.add_mutually_exclusive_group()
     where.add_argument("--route", metavar="NAME_OR_FILE", help="a route in submission/routes, or a file")
     where.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
@@ -986,8 +1052,16 @@ def main():
 def run_and_score(run, args, route):
     """Run (unless --score) and score one run, print its line, and prune; False if it
     didn't succeed or failed its criteria."""
-    run = run if args.score else run_once(args.world, args.tag, route, args.view)
+    run = run if args.score else run_once(args.world, args.tag, route, args.view, args.avoidance,
+                                          args.crowd)
     if run is None:
+        return False
+    try:
+        np.load(run / "trace.npz").close()
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        # HIM writes the trace last, under its report deadline: a Mac short of memory or a
+        # stopped plant can leave it cut off ([[sim-deadline-stops]]), with nothing to score.
+        print(f"{run.name}: not scored, HIM's trace.npz can't be read ({e})", flush=True)
         return False
     s = score(run)
     verdict = {True: "PASS", False: "FAIL " + ",".join(s["failed_checks"]), None: "-"}[s["passed"]]

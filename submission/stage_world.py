@@ -9,6 +9,10 @@ from submission/build.sh). OUT_DIR gets a copy of it and:
                     wouldn't move them, so they'd stand still where they start.
   NAME_fixed.xml    the world without its movers, included by NAME.xml
   NAME_all.xml      the G1 in the world with its movers, for scoring (course.py)
+  NAME_replay.xml   the same with each mover a free body that touches nothing, so
+                    HIM's replay viewer, which draws joint positions, can move them
+                    (course.py --replay); walls and blocks drawn see-through so the whole
+                    floor plan shows, and the goal marked by a green disc and pole
   image/            for our image's simulated lidar: the world with its movers
                     (world.xml) and the scene that includes it (lidar_scene.xml)
 """
@@ -20,6 +24,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 WORLDS = Path(__file__).resolve().parent / "worlds"
+SEE_THROUGH = 0.3   # replay opacity of walls and blocks
 
 
 def scene(name, world_file):
@@ -57,6 +62,28 @@ def main(name, model_dir, out_dir, world=None):
     shutil.copy(world, image / "world.xml")
     (image / "lidar_scene.xml").write_text(scene(name, "world.xml"))
     (out / f"{name}_all.xml").write_text(scene(name, f"image/{name}/world.xml"))
+
+    root = ET.fromstring(re.sub(r"<!--.*?-->", "", world.read_text(), flags=re.S))
+    for body in root.find("worldbody").findall("body"):
+        if body.attrib.pop("mocap", None) == "true":
+            body.insert(0, ET.Element("freejoint", name=body.get("name") + "_replay"))
+            for geom in body.iter("geom"):
+                geom.set("contype", "0")
+                geom.set("conaffinity", "0")
+    worldbody = root.find("worldbody")
+    for geom in worldbody.findall("geom"):
+        if geom.get("name", "").startswith(("wall", "block")):
+            red, green, blue = (geom.get("rgba") or ".7 .7 .7 1").split()[:3]
+            geom.set("rgba", f"{red} {green} {blue} {SEE_THROUGH}")
+    goal = next((site for site in worldbody.iter("site") if site.get("name") == "goal"), None)
+    if goal is not None:
+        x, y = goal.get("pos", "0 0 0").split()[:2]
+        for marker, size, z, rgba in (("goal_area", ".45 .005", ".005", ".1 .85 .25 .55"),
+                                      ("goal_pole", ".05 1.25", "1.25", ".1 .85 .25 1")):
+            worldbody.append(ET.Element("geom", name=marker, type="cylinder", size=size,
+                                        pos=f"{x} {y} {z}", rgba=rgba, contype="0", conaffinity="0"))
+    ET.ElementTree(root).write(out / f"{name}_replay_world.xml")
+    (out / f"{name}_replay.xml").write_text(scene(name, f"{name}_replay_world.xml"))
     return out / f"{name}.xml"
 
 

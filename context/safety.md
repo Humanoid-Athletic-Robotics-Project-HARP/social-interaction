@@ -20,6 +20,8 @@ Normal straight-walk and turn speed ramps ([[planned-moves]]) never delay the ta
 
 **Gap:** a lost lidar doesn't stop Nav2 on Foxy. In the sim `harp/approach_stop.py` holds zero until usable lidar, its transform and speed feedback arrive and whenever one is 0.5 s old, and a failed route latches zero ([[approach-stop]]); on the robot nothing does yet.
 
+**Predictive simulation mode:** the optional filter also checks cloud timestamps and observation-time transforms, command freshness and planning deadlines, and disables motion after route completion. In this mode Nav2's controller no longer stops for a blocked trajectory (`follow_when_blocked`), so the filter is the only check against moving objects downstream of Nav2; that is one reason it remains simulator-only; see [[predictive-avoidance]].
+
 **To check on the robot:** what `wireless_remote` reads with the remote off or out of range (if all zeros, the remote can't stop it then; only the laptop and HIM's deadlines can), and whether anything else reacts to HIM's button gestures.
 
 **Sessions:** an operator owns power, the gantry, the remote and stopping; someone else runs the laptop and the recording. Gantry with feet bearing weight, Unitree's stock controller in locked standing mode (HIM's profile accepts only FSM 4), Start and F3 released. HIM's stages: preflight (`./setup.sh`), dry run (motors off), real (`./submit.sh --mode real`), README "On the robot". First a stationary recording with HIM's recorder, then HIM's own walker example standing, then ours standing (`G1_TASK_COMMAND='[0,0,0]'`; without a task it walks its default move), then small reversible moves. Never two motor controllers at once. Stopping a recording doesn't stop the robot.

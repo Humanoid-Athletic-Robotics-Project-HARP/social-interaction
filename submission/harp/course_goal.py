@@ -42,6 +42,7 @@ WORLD = "/harp/model/lidar_scene.xml"
 NAV2_START = 60.0     # s for Nav2 to be active (it takes about 20 with STVL)
 SETTLE = 2.0          # s after the handoff before the goal goes out
 TIMEOUT = 240.0       # s for each point, from sending it to Nav2's result
+ARRIVED = 0.5         # m: a SUCCEEDED this far from the point (by Nav2's own pose) is not trusted
 CANCEL_TIMEOUT = 5.0  # s for Nav2 to confirm a cancelled goal has ended
 STATUS = {GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED", GoalStatus.STATUS_ABORTED: "FAILED",
           GoalStatus.STATUS_CANCELED: "CANCELED"}
@@ -72,18 +73,49 @@ def is_control_ready(text):
     return isinstance(record, dict) and record.get("event") == "control_ready"
 
 
+# Foxy's Fast DDS refuses to send a service reply to a client whose reply channel the server
+# hasn't discovered yet, and Nav2's C++ servers die of it: bt_navigator crashed at start-up in HIM
+# runs ("failed to send response: client will not receive response", 2026-11-02/03), with this
+# check's fresh get_state client polling it under start-up load. So the state comes from the
+# node's transition events, and get_state is asked only once its service has been visible this
+# long, one request at a time.
+SERVICE_SETTLE = 3.0
+
+
 def wait_for_active(node, name, limit, labels=("active",)):
     """True once the lifecycle node is active (or in another of labels), False after limit s."""
+    from lifecycle_msgs.msg import TransitionEvent
+    seen = []
+    events = node.create_subscription(TransitionEvent, name + "/transition_event",
+                                      lambda m: seen.append(m.goal_state.label), 10)
     client = node.create_client(GetState, name + "/get_state")
     deadline = time.monotonic() + limit
-    while time.monotonic() < deadline:
-        if client.wait_for_service(timeout_sec=1.0):
-            future = client.call_async(GetState.Request())
-            rclpy.spin_until_future_complete(node, future, timeout_sec=1.0)
-            if future.result() is not None and future.result().current_state.label in labels:
+    visible_since = future = None
+    try:
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if seen and seen[-1] in labels:
                 return True
-        time.sleep(0.5)
-    return False
+            if future is not None:
+                if future.done():
+                    reply, future = future.result(), None
+                    if reply is not None and reply.current_state.label in labels:
+                        return True
+                    visible_since = time.monotonic()   # ask again after another settle
+                continue
+            if not client.service_is_ready():
+                visible_since = None
+            elif visible_since is None:
+                visible_since = time.monotonic()
+            elif time.monotonic() - visible_since >= SERVICE_SETTLE:
+                future = client.call_async(GetState.Request())
+        return False
+    finally:
+        # A reply still on its way is let arrive, so the server never answers a client gone.
+        until = time.monotonic() + SERVICE_SETTLE
+        while future is not None and not future.done() and time.monotonic() < until:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        node.destroy_subscription(events)
 
 
 def spin_until(node, done, limit=math.inf):
@@ -137,6 +169,20 @@ def go_to(node, nav, point, deadline, interrupt=None, handoff=None):
     return (ended if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
 
 
+def distance_to(feedback, point):
+    """Distance from Nav2's last reported robot pose to the point (inf without one)."""
+    pose = getattr(getattr(feedback, "current_pose", None), "pose", None)
+    if pose is None:
+        return math.inf
+    return math.hypot(pose.position.x - point[0], pose.position.y - point[1])
+
+
+def arrived(feedback, point):
+    """Trust a SUCCEEDED unless Nav2's own last pose puts the robot clearly elsewhere."""
+    distance = distance_to(feedback, point)
+    return not math.isfinite(distance) or distance <= ARRIVED
+
+
 def follow(node, nav, route, event, waypoint_events):
     """Every point of the route in turn; the goal_result's fields."""
     x, y, yaw = route.waypoints[-1]
@@ -151,6 +197,12 @@ def follow(node, nav, route, event, waypoint_events):
                 event("waypoint_sent", lap=lap, waypoint=waypoint, x=point[0], y=point[1], yaw=point[2])
             began = time.monotonic()
             status, f = go_to(node, nav, point, began + TIMEOUT)
+            while status == "SUCCEEDED" and not arrived(f, point) and time.monotonic() < began + TIMEOUT:
+                # A success the robot's own pose contradicts is not an arrival.
+                event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, point), 2))
+                status, f = go_to(node, nav, point, began + TIMEOUT)
+            if status == "SUCCEEDED" and not arrived(f, point):
+                status = "TIMEOUT"
             recoveries += getattr(f, "number_of_recoveries", 0)
             remaining = getattr(f, "distance_remaining", None)
             if waypoint_events:
