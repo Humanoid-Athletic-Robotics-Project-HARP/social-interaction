@@ -112,6 +112,17 @@ class GameCore(unittest.TestCase):
         paths, _ = p._rollout(np.tile(r.command, (3, 1))[None], np.zeros(3), np.zeros(3))
         self.assertGreaterEqual(p._safe(paths, np.zeros((0, 7)))[0], 0.)
 
+    def test_results_are_plain_python_for_the_filters_json_events(self):
+        # A numpy bool in Result.alert crashed the filter in HIM (json.dumps) the first time
+        # an alert came; the robot then stood for the rest of the run.
+        import json
+        p = planner()
+        for k in range(8):   # a walker straight at it: alerts come
+            r = p.plan((0., 0., 0.), (.4, 0., 0.), (.4, 0., 0.), [person(1.2-.8*k*.2, 0., -.8, 0., k*.2)], k*.2, None)
+            self.assertIs(type(r.alert), bool)
+            json.dumps(dict(mode=r.mode, alert=r.alert, solver=r.solver, clearance=r.clearance,
+                            command=list(r.command)))
+
     def test_planning_time_with_eight_people(self):
         p = planner()
         rng = np.random.default_rng(1)

@@ -537,7 +537,7 @@ class PredictiveAvoidance:
             msg = Twist()
             msg.linear.x, msg.linear.y, msg.angular.z = map(float, result.command)
             self.out.publish(msg)
-            self.status(result.mode, result.alert or bool(self.unresolved), solver=result.solver,
+            self.status(result.mode, bool(result.alert) or bool(self.unresolved), solver=str(result.solver),
                         unresolved_tracks=len(self.unresolved),
                         clearance=(float(result.clearance) if math.isfinite(result.clearance) else None))
         except (ValueError, RuntimeError, FloatingPointError):

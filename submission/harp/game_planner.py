@@ -49,6 +49,8 @@ HARD = 4.                # collision cost of body overlap per metre, beyond the 
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
 SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY)
 CONTINGENCY_TIME = 2.5   # s a plan B must stay clear for if people don't react at all
+STILL_SPEED = .15        # m/s: slower tracks count as standing in the hard check (velocity noise)
+TIE = .02                # m: violations this close count as equal when nothing is safe
 PERSON_SPREAD = (.35, .25)   # m/s velocity change and m/s^2 turn spread of a person's cloud
 PRIOR_TEMPERATURE = .08  # request cost (m/s)^2 per nat of robot prior: 2σ², σ = 0.2 m/s
 SIDEWAYS = 3.            # a sideways request costs this much more than forward (slow sidestep)
@@ -227,7 +229,11 @@ class GamePlanner(Planner):
                 solver = name
                 break
         if chosen is None:
-            chosen = int(np.argmax(np.minimum(best_b, safety+1.)))
+            # Nothing is safe: least violation first, then the equilibrium's choice among the
+            # (near) ties. Taking the first of tied candidates had frozen the robot.
+            worst = np.minimum(best_b, safety+1.)
+            ties = np.flatnonzero(worst >= np.max(worst)-TIE)
+            chosen = int(ties[np.argmax(robot[ties])])
             solver = 'game_least_intrusive'
         near = np.linalg.norm(seeds[:, 0]-seeds[chosen, 0], axis=-1) < MODE_RADIUS
         near &= (safety >= min(0., safety[chosen])) & (robot >= .25*robot[chosen])
@@ -244,7 +250,10 @@ class GamePlanner(Planner):
                                 react=[round(float(r), 2) for r in react])
         command = tuple(float(v) for v in command)
         self.previous[:] = command
-        alert = clearance < 0. or expected > .5
+        # Plain Python types: the filter writes these into JSON events (a numpy bool there
+        # crashed the filter in HIM the first time an alert came, rounds 28-29).
+        clearance = float(clearance)
+        alert = bool(clearance < 0. or expected > .5)
         deviation = float(np.linalg.norm(np.asarray(command)[:2]-desired[:2]))
         if np.linalg.norm(command[:2]) < 1e-3 and np.linalg.norm(desired[:2]) > .06:
             mode = 'blocked'
@@ -263,15 +272,20 @@ class GamePlanner(Planner):
         c = self.config
         out = np.full(len(paths), np.inf)
         steps = int(np.searchsorted(self.times, horizon))+1
+        # Only what this plan can change counts: every candidate carries on with the last
+        # request through the response delay and one period, so judging that shared stretch
+        # made a slight drift toward something near rule out every candidate alike.
+        first = int(np.searchsorted(self.times, c.response_delay+c.period))
         # From inside the clearance already (HIM: a few cm, from a standing person or a
         # remembered object), only getting closer counts as unsafe: required at most the
         # distance it starts at. Requiring the full clearance froze the robot for good.
         if len(objects):
-            future = objects[None, :, :2]+self.times[:steps, None, None]*objects[None, :, 2:4]
+            velocity = objects[:, 2:4]*(np.linalg.norm(objects[:, 2:4], axis=1) >= STILL_SPEED)[:, None]
+            future = objects[None, :, :2]+self.times[:steps, None, None]*velocity[None]
             d = np.linalg.norm(paths[:, :steps, None, :]-future[None], axis=-1)-objects[None, None, :, 4]
-            need = np.minimum(c.robot_radius+gap, d[:, 0, :]-.01)          # (paths, objects)
-            out = np.minimum(out, np.min(np.min(d[:, 1:], axis=1)-need, axis=1))
+            need = np.minimum(c.robot_radius+gap, d[:, first, :]-.01)       # (paths, objects)
+            out = np.minimum(out, np.min(np.min(d[:, first:], axis=1)-need, axis=1))
         if self.field is not None:
             d = self._field_at(paths, 0)
-            out = np.minimum(out, np.min(d[:, 1:], axis=1)-np.minimum(c.robot_radius, d[:, 0]-.01))
+            out = np.minimum(out, np.min(d[:, first:], axis=1)-np.minimum(c.robot_radius, d[:, first]-.01))
         return out
