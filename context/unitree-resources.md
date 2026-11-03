@@ -3,7 +3,7 @@ name: unitree-resources
 description: Read when looking for G1 code to build on, or deciding the ROS 2 / JetPack version for the robot's Jetson (PC2)
 metadata:
   type: reference
-  updated: 2026-11-01T04:45:35Z
+  updated: 2026-11-02T22:23:54Z
   covers: [submission/Dockerfile]
 ---
 
@@ -13,7 +13,7 @@ metadata:
 
 **Community:**
 - Walking: NVlabs/GR00T-WholeBodyControl (ours, [[gr00t-wbc]]), BeyondMimic.
-- Voice: SaxionMechatronics/unitree_converse (on-robot STT → LLM → TTS), experientialtech/g1-audio-driver. The mic streams over UDP multicast with no official SDK API.
+- Voice: [[speech-research]].
 - Lidar and Nav2: see [[lidar-nav2-research]].
 - Index: shaoxiang/awesome-unitree-robots.
 
