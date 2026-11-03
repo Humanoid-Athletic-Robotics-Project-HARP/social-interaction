@@ -9,15 +9,16 @@ Each stage runs only when its model is given:
   llm  Any OpenAI-compatible server (llama.cpp's llama-server, Ollama), streamed: time
        to the first token and the first sentence, with the prompt fresh (a new first
        line forces it all to be processed) and then cached (one more turn appended).
-  tts  Piper's C++ binary, kept running: seconds to synthesize each sentence (the
-       robot speaks a reply sentence by sentence, so this is the time to first sound).
+  tts  A voice through sherpa-onnx (Kokoro or a Piper/VITS voice folder; --tts-provider
+       cuda or cpu): seconds to synthesize each sentence (the robot speaks a reply
+       sentence by sentence, so this is the time to first sound).
 STT runs on --wavs, or on the TTS stage's sentences when there are none. Each stage
 skips its first run (loading, warm-up) in the summary.
 
   python3 bench.py NAME [--note "MAXN, HARP's harness running"] [--repeat 5]
       [--vad silero_vad.onnx] [--stt PARAKEET_DIR] [--stt-provider cuda]
       [--llm http://127.0.0.1:8080] [--llm-model NAME]
-      [--tts piper/piper --voice en_US-lessac-medium.onnx] [--wavs DIR]
+      [--tts VOICE_DIR [--tts-speaker 3]] [--wavs DIR]
 
 writes captures/NAME/ beside this file:
   meta.json        the system: Jetson release, power mode (nvpmodel -q), whether
@@ -25,7 +26,7 @@ writes captures/NAME/ beside this file:
   results.jsonl    one line per timed run (stage, run, the times, the text)
   summary.json     per stage: median and 90th percentile of each time
   tegrastats.log   clocks, load, memory and temperatures every 0.5 s (Jetson only)
-  tts/             the sentences Piper made
+  tts/             the sentences the voice made
 
 Python 3.8 (PC2's); each stage imports only what it needs. Runs at low priority beside
 HARP's harness. Setup: README.md here.
@@ -38,14 +39,12 @@ import json
 import os
 from pathlib import Path
 import platform
-import queue
 import random
 import re
 import shutil
 import statistics
 import subprocess
 import sys
-import threading
 import time
 import wave
 
@@ -245,36 +244,52 @@ def bench_llm(url, model, repeat, record):
         record("llm_cached", i, prompt_chars=sum(len(m["content"]) for m in messages), **reply)
 
 
-def bench_tts(binary, voice, out, repeat, record):
-    """Piper writes each line it reads to a WAV in --output_dir and prints its path."""
+def voice_config(folder, provider):
+    """A sherpa-onnx voice folder: Kokoro (it has voices.bin) or a Piper/VITS voice. Words
+    come from the folder's lexicon; sherpa-onnx 2.x has no espeak-ng."""
+    import sherpa_onnx
+    folder = Path(folder)
+    lexicons = sorted(folder.glob("lexicon*en*.txt"))
+    if not lexicons:
+        sys.exit(f"{folder}: no English lexicon (lexicon*en*.txt)")
+    if (folder / "voices.bin").exists():
+        model = sherpa_onnx.OfflineTtsModelConfig(kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
+            model=str(folder / "model.onnx"), voices=str(folder / "voices.bin"),
+            tokens=str(folder / "tokens.txt"), lexicon=str(lexicons[-1])),
+            num_threads=2, provider=provider)
+    else:
+        onnx = [f for f in sorted(folder.glob("*.onnx"))]
+        model = sherpa_onnx.OfflineTtsModelConfig(vits=sherpa_onnx.OfflineTtsVitsModelConfig(
+            model=str(onnx[0]), tokens=str(folder / "tokens.txt"), lexicon=str(lexicons[0])),
+            num_threads=2, provider=provider)
+    return sherpa_onnx.OfflineTtsConfig(model=model)
+
+
+def bench_tts(folder, speaker, provider, out, repeat, record):
+    """Seconds to synthesize each sentence through sherpa-onnx, saving each as a WAV."""
+    import sherpa_onnx
     out.mkdir(parents=True, exist_ok=True)
-    piper = subprocess.Popen([binary, "--model", voice, "--output_dir", str(out)],
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
-    paths = queue.Queue()
-    threading.Thread(target=lambda: [paths.put(l.strip()) for l in piper.stdout],
-                     daemon=True).start()
+    began = time.perf_counter()
+    tts = sherpa_onnx.OfflineTts(voice_config(folder, provider))
+    record("tts_load", 0, seconds=time.perf_counter() - began)
     made, run_number = [], 0
-    try:
-        for _ in range(repeat):
-            for line in LINES:
-                began = time.perf_counter()
-                piper.stdin.write(line + "\n")
-                piper.stdin.flush()
-                try:
-                    path = Path(paths.get(timeout=60))
-                except queue.Empty:
-                    sys.exit("piper made no file in 60 s: check --tts and --voice")
-                seconds = time.perf_counter() - began
-                samples, rate = read_wav(path)
-                audio = len(samples) / rate
-                record("tts", run_number, text=line, seconds=seconds, audio_s=audio,
-                       rtf=seconds / audio, wav=path.name)
-                made.append(path)
-                run_number += 1
-    finally:
-        piper.stdin.close()
-        piper.wait(timeout=10)
+    for _ in range(repeat):
+        for i, line in enumerate(LINES):
+            began = time.perf_counter()
+            audio = tts.generate(line, sid=speaker)
+            seconds = time.perf_counter() - began
+            samples = np.array(audio.samples, np.float32)
+            path = out / f"{run_number:03d}-{i}.wav"
+            with wave.open(str(path), "wb") as f:
+                f.setnchannels(1)
+                f.setsampwidth(2)
+                f.setframerate(audio.sample_rate)
+                f.writeframes((np.clip(samples, -1, 1) * 32767).astype(np.int16).tobytes())
+            length = len(samples) / audio.sample_rate
+            record("tts", run_number, text=line, seconds=seconds, audio_s=length,
+                   rtf=seconds / length, wav=path.name)
+            made.append(path)
+            run_number += 1
     return made[:len(LINES)]
 
 
@@ -305,15 +320,14 @@ def main():
     parser.add_argument("--stt-int8", action="store_true", help="use the model's int8 files")
     parser.add_argument("--llm", help="an OpenAI-compatible server, e.g. http://127.0.0.1:8080")
     parser.add_argument("--llm-model", default="", help="the model's name (Ollama needs it)")
-    parser.add_argument("--tts", help="Piper's binary")
-    parser.add_argument("--voice", help="a Piper voice (.onnx, with its .onnx.json beside it)")
+    parser.add_argument("--tts", help="a sherpa-onnx voice folder (Kokoro or Piper/VITS)")
+    parser.add_argument("--tts-speaker", type=int, default=0, help="the voice's speaker id (Kokoro af_heart: 3)")
+    parser.add_argument("--tts-provider", default="cpu", choices=["cuda", "cpu"])
     args = parser.parse_args()
-    if args.tts and not args.voice:
-        parser.error("--tts needs --voice")
     if not any((args.vad, args.stt, args.llm, args.tts)):
         parser.error("give at least one of --vad, --stt, --llm, --tts")
     needs = [("--vad", args.vad, "onnxruntime"), ("--stt", args.stt, "sherpa_onnx"),
-             ("--tts", args.tts, None), ("--voice", args.voice, None)]
+             ("--tts", args.tts, "sherpa_onnx")]
     for flag, path, module in needs:
         if path and not Path(path).exists():
             parser.error(f"{flag} {path}: not found")
@@ -347,7 +361,8 @@ def main():
     try:
         made = []
         if args.tts:
-            made = bench_tts(args.tts, args.voice, out / "tts", args.repeat, record)
+            made = bench_tts(args.tts, args.tts_speaker, args.tts_provider, out / "tts",
+                             args.repeat, record)
         clips = sorted(args.wavs.glob("*.wav")) if args.wavs else made
         clips = [(path, *read_wav(path)) for path in clips]
         if (args.vad or args.stt) and not clips:

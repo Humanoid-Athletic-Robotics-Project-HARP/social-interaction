@@ -3,7 +3,7 @@ name: speech-research
 description: Read when choosing or revisiting a piece of the speech stack (mic, turn detection, STT, LLM, TTS, frameworks): the options, their published speeds, and what other G1 projects found
 metadata:
   type: reference
-  updated: 2026-11-03T02:13:38Z
+  updated: 2026-11-03T02:30:43Z
   covers: []
 ---
 
@@ -31,10 +31,10 @@ Research from 2026-11-02, nothing tried by us. Speeds are published figures, mos
 - STT: sherpa-onnx (Apache-2.0, Python 3.7+) lists Orin NX with CUDA 11.4 and onnxruntime-gpu 1.16.0 as a GPU build. It runs Parakeet TDT 0.6B v2 (CC-BY-4.0), estimated at 0.15–0.35 s for a 4 s clip. onnxruntime-gpu 1.16.0 is the last for CUDA 11.4. Moonshine streaming on CPU takes 0.25–0.5 s, but uses the CPU all the while someone speaks. faster-whisper/CTranslate2 don't build with CUDA 11.4. Riva's JetPack 5 models are gone, and whisper_trt needs JetPack 6.
 - LLM: llama.cpp `llama-server` (MIT), built from source for `sm_87` in an `l4t-jetpack:r35` container (unverified on CUDA 11.4); Ollama ships a `jetpack5` build (v0.40.13) as the fallback. jetson-containers' r35 images are too old for current models.
   - Measured on Orin Nano at 25 W, Q4_K_M, prompt/decode tokens per second: Qwen3-1.7B 1408/39, Llama 3.2 3B 814/25, Qwen3-4B 610/20.
-  - Estimated first sentence (12 tokens, 1,200-token prompt, cached prefix / not): Qwen3-1.7B 0.4/1.2 s, Llama 3.2 3B 0.6/2.0 s, Qwen3-4B-Instruct-2507 0.75/2.6 s.
+  - Estimated first sentence (12 tokens, 1,200-token prompt, cached prefix / not): Qwen3-1.7B 0.4/1.2 s, Llama 3.2 3B 0.6/2.0 s, Qwen3-4B-Instruct-2507 0.75/2.6 s. Model licenses: [[talking-research]].
   - Caching re-processes only the new turn if the prompt only grows. Gemma 3/4 and Qwen3.5 break llama.cpp's cache (open bugs).
   - Each fits in about 2–3 GB beside the speech models.
-- TTS: Piper's archived C++ binary (rhasspy/piper, MIT) on CPU, about 0.15–0.2 s to first audio. The newer `piper-tts` 1.3+ package is GPL-3.0, so avoid it. Kokoro-82M (Apache-2.0) through sherpa-onnx on GPU, about 0.35–0.4 s; `kokoro-onnx` needs Python 3.10+.
+- TTS: a Piper voice on CPU, about 0.15–0.2 s to first audio; Kokoro-82M on GPU, about 0.35–0.4 s. Both run through sherpa-onnx; which voices and binaries we may use: [[talking-research]].
 - End of speech to first sound, all local, MAXN, cached: about 0.3 s turn end (Smart Turn) + 0.15–0.35 s STT + 0.4–0.6 s LLM + 0.15–0.2 s TTS + PlayStream's buffer (unmeasured, about 0.1–0.2 s). That is about 1.1–1.6 s, or 1.5–2.1 s with a fixed 0.7 s silence; add about 0.3–0.5 s in 15 W mode. Cloud paths came out similar (about 1.0 s for STT alone in one test).
 - Others on the G1: unitree_converse runs Llama 3.2 3B on Ollama on PC2 (no latency published; one fork ran out of memory mid-reply, so cap the context). SensePC found local over 4 s, with throttling (unquantified). Throttling starts near 99 °C; the NX drew about 26 W while processing a prompt.
 - Reflashing to JetPack 6.2 or 7.2 gives newer CUDA, prebuilt images and Super mode (up to about +25%). But HIM's harness on PC2 sources the host's ROS 2 Foxy (`setup.sh`), which needs Ubuntu 20.04 (JetPack 5). Plan on JetPack 5.

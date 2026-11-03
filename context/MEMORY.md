@@ -38,6 +38,7 @@
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
 - [Listening](listening.md) — before working on how the robot hears people: mic, turn end, speech-to-text
 - [Talking](talking.md) — before working on what the robot says, the speech processes' placement, or their handshake with behavior.py
+- [Talking research](talking-research.md) — when choosing the voice, the LLM, the speaker player or how conversations go: options, licenses, findings
 - [Speech research](speech-research.md) — when choosing a piece of the speech stack: options, speeds, other G1 projects
 - [Off-robot testing](off-robot-testing.md) — when considering another simulator
 - [RL ideas](rl-ideas.md) — when someone asks about reinforcement learning on the G1
