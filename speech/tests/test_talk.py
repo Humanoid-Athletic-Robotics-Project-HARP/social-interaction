@@ -1,0 +1,70 @@
+"""talk.py's text handling, which needs no models:
+  python3 -m unittest discover -s tests   (from speech/, in its venv)"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import talk  # noqa: E402
+
+
+class TestNumbers(unittest.TestCase):
+    def test_words(self):
+        for n, words in ((0, "zero"), (7, "seven"), (12, "twelve"), (40, "forty"), (42, "forty-two"),
+                         (100, "one hundred"), (305, "three hundred five"),
+                         (2026, "two thousand twenty-six"),
+                         (1_000_000, "one million")):
+            self.assertEqual(talk.number_words(n), words)
+
+    def test_speakable(self):
+        self.assertEqual(talk.speakable("I walked 12 meters in 2026."),
+                         "I walked twelve meters in two thousand twenty-six.")
+        self.assertEqual(talk.speakable("It's 3.5 km, about 12,000 steps."),
+                         "It's three point five km, about twelve thousand steps.")
+        self.assertEqual(talk.speakable("Have a great day! <bye>"), "Have a great day!")
+        self.assertEqual(talk.speakable("I'm a Unitree G1 humanoid."), "I'm a Unitree gee one humanoid.")
+        self.assertEqual(talk.speakable("Room B12."), "Room B twelve.")
+
+
+class TestSForms(unittest.TestCase):
+    def test_endings_follow_the_last_sound(self):
+        lines = ["cat k ˈ æ t", "dog || dˈ ɑː ɡ", "church ʧ ˈ ɜ ɹ ʧ", "city s ˈ ɪ ɾ i",
+                 "cats k ˈ æ t s"]
+        forms = {line.split(" ", 1)[0]: line for line in talk.with_s_forms(lines)}
+        self.assertEqual(forms["cat's"], "cat's k ˈ æ t s")
+        self.assertEqual(forms["dogs"], "dogs || dˈ ɑː ɡ z")
+        self.assertEqual(forms["churches"], "churches ʧ ˈ ɜ ɹ ʧ ᵻ z")
+        self.assertEqual(forms["cities"], "cities s ˈ ɪ ɾ i z")
+        self.assertEqual(forms["cats"], "cats k ˈ æ t s")   # its own entry is kept
+
+
+class TestPieces(unittest.TestCase):
+    def test_sentences_as_they_stream(self):
+        stream = ["Oh, ", "nice", "! What ", "was the class", " about?"]
+        self.assertEqual(list(talk.pieces(stream)), ["Oh, nice!", "What was the class about?"])
+
+    def test_long_clause_is_cut_at_a_comma(self):
+        stream = ["That sounds like a really long and tiring day for anyone, ",
+                  "so I hope you rest tonight."]
+        self.assertEqual(list(talk.pieces(stream)),
+                         ["That sounds like a really long and tiring day for anyone,",
+                          "so I hope you rest tonight."])
+
+    def test_short_clause_waits_for_the_sentence(self):
+        self.assertEqual(list(talk.pieces(["Oh, ", "nice to meet you."])), ["Oh, nice to meet you."])
+
+    def test_end_tag_is_its_own_piece(self):
+        self.assertEqual(list(talk.pieces(["Bye now! ", "<bye>"])), ["Bye now!", "<bye>"])
+
+
+class TestGoodbye(unittest.TestCase):
+    def test_goodbyes(self):
+        for said in ("Okay, bye!", "I gotta go", "See you later", "I have to run now"):
+            self.assertTrue(talk.GOODBYE.search(said), said)
+        for said in ("Nice to meet you", "Hi there", "I'm going to the library later"):
+            self.assertFalse(talk.GOODBYE.search(said), said)
+
+
+if __name__ == "__main__":
+    unittest.main()

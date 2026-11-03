@@ -3,11 +3,11 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-03T02:50:21Z
-  covers: [testground/speech/*]
+  updated: 2026-11-03T02:51:56Z
+  covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
-Design for the talking half of a conversation, and what both halves share. Nothing is built; every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The listening half: [[listening]]. Options, licenses and research behind the choices: [[talking-research]], speeds on PC2: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
+Design for the talking half of a conversation, and what both halves share, and what of it is built (**Built**, below). Every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The listening half: [[listening]]. Options, licenses and research behind the choices: [[talking-research]], speeds on PC2: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
 
 **Its job (decided, 2026-11-02; the split: [[listening]]):** own the conversation, the LLM included. It opens one when `behavior.py` has walked up to someone, decides each reply with an LLM, speaks it, and ends the conversation. Its input is listening's transcripts (or typed lines while testing).
 
@@ -39,7 +39,7 @@ Design for the talking half of a conversation, and what both halves share. Nothi
    - Current state: the conversation's length and turn count.
 3. Waiting: a short pre-rendered filler plays if no reply sound has come about 1.2 s after the person's turn ends. A canned reply is used on an LLM error or after 5 s.
 4. Ending: a closing line, then `talk_done` with the reason. The reason is one of:
-   - the model ends its reply with an `<END>` tag, checked in code (more reliable than tool calls for small models)
+   - the model ends its reply with a `<bye>` tag, checked in code (more reliable than tool calls for small models)
    - the person says goodbye
    - listening reports about 8 s of silence
    - about 90 s in all
@@ -47,7 +47,7 @@ Design for the talking half of a conversation, and what both halves share. Nothi
 5. Speech: sherpa-onnx's TTS, the package listening already uses, with no espeak-ng (GPL) anywhere. Never Piper's C++ binary or the `piper-tts` package: both carry GPL code ([[talking-research]]).
    - Voice (**decided**, 2026-11-03: compare both by ear and speed, then pick one): Kokoro v1.0 `af_heart` (Apache-2.0; on PC2's GPU about 0.35 s to first audio) and Piper `ljspeech` through sherpa-onnx (public domain; light on the CPU).
    - Text is split at sentence ends, and at commas once 8–12 words have built up, then synthesized while the previous piece plays.
-   - Numbers are spelled out first (inflect), and our own lexicon adds names, since sherpa-onnx drops words it has no entry for.
+   - Numbers are spelled out first, and our own lexicon adds names, since sherpa-onnx drops words it has no entry for.
    - Fixed phrases (the greeting, fillers, goodbyes) are rendered ahead as WAV.
 6. Output: laptop speakers, or the robot's PlayStream (resampled to 16 kHz with scipy).
    - One worker thread makes every PlayStream call and checks its code.
@@ -64,8 +64,32 @@ Design for the talking half of a conversation, and what both halves share. Nothi
 
 **Measuring:** time from listening's turn end to first sound; target 1–1.5 s ([[speech-research]]). Keep each whole conversation's text in the run's log.
 
+**Built** (`speech/talk.py`, 2026-11-03; setup and use: `speech/README.md`)
+- What it does: typed lines or `listen.py`'s JSON lines in, through `llama-server` (Qwen3-4B, streamed), to a sherpa-onnx voice (`--voice kokoro` or `piper`), out through this computer's speakers (`--no-play`, `--save DIR`).
+  - The greeting, fillers ("Oh, okay." and "Ah." after 1.2 s: "Hmm" came out as "Hammel"), "Sorry, I didn't catch that" and the closing line are rendered at start.
+  - The prompt's fixed start is processed once at start, so each turn is cached.
+  - Its prompt rules out offering help or going places; without that, it offered to help find food.
+  - Events are JSON lines on stdout.
+  - Text tests in `speech/tests/test_talk.py`.
+- Words: sherpa-onnx skips any word missing from a voice's lexicon. So `talk.py` writes one combined lexicon at start:
+  - our `speech/lexicon/` entries first, then the voice's own list
+  - plus each word's -s and -'s forms where missing (Kokoro's list lacks "students", "robots", "what's", "how's")
+  - one file, because a Piper voice reads its `word || sounds` format only from a single lexicon; a comma-separated list made it skip every word
+  - numbers are spelled out, and "G1" is said as "gee one"; left as it was, the spelled-out digit turned it into "Gone"
+- A GBNF grammar (on by default; `--no-grammar` turns it off) allows only two plain sentences and an optional `<bye>`. It stops emoji and lists. Against a prompt asking for emoji, the model escaped straight to `<bye>`, so watch for early goodbyes.
+- Not built yet:
+  - muting listening while it speaks
+  - the robot's PlayStream player and the LED
+  - ROS 2 and the `behavior.py` handshake
+  - the silence ending
+  - a guard model
+- Measured on an M1 MacBook Air's CPU (2026-11-03), on a scripted conversation of five turns:
+  - Every reply was one or two short sentences, in character, ending on `<bye>` when the person was leaving.
+  - Time from the end of a line to the first sound: Piper 0.68–1.57 s; Kokoro 1.5–3.0 s, since Kokoro takes 0.9–1.7 s per first sentence on a CPU.
+  - Run back through `listen.py`, Kokoro's speech came back nearly word for word; Piper's was rougher ("Harr, A. Robart").
+
 **First steps**
-1. Laptop: type a line → llama.cpp (the same model) → sherpa-onnx's voice → speakers; then join it to listening.
+1. Laptop: join `talk.py` to `listen.py` with a "speaking" signal that mutes listening.
 2. Robot: a WAV through PlayStream, and a TtsMaker line; check the volume. Ask first: both make sound and use the voice service.
 3. The handshake in `behavior.py`, with the sim keeping its fixed wait.
 

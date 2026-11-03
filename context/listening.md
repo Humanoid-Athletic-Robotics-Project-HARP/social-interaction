@@ -3,8 +3,8 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-03T02:13:38Z
-  covers: [speech/*, speech/tests/*]
+  updated: 2026-11-03T02:51:56Z
+  covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
 Design for the listening half of a conversation, and what of it is built (**Built**, below). Every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The other half and what both share (where they run, the handshake with `behavior.py`): [[talking]]. Options, numbers, other projects and licenses: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].

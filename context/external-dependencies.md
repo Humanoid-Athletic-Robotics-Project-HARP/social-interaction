@@ -3,7 +3,7 @@ name: external-dependencies
 description: Read before adding, borrowing from or updating any outside code, package or model weights: the no-copying rule, which licenses are fine, and where each dependency and its license is recorded
 metadata:
   type: feedback
-  updated: 2026-11-03T02:13:38Z
+  updated: 2026-11-03T02:52:09Z
   covers: [README.md, speech/requirements.txt, testground/requirements.txt, submission/Dockerfile, third_party/README.md]
 ---
 

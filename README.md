@@ -22,7 +22,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | `submission/nav2/`, `nav2_graceful_controller/` | Nav2's settings and behavior tree, and our Foxy port of its Graceful Controller (`HARP_PATCHES.md`). |
 | `submission/worlds/`, `routes/` | The obstacle courses and their pass criteria, and waypoint routes. |
 | `submission/tests/` | Tests for code where a sim run wouldn't catch a mistake (how to run them: below). |
-| `speech/` | Talking with people, outside the image: `listen.py` turns speech into one transcript per turn ([speech/README.md](speech/README.md)). |
+| `speech/` | Talking with people, outside the image: `listen.py` turns speech into one transcript per turn, `talk.py` answers out loud with a local LLM and voice ([speech/README.md](speech/README.md)). |
 | `testground/` | Tests on the real robot: read-only scripts run on its Jetson (PC2), their recordings analysed on a laptop ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned team forks of Ultralytics (YOLO26) and BoT-SORT for person-perception evaluation; [checkout instructions](third_party/README.md). |
 | `context/` | Notes that Claude and Codex read before working here. This is where the details behind this README live. |
@@ -36,7 +36,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 | Move like a person | ✅ | ⬜ | Run it on the robot |
 | Get around obstacles | 🟡 | ⬜ | **Next:** more obstacle and path-following work in the sim |
 | Find people and walk up to them | 🟡 | ⬜ | Pick a person detector for the camera |
-| Talk with people | ⬜ | ⬜ | The talking half on a laptop; record the robot's mic |
+| Talk with people | ⬜ | ⬜ | Join listening and talking on a laptop; record the robot's mic |
 | Run safely on the real robot | 🟡 | ⬜ | **Next:** first robot run of the move to a point through HARP's harness |
 
 ### Move like a person
@@ -110,8 +110,10 @@ unchanged, cloned next to this repo, and keep only our code here.
 - ⬜ Speaker: Unitree's text-to-speech, also while our controller runs.
 - 🟡 Microphone: `speech/listen.py --robot` reads its stream (tried with a stand-in
   sender on a laptop); next, on the robot.
-- 🟡 Speech-to-text → LLM → text-to-speech loop, on a laptop first: listening works
-  (`speech/listen.py`, Silero and Parakeet); next, the LLM and text-to-speech.
+- 🟡 Speech-to-text → LLM → text-to-speech loop, on a laptop first: listening
+  (`speech/listen.py`, Silero and Parakeet) and talking (`speech/talk.py`, Qwen3-4B on
+  llama.cpp, Kokoro or Piper voices) each work; next, together, with listening muted
+  while HARP speaks.
 
 ### Run safely on the real robot
 
@@ -479,10 +481,20 @@ Menagerie); Unitree's unitree_sdk2_python (BSD-3); and Eclipse CycloneDDS
 (EPL-2.0).
 
 `speech/` installs, as packages (`speech/requirements.txt`): sherpa-onnx (Apache-2.0),
-onnxruntime (MIT), python-sounddevice (MIT) and numpy (BSD-3). It downloads two models
-into `models/` beside this repo; neither is stored here:
+onnxruntime (MIT), python-sounddevice (MIT) and numpy (BSD-3). It runs llama.cpp (MIT),
+installed separately. It downloads these models into `models/` beside this repo; none is
+stored here:
 - [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT)
 - [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) by NVIDIA,
   under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). We use it as
   sherpa-onnx converted it: to ONNX, with int8 weights
   (`sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8`).
+- [Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) by the Qwen
+  team (Apache-2.0), quantized to Q4_K_M GGUF by lmstudio-community.
+- [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 by hexgrad (Apache-2.0),
+  as sherpa-onnx packaged it, with word lists from misaki (Apache-2.0).
+- Piper's `en_US-ljspeech-medium` voice, trained on the public-domain LJ Speech
+  recordings, as sherpa-onnx packaged it, with sherpa-onnx's `lexicon-en-us.txt` word
+  list (its source is unverified).
+
+`speech/lexicon/` holds our own word entries, written by us.
