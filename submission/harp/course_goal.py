@@ -72,18 +72,49 @@ def is_control_ready(text):
     return isinstance(record, dict) and record.get("event") == "control_ready"
 
 
+# Foxy's Fast DDS refuses to send a service reply to a client whose reply channel the server
+# hasn't discovered yet, and Nav2's C++ servers die of it: bt_navigator crashed at start-up in HIM
+# runs ("failed to send response: client will not receive response", 2026-11-02/03), with this
+# check's fresh get_state client polling it under start-up load. So the state comes from the
+# node's transition events, and get_state is asked only once its service has been visible this
+# long, one request at a time.
+SERVICE_SETTLE = 3.0
+
+
 def wait_for_active(node, name, limit, labels=("active",)):
     """True once the lifecycle node is active (or in another of labels), False after limit s."""
+    from lifecycle_msgs.msg import TransitionEvent
+    seen = []
+    events = node.create_subscription(TransitionEvent, name + "/transition_event",
+                                      lambda m: seen.append(m.goal_state.label), 10)
     client = node.create_client(GetState, name + "/get_state")
     deadline = time.monotonic() + limit
-    while time.monotonic() < deadline:
-        if client.wait_for_service(timeout_sec=1.0):
-            future = client.call_async(GetState.Request())
-            rclpy.spin_until_future_complete(node, future, timeout_sec=1.0)
-            if future.result() is not None and future.result().current_state.label in labels:
+    visible_since = future = None
+    try:
+        while time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if seen and seen[-1] in labels:
                 return True
-        time.sleep(0.5)
-    return False
+            if future is not None:
+                if future.done():
+                    reply, future = future.result(), None
+                    if reply is not None and reply.current_state.label in labels:
+                        return True
+                    visible_since = time.monotonic()   # ask again after another settle
+                continue
+            if not client.service_is_ready():
+                visible_since = None
+            elif visible_since is None:
+                visible_since = time.monotonic()
+            elif time.monotonic() - visible_since >= SERVICE_SETTLE:
+                future = client.call_async(GetState.Request())
+        return False
+    finally:
+        # A reply still on its way is let arrive, so the server never answers a client gone.
+        until = time.monotonic() + SERVICE_SETTLE
+        while future is not None and not future.done() and time.monotonic() < until:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        node.destroy_subscription(events)
 
 
 def spin_until(node, done, limit=math.inf):

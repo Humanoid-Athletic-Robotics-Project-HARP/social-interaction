@@ -59,3 +59,62 @@ class GoalStartup(unittest.TestCase):
             self.assertEqual(course_goal.run(node), 1)
         self.assertEqual(spin.call_args.args[2], course_goal.NAV2_START)
         self.assertIn("CONTROL_NOT_READY", publisher.publish.call_args.args[0].data)
+
+
+@unittest.skipUnless(__import__("os").environ.get("ROS_LOCALHOST_ONLY") == "1"
+                     and __import__("os").environ.get("ROS_DOMAIN_ID", "0") != "0",
+                     "requires an isolated local ROS test domain")
+class LifecycleWait(unittest.TestCase):
+    """wait_for_active against a fake lifecycle node: Foxy's Fast DDS refuses a reply to a client
+    whose reply channel the server hasn't discovered, and Nav2's bt_navigator died of it at start-up
+    (HIM, 2026-11-02/03), so a fresh client must not call get_state at once."""
+    def setUp(self):
+        import rclpy
+        from lifecycle_msgs.msg import State, TransitionEvent
+        from lifecycle_msgs.srv import GetState
+        self.rclpy, self.TransitionEvent = rclpy, TransitionEvent
+        rclpy.init()
+        self.server = rclpy.create_node("fake_bt")
+        self.calls, self.label = [], "unconfigured"
+        def get_state(request, response):
+            self.calls.append(__import__("time").monotonic())
+            response.current_state = State(label=self.label)
+            return response
+        self.server.create_service(GetState, "fake_bt/get_state", get_state)
+        self.events = self.server.create_publisher(TransitionEvent, "fake_bt/transition_event", 10)
+        self.client = rclpy.create_node("waiter")
+        self.addCleanup(rclpy.shutdown)
+
+    def wait(self, limit, labels, during=lambda t: None):
+        import threading, time
+        stop = threading.Event()
+        from rclpy.executors import SingleThreadedExecutor
+        executor = SingleThreadedExecutor()   # the server's own: wait_for_active spins the global one
+        executor.add_node(self.server)
+        def serve():
+            start = time.monotonic()
+            while not stop.is_set():
+                executor.spin_once(timeout_sec=.05)
+                during(time.monotonic() - start)
+        thread = threading.Thread(target=serve); thread.start()
+        try:
+            return course_goal.wait_for_active(self.client, "fake_bt", limit, labels)
+        finally:
+            stop.set(); thread.join()
+
+    def test_a_transition_event_answers_without_calling_the_service(self):
+        from lifecycle_msgs.msg import State
+        def configure(t):
+            if 1.0 < t and not getattr(self, "sent", False):
+                self.sent = True
+                self.events.publish(self.TransitionEvent(goal_state=State(label="inactive")))
+        self.assertTrue(self.wait(5., ("inactive", "active"), configure))
+        self.assertEqual(self.calls, [])
+
+    def test_without_events_it_asks_only_once_the_service_has_settled(self):
+        import time
+        self.label = "active"
+        start = time.monotonic()
+        self.assertTrue(self.wait(10., ("active",)))
+        self.assertEqual(len(self.calls), 1)
+        self.assertGreaterEqual(self.calls[0] - start, course_goal.SERVICE_SETTLE - .2)
