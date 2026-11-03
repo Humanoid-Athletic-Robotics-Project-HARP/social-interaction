@@ -249,6 +249,7 @@ def run(job):
     path_len, last_people, ghosts, history = 0., None, [], []
     recent, closing_by = [], {}
     at_closest, pv, desired, at_fault, faults = {}, np.zeros((0, 2)), np.zeros(3), 0, []
+    wall_at = None
     for step in range(int(limit/DT)):
         t = step*DT
         data.qpos[:2] = pose[:2]
@@ -335,7 +336,8 @@ def run(job):
                 c_, s_ = math.cos(pose[2]), math.sin(pose[2])
                 rv = np.array([c_*vel[0]-s_*vel[1], s_*vel[0]+c_*vel[1]])
                 pvj = pv[j] if last_people is not None and len(pv) > j else np.zeros(2)
-                at_closest = dict(t=round(t, 1), robot_closing=round(float(rv @ toward), 2),
+                at_closest = dict(t=round(t, 1), xy=[round(float(v), 2) for v in pose[:2]],
+                                  wall=round(distance_to(shapes, pose[:2])-ARMS, 2), robot_closing=round(float(rv @ toward), 2),
                                   person_closing=round(float(-pvj @ toward), 2), robot_speed=round(float(np.linalg.norm(rv)), 2),
                                   mode=result.mode if 'result' in dir() else None,
                                   solver=result.solver if 'result' in dir() else None, desired=[round(float(v), 2) for v in desired])
@@ -354,7 +356,10 @@ def run(job):
                                        person_speed=round(float(np.linalg.norm(pv[j])) if len(pv) > j else 0., 2),
                                        desired=[round(float(v), 2) for v in desired], command=[round(float(v), 2) for v in command]))
             touching = gap < 0
-        fixed_close = min(fixed_close, distance_to(shapes, pose[:2])-ARMS)
+        to_fixed = distance_to(shapes, pose[:2])-ARMS
+        if to_fixed < fixed_close:
+            wall_at = [round(float(v), 2) for v in pose[:2]]
+        fixed_close = min(fixed_close, to_fixed)
         if reached_at is not None:
             break
     end = float(np.linalg.norm(pose[:2]-goal))
@@ -362,7 +367,7 @@ def run(job):
                 closest=round(closest, 3), contacts=contacts, at_fault=at_fault, wall=round(fixed_close, 3),
                 fight=round(fought/max(asked, 1), 3), path=round(path_len, 1), standing=round(standing, 1),
                 plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1), at_closest=at_closest, faults=faults,
-                closing_by=closing_by)
+                closing_by=closing_by, wall_at=wall_at)
 
 
 def seeds(text):

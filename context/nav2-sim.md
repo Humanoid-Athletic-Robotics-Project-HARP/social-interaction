@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-11-03T07:54:26Z
+  updated: 2026-11-03T17:18:35Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/tests/test_lidar_mount.py]
 ---
 
@@ -30,4 +30,4 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 
 **Next in the sim:** a collision-monitor stop for still obstacles too close, the moving-object detector ([[approach-stop]]), closing the courses' start ends. Then the real lidar ([[lidar-nav2-research]]).
 
-**Predictive mode** (`course.py --avoidance predictive`, [[predictive-avoidance]]): `nav2.launch.py` rewrites the parameters so both costmaps mark only from `/harp/static_cloud` (the lidar and head camera without moving objects: walkers marked lethal made the planner give up routes) and the camera only clears, and the controller keeps sending the path's command when blocked (`FollowPath.follow_when_blocked`; never in `nav2_params.yaml`, which Foxy lets beat the launch override). Worlds for it: `building`, `office`, `atrium` (movers only in our lidar's world; `--crowd aware` makes them give way). The global costmap is a 20 m rolling window, so a goal must be within 10 m of the start.
+**Predictive mode** (`course.py --avoidance predictive`, [[predictive-avoidance]]): `nav2.launch.py` rewrites the parameters so both costmaps mark only from `/harp/static_cloud` (the lidar and head camera without moving objects: walkers marked lethal made the planner give up routes; a track seen moving rejoins it after standing still 8 s, or a pillar a walker once dragged stayed out for good) and the camera only clears, and the controller keeps sending the path's command when blocked (`FollowPath.follow_when_blocked`; never in `nav2_params.yaml`, which Foxy lets beat the launch override). Worlds for it: `building`, `office`, `atrium` (movers only in our lidar's world; `--crowd aware` makes them give way). The global costmap is a 20 m rolling window, so a goal must be within 10 m of the start.
