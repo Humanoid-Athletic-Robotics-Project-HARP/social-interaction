@@ -31,7 +31,7 @@ It is a separate process from harp_node because publishing a 190 KB cloud
 from inside the policy's process made it miss HIM's 0.2 s command deadline.
 Events go to /harp/events: mover_start (mover, starts_at) when a mover sets off. An aware
 crowd also prints, for scoring and the replay (not on /harp/events): crowd (its movers) at
-start, then movers (t, xy: where each is) every scan.
+start, then movers (sim_time, xy: where each is) every scan.
 """
 
 import array

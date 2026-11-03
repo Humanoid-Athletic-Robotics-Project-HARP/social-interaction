@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (the image, entrypoint, Dockerfile, worlds) or debugging what runs inside a run
 metadata:
   type: project
-  updated: 2026-11-03T07:54:26Z
+  updated: 2026-11-03T17:33:36Z
   covers: [submission/**]
 ---
 
@@ -15,10 +15,10 @@ metadata:
 
 **Worlds** (`submission/worlds/`, criteria in `NAME.yaml`; `heldout_N` are random ones from `generate_world.py`, [[course-runs]]): `stage_world.py` writes HIM's scene (the G1, `safety_floor`, fixed obstacles; movers left out, or HIM would hold them still where they start) and the image's copy with movers. Defaults go in a named class (`obstacle`), never the top-level default, so worlds include next to HIM's G1. Comments are stripped (their "--" breaks XML parsers).
 
-**In a world's image** (`entrypoint.sh`): `harp/lidar.py` (the head lidar, and the head depth camera from the same state, `harp/depth_camera.py`), Nav2 (`nav2/`, [[nav2-sim]]), `harp/approach_stop.py` (between Nav2 and our node, [[approach-stop]]), `harp/course_goal.py` or, for a `{"behavior": ...}` task, `harp/behavior.py` with the stand-in detector `harp/sim_people.py` ([[behavior-loop]]), and `harp/view_feed.py` ([[sim-run-logs]]), each its own process, beside `harp_node.py`; with a `{"to": ...}` target only the move runs, since one thing drives `/cmd_vel`. They start first, and `harp_node.py` only once Nav2 is configured ([[sim-deadline-stops]]).
+**In a world's image** (`entrypoint.sh`): `harp/lidar.py` (the head lidar, and the head depth camera from the same state, `harp/depth_camera.py`), Nav2 (`nav2/`, [[nav2-sim]]), one command filter between Nav2 and our node (`harp/avoidance_config.py` picks it before anything starts: `harp/approach_stop.py`, [[approach-stop]], or for `"avoidance": "predictive"` `harp/predictive_avoidance.py`), `harp/course_goal.py` or, for a `{"behavior": ...}` task, `harp/behavior.py` with the stand-in detector `harp/sim_people.py` ([[behavior-loop]]), and `harp/view_feed.py` ([[sim-run-logs]]), each its own process, beside `harp_node.py`; with a `{"to": ...}` target only the move runs, since one thing drives `/cmd_vel`. They start first, and `harp_node.py` only once Nav2 is configured ([[sim-deadline-stops]]).
 - The lidar must stay out of the policy's process: publishing its 190 KB cloud there made the node miss HIM's 0.2 s deadline.
 - HIM's sim Fast DDS profile finds only participants 0–4; with Nav2 we run about ten, so `harp/fastdds_profile.py` lists peers for 32 on the same localhost transport, only when HIM's `/fastdds.xml` is set. In a plain `docker run`, `lo` has no multicast, so discovery needs that profile too.
-- Foxy Nav2 (0.4.7): `bt_navigator`'s `plugin_lib_names` must be listed (Foxy's default names a library it doesn't ship), and `server_timeout="200"` on each BT action node. Foxy has no Graceful Controller: `submission/nav2_graceful_controller/` is our port (changes in its `HARP_PATCHES.md`).
+- Foxy Nav2 (0.4.7): `bt_navigator`'s `plugin_lib_names` must be listed (Foxy's default names a library it doesn't ship), and `server_timeout="200"` on each BT action node. Readiness checks (`course_goal.wait_for_active`, used by `nav2_ready.py` and `behavior.py`) read a node's `transition_event` and call `get_state` only once its service has been visible 3 s: Foxy's Fast DDS can't reply to a client it hasn't discovered yet, and a fresh client polling it crashed `bt_navigator` at start-up. Foxy has no Graceful Controller: `submission/nav2_graceful_controller/` is our port (changes in its `HARP_PATCHES.md`).
 
 **Planned moves** (`harp/moves.py`, [[planned-moves]]): `G1_TASK_COMMAND` with `"moves"` or `"to"` reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. With `G1_TASK_COMMAND` empty and no world in the image, `entrypoint.sh` uses the image's `HARP_DEFAULT_TASK`, so an operator who launches it without a task still gets the move (HIM passes the variable empty when unset, so an image `ENV` of `G1_TASK_COMMAND` would be overwritten).
 

@@ -134,7 +134,6 @@ except ImportError:
 sys.path.insert(0, str(HERE))
 import stage_world  # noqa: E402
 from harp.leg_odometry import wrap_angle, yaw_of  # noqa: E402
-from harp.movers import Movers, obstacle_geoms  # noqa: E402
 from harp.movers import CROWDS, Movers, logged_path, obstacle_geoms  # noqa: E402
 from harp.route import route_from_data  # noqa: E402
 

@@ -506,8 +506,10 @@ upstream commit and our changes are in its `HARP_PATCHES.md`.
 The image (built, not stored here) also contains, from HARP's harness, its
 walker client and NVIDIA's GR00T-WholeBodyControl networks (NVIDIA Open Model
 License, with their `LICENSE` and provenance) and its G1 model (from MuJoCo
-Menagerie); Unitree's unitree_sdk2_python (BSD-3); and Eclipse CycloneDDS
-(EPL-2.0).
+Menagerie); Unitree's unitree_sdk2_python (BSD-3); Eclipse CycloneDDS
+(EPL-2.0); and, as pip packages (`submission/Dockerfile`), numpy (BSD-3),
+SciPy (BSD-3), ONNX Runtime (MIT), PyYAML (MIT), MuJoCo (Apache-2.0) and zipp
+(MIT).
 
 `speech/` installs, as packages (`speech/requirements.txt`): sherpa-onnx (Apache-2.0),
 onnxruntime (MIT), python-sounddevice (MIT) and numpy (BSD-3). It runs llama.cpp (MIT),

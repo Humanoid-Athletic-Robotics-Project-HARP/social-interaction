@@ -3,7 +3,7 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-11-03T07:54:26Z
+  updated: 2026-11-03T17:33:36Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/tests/test_lidar_mount.py]
 ---
 
@@ -14,7 +14,7 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 - NavFn (`allow_unknown`) + the **Graceful Controller** (Park & Kuipers, the same law as our `{"to": ...}` move), so a goal is reached in one curve already facing its heading: the way to walk up to a person. Foxy lacks it, so it is our port, `submission/nav2_graceful_controller/` (Nav2 commit `d5d768b`, `HARP_PATCHES.md`). Speed minimums stay well above GR00T's 0.05 Balance switch.
 - `failure_tolerance` 0.3 (ours, in the port): without it each moment with no collision-free trajectory (a person crossing) aborted the path, 6 recoveries and a failed `crossing`. `goal_dist_tolerance` 0.25 matches the goal checker, which Foxy doesn't hand to the controller.
 - Regulated Pure Pursuit (settings in commit `ca382d5`) was rejected: faster, but no final-heading curve, and its collision look-ahead tripped on the walker's sway at 1 s (cut to 0.5 s in those settings).
-- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). The only recovery is Wait: Spin turned on the costmap it had without checking the lidar was still live. No course run needs a recovery.
+- `navigate.xml`: the stock tree minus costmap clearing (would forget obstacles in the blind ring near the feet) and BackUp (risky for a walker). The only recovery is Wait: Spin turned on the costmap it had without checking the lidar was still live. No course run needs a recovery. Each goal plans a fresh path before following starts: `{path}` outlives a goal, so a goal sent right after another was followed along the old path, which ends where the robot stands, and Nav2 reported it reached at once (`runs/2026-11-01_23-23-20Z*`).
 - **A lost lidar doesn't stop Nav2 on Foxy:** nothing in its controller acts on a stale costmap (`expected_update_rate` 1.0 only logged warnings on every update and Nav2 walked on, `runs/2026-10-28_09-19-44Z_sim_one_box_stale-lidar`), so it stays 0 and the stop is ours ([[approach-stop]]).
 - **Footprint:** a circle, `robot_radius` 0.4: the forearms reach 0.355 m from `base_link`, and a polygon gives NavFn an inscribed radius of only 0.09 m.
 - **Inflation** 0.8 m, factor 3 keeps the body edge about 0.45 m from obstacles (personal space). Only `robot_radius` blocks a gap. 1.0 / factor 2 made NavFn detour round slalom's side walls.
@@ -28,6 +28,6 @@ Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission
 
 **Controller guards:** in-place rotation respects the angular cap even below the nominal minimum, and returns zero for zero angle. Out-of-costmap trajectories are rejected. Nonuniform path headings are preserved for both signs of angular change. Actual method bodies pass isolated C++17 tests with dependency stubs; the Foxy plugin build and HIM runtime still need verification.
 
-**Next in the sim:** a collision-monitor stop for still obstacles too close, the moving-object detector ([[approach-stop]]), closing the courses' start ends. Then the real lidar ([[lidar-nav2-research]]).
+**Next in the sim:** a collision-monitor stop for still obstacles too close, a moving-object stop for the default filter (the predictive filter's tracker is one, opt-in: [[predictive-avoidance]]), closing the courses' start ends. Then the real lidar ([[lidar-nav2-research]]).
 
-**Predictive mode** (`course.py --avoidance predictive`, [[predictive-avoidance]]): `nav2.launch.py` rewrites the parameters so both costmaps mark only from `/harp/static_cloud` (the lidar and head camera without moving objects: walkers marked lethal made the planner give up routes) and the camera only clears, and the controller keeps sending the path's command when blocked (`FollowPath.follow_when_blocked`; never in `nav2_params.yaml`, which Foxy lets beat the launch override). Worlds for it: `building`, `office`, `atrium` (movers only in our lidar's world; `--crowd aware` makes them give way). The global costmap is a 20 m rolling window, so a goal must be within 10 m of the start.
+**Predictive mode** (`course.py --avoidance predictive`, [[predictive-avoidance]]): `nav2.launch.py` rewrites the parameters so both costmaps mark only from `/harp/static_cloud` (the lidar and head camera without moving objects: walkers marked lethal made the planner give up routes) and the camera only clears, and the controller keeps sending the path's command when blocked (`FollowPath.follow_when_blocked`; never in `nav2_params.yaml`, which Foxy lets beat the launch override). Worlds for it: `building`, `office`, `atrium` (movers only in our lidar's world; `--crowd aware` makes them give way, a hand-written model, not calibrated to real people). The global costmap is a 20 m rolling window, so a goal must be within 10 m of the start.
