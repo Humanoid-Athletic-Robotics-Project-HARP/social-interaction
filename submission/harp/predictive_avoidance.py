@@ -16,7 +16,7 @@ from dataclasses import asdict, replace
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
@@ -25,6 +25,7 @@ from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from harp import camera_mount, events
+from harp.detour import DetourPatience, path_length
 from harp.approach_stop import CAMERA_AGE, CAMERA_MIN_Z, CAMERA_TOPIC, TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.make_way import MakeWay, toward
@@ -152,6 +153,10 @@ class PredictiveAvoidance:
         self.make_way = (MakeWay(self.planner.config.robot_radius)
                          if os.environ.get('HARP_PREDICTIVE_MAKE_WAY', '0') == '1' else None)
         self.making_way = False
+        # Stands a while for a blocked short way instead of taking Nav2's long detour
+        # (harp/detour.py; HARP_PREDICTIVE_DETOUR=0 turns it off).
+        self.detour = (DetourPatience()
+                       if os.environ.get('HARP_PREDICTIVE_DETOUR', '1') != '0' else None)
         self.responsiveness = Responsiveness()   # who gives way: the planner's forecast credit
         self.config = self.planner.config
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
@@ -163,6 +168,7 @@ class PredictiveAvoidance:
             PointCloud2, STATIC_TOPIC, QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         node.create_subscription(String, "/harp/events", self.on_event, latched)
         node.create_subscription(Twist, "/cmd_vel_nav", self.on_nav, 10)
+        node.create_subscription(Path, "/plan", self.on_plan, 10)
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(PointCloud2, TOPIC, self.on_cloud,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
@@ -219,6 +225,8 @@ class PredictiveAvoidance:
         event = value.get("event")
         if event in ("goal_sent", "waypoint_sent") and not self.failed:
             self.active = True
+            if self.detour is not None:
+                self.detour.reset()
             xy = (value.get('x'),value.get('y'))
             if all(isinstance(v,(float,int)) and math.isfinite(v) for v in xy):
                 self.goal = xy
@@ -235,6 +243,15 @@ class PredictiveAvoidance:
             return
         self.desired = command
         self.nav_receipt = time.monotonic()
+
+    def on_plan(self, msg):
+        if self.detour is None or not self.active:
+            return
+        length = path_length([(p.pose.position.x, p.pose.position.y) for p in msg.poses])
+        change = self.detour.update(self.clock(), length)
+        if change:
+            print(events.record('predictive', 'detour', action=change, length=round(length, 2),
+                                short=round(self.detour.short or length, 2)), flush=True)
 
     def on_odom(self, msg):
         stamp, now = seconds(msg.header.stamp), self.clock()
@@ -330,8 +347,10 @@ class PredictiveAvoidance:
             static = np.vstack([static, untransform_points(seen, world)]).astype(np.float32)
         self.static_out.publish(cloud_message(cloud.header, static))
         credits = getattr(self.planner, 'credits', {})
+        # unresolved: lost objects kept for planning (planning_tracks), for recordings.
         self.tracks_out.publish(String(data=json.dumps(dict(frame="odom", stamp=stamp, tracks=[
-            dict(asdict(t), credit=credits.get(t.id)) for t in tracks]))))
+            dict(asdict(t), credit=credits.get(t.id)) for t in tracks],
+            unresolved=[asdict(t) for t in self.unresolved.values()]))))
 
     def process_scan(self, points, origin, base, stamp, camera=None):
         """Odom-frame points, lidar origin and base position (and the camera's (odom points,
@@ -488,6 +507,8 @@ class PredictiveAvoidance:
             # that can be extrapolated forever. Fresh scans still gate all motion.
             tracks = self.planning_tracks(stamp)
             desired, goal = self.desired, self.goal
+            if self.detour is not None and self.detour.waiting(stamp):
+                desired = (0., 0., 0.)   # stand for the short way; still checked as usual
             field = getattr(self.planner, 'field', None)
             spot = self.make_way and self.make_way.update(
                 stamp, self.pose, self.goal, self.mode, tracks,
