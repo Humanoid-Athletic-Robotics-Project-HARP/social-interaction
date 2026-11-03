@@ -222,6 +222,39 @@ def show_events(run):
         print(f"{when}  {e.get('source', '-'):10} {e['event']:16} {fields}")
 
 
+def geom_distance(model, data, g, o, limit):
+    """mj_geomDistance from geom g to geom o, checked. For a capsule and a cylinder MuJoCo 3.3
+    now and then returns 0 with nearest points far from both geoms (HIM atrium runs, Nov 3:
+    8 of 3.1 million robot-to-fixed pairs, each a pillar "contact" with the foot 0.66 m away).
+    A result whose nearest point is off geom g is replaced by the exact distance when g is a
+    sphere or capsule and o a cylinder (the case seen); any other is kept as it came."""
+    fromto = np.zeros(6)
+    d = mujoco.mj_geomDistance(model, data, g, o, limit, fromto)
+    if d > 0 or np.linalg.norm(fromto[:3] - data.geom_xpos[g]) <= model.geom_rbound[g] + 1e-6:
+        return d
+    exact = rounded_to_cylinder(model, data, g, o)
+    return d if exact is None else min(exact, limit)
+
+
+def rounded_to_cylinder(model, data, g, o):
+    """Signed distance from a sphere or capsule g to a cylinder o (None for other shapes):
+    its axis sampled every few mm, each point measured to the cylinder exactly."""
+    sphere, capsule, cylinder = (int(t) for t in (
+        mujoco.mjtGeom.mjGEOM_SPHERE, mujoco.mjtGeom.mjGEOM_CAPSULE, mujoco.mjtGeom.mjGEOM_CYLINDER))
+    if int(model.geom_type[o]) != cylinder or int(model.geom_type[g]) not in (sphere, capsule):
+        return None
+    half = model.geom_size[g][1] if int(model.geom_type[g]) == capsule else 0.0
+    axis = data.geom_xmat[g].reshape(3, 3)[:, 2]
+    points = data.geom_xpos[g] + np.linspace(-half, half, 65)[:, None] * axis
+    local = (points - data.geom_xpos[o]) @ data.geom_xmat[o].reshape(3, 3)
+    radius, height = model.geom_size[o][:2]
+    across = np.hypot(local[:, 0], local[:, 1]) - radius
+    along = np.abs(local[:, 2]) - height
+    outside = np.hypot(np.maximum(across, 0), np.maximum(along, 0))
+    inside = np.minimum(np.maximum(across, along), 0)
+    return float((outside + inside).min() - model.geom_size[g][0])
+
+
 def clearance(world, trace, movers_started, path=None):
     """From the truth: the closest robot-to-obstacle distance, how many separate contacts,
     and the robot's fastest speed (over SPEED_WINDOW samples) while a mover nearer than
@@ -250,7 +283,7 @@ def clearance(world, trace, movers_started, path=None):
         apart = now_apart
         now = set()
         for o in obstacles:
-            d = min(mujoco.mj_geomDistance(model, data, g, o, CLEARANCE_MAX, None) for g in body)
+            d = min(geom_distance(model, data, g, o, CLEARANCE_MAX) for g in body)
             closest = min(closest, d)
             if d <= 0.0:
                 now.add(o)

@@ -103,6 +103,40 @@ class AwareWalkers(unittest.TestCase):
         self.assertEqual(ends, {0, 1})           # and both get past each other
 
 
+class CheckedDistance(unittest.TestCase):
+    """course.geom_distance: MuJoCo 3.3's capsule-to-cylinder distance sometimes came back 0
+    with nearest points off both geoms (a foot 0.66 m from an atrium pillar scored a contact)."""
+    XML = """<mujoco><worldbody><geom name="pillar" type="cylinder" size="0.3 1.0" pos="6.5 2.2 1.0"/>
+        <body name="foot" pos="5.66 1.73 0.04" quat="0.704 -0.009 -0.710 -0.001">
+        <geom type="capsule" size="0.01 0.093"/></body>
+        <body name="ball" pos="6.5 2.2 2.5"><geom type="sphere" size="0.1"/></body>
+        <body name="box" pos="0 0 0"><geom type="box" size="0.1 0.1 0.1"/></body></worldbody></mujoco>"""
+
+    def setUp(self):
+        self.model = mujoco.MjModel.from_xml_string(self.XML)
+        self.data = mujoco.MjData(self.model)
+        mujoco.mj_kinematics(self.model, self.data)
+
+    def test_the_exact_distance_matches_mujoco_where_mujoco_is_right(self):
+        for g in (1, 2):
+            fromto = np.zeros(6)
+            want = mujoco.mj_geomDistance(self.model, self.data, g, 0, 5., fromto)
+            self.assertAlmostEqual(course.rounded_to_cylinder(self.model, self.data, g, 0), want, places=4)
+            self.assertAlmostEqual(course.geom_distance(self.model, self.data, g, 0, 5.), want)
+        self.assertAlmostEqual(course.rounded_to_cylinder(self.model, self.data, 2, 0), .4)   # above its top
+        self.assertIsNone(course.rounded_to_cylinder(self.model, self.data, 3, 0))           # a box
+
+    def test_a_zero_with_nearest_points_off_the_geoms_is_replaced(self):
+        def broken(model, data, g, o, limit, fromto):
+            fromto[:] = [11.52, 3.48, .08, 12.49, 4.08, .04]   # as seen in HIM's atrium
+            return 0.
+        exact = course.rounded_to_cylinder(self.model, self.data, 1, 0)
+        with patch.object(course.mujoco, "mj_geomDistance", broken):
+            self.assertAlmostEqual(course.geom_distance(self.model, self.data, 1, 0, 2.), exact)
+            self.assertEqual(course.geom_distance(self.model, self.data, 3, 0, 2.), 0.)  # other shapes kept
+        self.assertGreater(exact, .5)
+
+
 class LoggedPaths(unittest.TestCase):
     EVENTS = [{"source": "lidar", "event": "crowd", "mode": "aware", "movers": ["p"]},
               {"source": "lidar", "event": "movers", "sim_time": 0., "xy": [[0., 0.]]},
