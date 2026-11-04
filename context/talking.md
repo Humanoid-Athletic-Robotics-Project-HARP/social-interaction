@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-04T22:17:16Z
+  updated: 2026-11-04T23:32:57Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -100,12 +100,12 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Run back through `listen.py`, Kokoro's speech came back nearly word for word; Piper's was rougher ("Harr, A. Robart").
 
 **First steps**
-1. Laptop: a live conversation through speakers and the mic; then about 50 scripted conversations to count false or missed goodbyes, repeated questions and made-up facts, with and without the grammar.
+1. Laptop: a live conversation through speakers and the mic. Scripted ones run with `speech/bench/talk_bench.py` (results: [[speech-tuning]]).
 2. Robot: a WAV through PlayStream, and a TtsMaker line; check the volume. Ask first: both make sound and use the voice service.
 3. The handshake in `behavior.py`, with the sim keeping its fixed wait.
 
 **Open decisions:**
-- which of the two voices, after comparing them
+- which of the two voices: Kokoro is the clearer ([[speech-tuning]]), if it is fast enough on PC2's GPU
 - Qwen3-1.7B instead, if the 4B is too slow on PC2
 - PC2's power mode (MAXN is fastest; changing it needs sudo)
 - whether to run on PC2 or a laptop over Wi-Fi during robot runs

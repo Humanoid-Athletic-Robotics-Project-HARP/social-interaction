@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-04T22:44:59Z
+  updated: 2026-11-04T23:32:57Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -73,7 +73,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - Parakeet on CPU (`--provider cuda` on PC2)
   - the filter's short, empty and made-up checks
   - one JSON line per turn on stdout
-- The turn rules (`Turns`) are tested in `speech/tests/` without models.
+- The turn rules (`Turns`) are tested in `speech/tests/` without models. The settings were tuned on made-up clips with `speech/bench/` ([[speech-tuning]] has the results).
 - The mute (built 2026-11-03, with the mic or the robot's mic):
   - `talk.py` sends `{"speaking": true}` every 0.5 s while it plays or makes a reply, and `false` when done, as UDP to port 28732 on the same computer.
   - `listen.py` hears nothing until 0.5 s after `false`, or 1 s after the last `true` if `talk.py` dies.
@@ -86,7 +86,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - two sentences 1.5 s apart gave two turns; a 0.4 s pause stayed inside one turn
   - the text came out word for word, also with noise 15 dB below the speech
   - 5 s of noise alone gave nothing
-  - Parakeet took 0.14–0.19 s for a 2–3 s turn: 0.84–0.89 s from going quiet to text
+  - Parakeet took 0.14–0.19 s for a 2–3 s turn: 0.84–0.89 s from going quiet to text with a fixed 0.7 s silence (about 0.45 s with Smart Turn)
   - the same clips gave the same turns from a stand-in robot mic stream over loopback multicast
 
 **First steps**
