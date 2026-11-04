@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-03T03:26:47Z
+  updated: 2026-11-04T23:32:57Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -39,8 +39,8 @@ Design for the talking half of a conversation, and what both halves share, and w
    - Current state: the conversation's length and turn count.
 3. Waiting: a short pre-rendered filler plays if no reply sound has come about 1.2 s after the person's turn ends. A canned reply is used on an LLM error or after 5 s.
 4. Ending: a closing line, then `talk_done` with the reason. The reason is one of:
-   - the model ends its reply with a `<bye>` tag, checked in code (more reliable than tool calls for small models)
-   - the person says goodbye
+   - the model ends a goodbye reply with a `<bye>` tag, checked in code (more reliable than tool calls for small models)
+   - the person says goodbye and the reply is a goodbye too (the person's words alone end too much: "I have to go to the dentist tomorrow")
    - listening reports about 8 s of silence
    - about 90 s in all
    - `behavior.py`'s stop
@@ -78,14 +78,15 @@ Design for the talking half of a conversation, and what both halves share, and w
   - plus each word's -s and -'s forms where missing (Kokoro's list lacks "students", "robots", "what's", "how's")
   - Piper's list lacked "or" and "her" (added). Of 210 very common words, both lists now have all.
   - one file, because a Piper voice reads its `word || sounds` format only from a single lexicon; a comma-separated list made it skip every word
-  - numbers are spelled out, and "G1" is said as "gee one"; left as it was, the spelled-out digit turned it into "Gone"
+  - numbers are spelled out, and "G1" is said as "gee one"; left as it was, the spelled-out digit turned it into "Gone". A digit and a letter are split ("106B", or "sixB", a skipped word), and times read as "one thirty"
 - A GBNF grammar (on by default; `--no-grammar` turns it off) allows only two plain sentences and an optional `<bye>`. It stops emoji and lists.
   - After two sentences, `<bye>` is the grammar's only way on, so a model that wants to say more takes it. Asked for "multiple sentences", it did so 3 times out of 3, and the conversation ended.
-  - So `<bye>` counts only if the reply sounds like a goodbye (`FAREWELL`) or the person said one. Otherwise it's an `ignored_bye` event and is kept out of the history.
+  - So a conversation ends only on a reply that sounds like a goodbye (`FAREWELL`, `ending()`), with `<bye>` or after the person's goodbye. A `<bye>` on any other reply is an `ignored_bye` event and is kept out of the history.
 - The prompt has the model answer what was said, not always open with a reaction: "Hello" was getting "Oh, nice!". It never repeats a question, and rephrases when they're confused: "What" was getting the same reply again. Its examples for those cases are now often copied word for word.
+- The prompt also gives its height (about 1.3 m) and what HARP stands for (Humanoid Athletic Robotics Project, as the GitHub organisation spells it), keeps it to English (it answered Spanish in Spanish, with words the voice can't say), has it answer "heart" or "hard" as its own name without remarking on it, and has it turn down personal details kindly and keep chatting (it said goodbye when given an address).
 - Joined to listening (2026-11-03): `listen.py --mic | talk.py --heard`.
   - While it plays audio, and while a reply is being made (`busy`, so the pause between two synthesized sentences doesn't unmute), it sends listening the speaking signal. Measured: on from each reply's start to its last sound, heartbeats at most 0.54 s apart.
-  - A transcript within 0.75 similarity of one of its last three lines, or a piece of one with three or more words, is dropped as an `echo` event.
+  - A transcript within 0.75 similarity of one of its last three lines, a piece of one with three or more words, or the last one or two words of its newest line, is dropped as an `echo` event.
   - Ports (a teammate's ask: no common ones; 8080–8082 are taken on PC2 by our lidar, camera and hybrid viewers): `llama-server` on 28731, the speaking signal on 28732. Both are below Linux's temporary-port range (32768–60999).
   - People can't interrupt it: it doesn't listen while it speaks.
 - Not built yet:
@@ -99,12 +100,12 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Run back through `listen.py`, Kokoro's speech came back nearly word for word; Piper's was rougher ("Harr, A. Robart").
 
 **First steps**
-1. Laptop: a live conversation through speakers and the mic; then about 50 scripted conversations to count false or missed goodbyes, repeated questions and made-up facts, with and without the grammar.
+1. Laptop: a live conversation through speakers and the mic. Scripted ones run with `speech/bench/talk_bench.py` (results: [[speech-tuning]]).
 2. Robot: a WAV through PlayStream, and a TtsMaker line; check the volume. Ask first: both make sound and use the voice service.
 3. The handshake in `behavior.py`, with the sim keeping its fixed wait.
 
 **Open decisions:**
-- which of the two voices, after comparing them
+- which of the two voices: Kokoro is the clearer ([[speech-tuning]]), if it is fast enough on PC2's GPU
 - Qwen3-1.7B instead, if the 4B is too slow on PC2
 - PC2's power mode (MAXN is fastest; changing it needs sudo)
 - whether to run on PC2 or a laptop over Wi-Fi during robot runs

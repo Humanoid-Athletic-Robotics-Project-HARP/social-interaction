@@ -112,7 +112,7 @@ unchanged, cloned next to this repo, and keep only our code here.
 - 🟡 Microphone: `speech/listen.py --robot` reads its stream (tried with a stand-in
   sender on a laptop); next, on the robot.
 - 🟡 Speech-to-text → LLM → text-to-speech loop, on a laptop first: listening
-  (`speech/listen.py`, Silero and Parakeet) and talking (`speech/talk.py`, Qwen3-4B on
+  (`speech/listen.py`, Silero, Smart Turn and Parakeet) and talking (`speech/talk.py`, Qwen3-4B on
   llama.cpp, Kokoro or Piper voices) work together (`listen.py --mic | talk.py
   --heard`), listening muted while HARP speaks; tried with recorded voices, not yet with
   a person.
@@ -516,6 +516,8 @@ onnxruntime (MIT), python-sounddevice (MIT) and numpy (BSD-3). It runs llama.cpp
 installed separately. It downloads these models into `models/` beside this repo; none is
 stored here:
 - [Silero VAD](https://github.com/snakers4/silero-vad) v6.2.3 (MIT)
+- [Smart Turn](https://github.com/pipecat-ai/smart-turn) v3.2 by Daily (BSD-2-Clause), its
+  int8 CPU model (`smart-turn-v3.2-cpu.onnx`)
 - [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) by NVIDIA,
   under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). We use it as
   sherpa-onnx converted it: to ONNX, with int8 weights
