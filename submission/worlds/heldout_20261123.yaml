@@ -1,0 +1,7 @@
+# Pass criteria for course tests on this generated world (seed 20261123); as building's.
+must_succeed: true
+max_time_s: 120
+min_clearance_m: 0.30
+max_contacts: 0
+max_recoveries: 3
+max_end_error_m: 0.35
