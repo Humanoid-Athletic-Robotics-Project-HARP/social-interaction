@@ -239,6 +239,9 @@ class PredictiveAvoidance:
         # (unscaled prior, RULE 10), for A/B runs.
         if os.environ.get('HARP_PREDICTIVE_SPEED_TUNING', '1') == '0' and hasattr(self.planner, 'rule'):
             self.planner.rule, self.planner.speed_prior = 10., False
+        # HARP_PREDICTIVE_STUBBORN_PLAYERS=1: the stubborn rule with the players' own ids (game_planner.py).
+        if os.environ.get('HARP_PREDICTIVE_STUBBORN_PLAYERS', '0') == '1' and hasattr(self.planner, 'stubborn_players'):
+            self.planner.stubborn_players = True
         self.lite = 0          # the planner's compute level last logged
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
         latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)

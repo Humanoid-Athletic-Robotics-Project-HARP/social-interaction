@@ -93,7 +93,7 @@ class GameCore(unittest.TestCase):
     def test_a_stubborn_player_is_recognised_while_someone_far_away_does_not_play(self):
         # object_ids covers every moving object; the far one doesn't play, so the lengths differ.
         p = planner()
-        p.stubborn = {3: 3}
+        p.stubborn, p.stubborn_players = {3: 3}, True
         seen = []
         reactivity = p._reactivity
         p._reactivity = lambda objects, ids=None: seen.append(reactivity(objects, ids)) or seen[-1]
@@ -101,6 +101,9 @@ class GameCore(unittest.TestCase):
         p.plan((0., 0., 0.), (.4, 0., 0.), (.4, 0., 0.), tracks, 0., (8., 0.))
         self.assertEqual(len(p.object_ids), 2)
         self.assertEqual(seen[-1].tolist(), [0.])
+        p.stubborn_players = False                   # the default: as tuned (unrecognised)
+        p.plan((0., 0., 0.), (.4, 0., 0.), (.4, 0., 0.), tracks, .2, (8., 0.))
+        self.assertGreater(seen[-1][0], 0.)
 
     def test_the_mode_mean_keeps_its_size_when_every_weight_is_tiny(self):
         seeds = np.array([[[.4, 0., 0.]], [[.2, .2, 0.]], [[0., 0., 0.]]])

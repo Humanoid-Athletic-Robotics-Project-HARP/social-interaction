@@ -82,6 +82,12 @@ PRIOR_TEMPERATURE = .08  # request cost (m/s)^2 per nat of robot prior: 2σ², �
                          # benchmark's robot stood 17 s a run and reached 48 of 63 goals (scaled:
                          # 10 s, 57; the MPC: 12 s, 52)
 REFERENCE_SPEED = .5     # m/s: the speed cap the weights were set at
+STUBBORN_PLAYERS = False # players' own ids for the stubborn rule (HARP_PREDICTIVE_STUBBORN_PLAYERS=1).
+                         # Off: with anyone not playing the ids don't line up, so stubborn walkers
+                         # keep rho >= .6, as everything was tuned and tested. On: benchmark, 0.5 m/s,
+                         # 73 worlds, walkers who give way passed every check 16 -> 20, kept 0.30 m
+                         # 21 -> 29; walkers who never react reached 40 -> 35; but in HIM (aware)
+                         # the robot stood ('blocked') more and missed building and heldout_20261106.
 BUDGET = .08             # s: plans slower than this on average step down a LEVEL (the filter
                          # stops the robot at 0.15 s; PC2's cores are about 2.5-3x slower than a
                          # Mac's, where plans take 36 ms typically, 49 ms at the 95th percentile)
@@ -115,6 +121,7 @@ class GamePlanner(Planner):
         self.solve = 0.           # recent plan time, s (an average)
         self.time_scale = 1.      # sim tests: plan times count this much slower (PC2's cores)
         self.rule, self.speed_prior = RULE, True   # (10, False): the tuning before, for A/B runs
+        self.stubborn_players = STUBBORN_PLAYERS
 
     # ----- the players' clouds -----
     def _robot_seeds(self, desired):
@@ -325,9 +332,10 @@ class GamePlanner(Planner):
             robot_log = robot_log-self._keep_right(paths, objects, pose)
         playing = objects[players]
         clouds, people_log = self._people(playing)
-        # The players' own ids: object_ids lists every moving object, so with any not playing
-        # (far, or past PLAYERS) the lengths differed and stubborn walkers went unrecognised.
-        react = self._reactivity(playing, self.object_ids[players] if len(self.object_ids) == len(objects) else None)
+        # object_ids lists every moving object; with any not playing (far, or past PLAYERS) only
+        # the players' own ids recognise stubborn walkers (STUBBORN_PLAYERS).
+        own = self.stubborn_players and len(self.object_ids) == len(objects)
+        react = self._reactivity(playing, self.object_ids[players] if own else None)
         if len(playing):
             cost = self._collisions(paths, clouds, playing)
         else:
