@@ -53,6 +53,13 @@ def tilt_deg(quat):
     return math.degrees(math.acos(max(-1.0, min(1.0, up))))
 
 
+def peak_score(thrash, rows):
+    """The back-and-forth check's peak score over rows of its telemetry, or None without any."""
+    scores = [(s.get("metrics") or {}).get("weighted_rms") for s in (thrash[row] for row in rows) if s] if thrash else []
+    scores = [v for v in scores if v is not None]
+    return max(scores) if scores else None
+
+
 def failures(m):
     """The names of the checks a run's metrics fail."""
     out = [name for name, ok in (("status", m.get("status") == "within_limits"),
@@ -120,9 +127,8 @@ def measure(run):
     tilt = tilt_deg(qpos[first, 3:7])
     m["tilt_change_deg"] = round(max(abs(tilt_deg(qpos[row, 3:7]) - tilt) for row in rows), 3)
     m["foot_move_m"] = round(foot_move(qpos, rows), 4)
-    scores = [s["metrics"]["weighted_rms"] for s in (thrash[row] for row in rows) if thrash
-              if s and (s.get("metrics") or {}).get("weighted_rms") is not None]
-    m["weighted_rms"] = round(max(scores), 3) if scores else None
+    score = peak_score(thrash, rows)
+    m["weighted_rms"] = None if score is None else round(score, 3)
     m["arm_error_rad"] = round(max(float(np.max(np.abs(qpos[row, 29:36] - motion.at(float(time[row]))[0])))
                                    for row in rows if time[row] <= t0 + motion.duration), 3)
     timing = [e["reply"] for e in records if e["event"] == "timing" and e.get("sim_time") is not None

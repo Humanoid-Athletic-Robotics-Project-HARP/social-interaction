@@ -16,6 +16,18 @@ class Tilt(unittest.TestCase):
         self.assertAlmostEqual(wave_check.tilt_deg((math.cos(half), 0.0, math.sin(half), 0.0)), 10.0, places=4)
 
 
+class PeakScore(unittest.TestCase):
+    def test_peak_over_the_window(self):
+        thrash = [{"metrics": {"weighted_rms": 0.9}}, None, {"metrics": {"weighted_rms": 0.5}},
+                  {"metrics": {"weighted_rms": 0.2}}]
+        self.assertEqual(wave_check.peak_score(thrash, [1, 2, 3]), 0.5)
+
+    def test_no_telemetry_is_none(self):
+        # course.py --prune strips the telemetry from all but the newest runs
+        self.assertIsNone(wave_check.peak_score(None, [0, 1]))
+        self.assertIsNone(wave_check.peak_score([None, None], [0, 1]))
+
+
 class Failures(unittest.TestCase):
     def test_a_good_run_has_no_failures(self):
         self.assertEqual(wave_check.failures(GOOD), [])

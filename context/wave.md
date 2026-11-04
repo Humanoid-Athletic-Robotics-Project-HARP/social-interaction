@@ -3,7 +3,7 @@ name: wave
 description: Read before changing or running the wave (harp/wave.py, the {"wave": {}} task), or adding another arm gesture
 metadata:
   type: project
-  updated: 2026-11-04T20:45:35Z
+  updated: 2026-11-04T20:57:02Z
   covers: [submission/harp/wave.py, submission/harp_node.py, submission/wave_check.py, submission/tests/test_wave.py, submission/tests/test_wave_check.py]
 ---
 
