@@ -3,7 +3,7 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-04T17:05:54Z
+  updated: 2026-11-04T17:16:43Z
   covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/game_planner.py, submission/harp/predictive_avoidance.py, submission/harp/detour.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py, submission/tests/test_detour.py, submission/tests/test_game_planner.py, submission/planner_bench.py]
 ---
 
@@ -23,7 +23,7 @@ metadata:
 
 **Game-theoretic core** (`harp/game_planner.py`, 2026-11-03; the default since 2026-11-03; `HARP_PREDICTIVE_PLANNER=mpc` for the sampling MPC). The robot and the 8 nearest people within 5 m are players of one game, after BRNE (Sun et al., IJRR 2024; written from the paper, the GPL code not copied). Theory and limits: Lam's `project-setup/docs/game-core-theory.md` in the Documents project.
 - **Clouds:** the robot gets about 260 trajectories near Nav2's request (prior: deviation σ about 0.2 m/s, sideways 3× costlier, switching, walls, and `KEEP_RIGHT`: passing someone met head-on on the wrong side). Each person gets 32 around their tracked walk.
-- **Rounds:** six rounds of Bayesian best responses reach a mixed-strategy Nash equilibrium. A person's weight on the game is ρ: 0.6 unknown, more with `Responsiveness` credit, 0 once `Responsiveness.stubborn` saw them keep course into a conflict three times. Until Nov 4 that 0 only applied when every moving object played: with one far (over `ENGAGE`) or past `PLAYERS`, the ids didn't line up and stubborn walkers kept ρ ≥ 0.6, so every result before then (benchmark and HIM) ran with stubborn walkers mostly unrecognised. The weighted mean of the chosen mode is scaled by its largest weight: dividing by a 1e-12 floor had shrunk a far-below-favourite plan B toward standing. `RISK_ALPHA` makes the robot weigh the worst share of each person's motions (CVaR); 1 is the plain average.
+- **Rounds:** six rounds of Bayesian best responses reach a mixed-strategy Nash equilibrium. A person's weight on the game is ρ: 0.6 unknown, more with `Responsiveness` credit, 0 once `Responsiveness.stubborn` saw them keep course into a conflict three times. Until Nov 4 that 0 only applied when every moving object played: with one far (over `ENGAGE`) or past `PLAYERS`, the ids didn't line up and stubborn walkers kept ρ ≥ 0.6, so every result before then (benchmark and HIM) ran with stubborn walkers mostly unrecognised. Fixed (benchmark, 0.5 m/s, 73 map-less worlds): with walkers who give way, passed every check 16 → 20 and kept 0.30 m 21 → 29, reached 68 → 67, about 5 s slower; with walkers who never react, reached 40 → 35, the same contacts. The weighted mean of the chosen mode is scaled by its largest weight: dividing by a 1e-12 floor had shrunk a far-below-favourite plan B toward standing. `RISK_ALPHA` makes the robot weigh the worst share of each person's motions (CVaR); 1 is the plain average.
 - **Safety, contingency style:**
   - the chosen request keeps the body clear of straight-line forecasts for 1.2 s, judged after the 0.2 s delay plus one period;
   - tracks under 0.15 m/s count as standing;
