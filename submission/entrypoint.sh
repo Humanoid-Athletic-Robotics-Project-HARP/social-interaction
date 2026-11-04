@@ -14,6 +14,7 @@
 # Everything prints to the container's output (HIM's policy.log in the sim).
 set -e
 NAV2_WAIT=15   # s our node waits at most for Nav2 to be configured (HIM waits 30 s)
+NAV2_TRIES=3   # times Nav2 is started at most
 source /opt/ros/foxy/setup.bash
 source /example/install/setup.bash
 source /harp_ws/install/setup.bash
@@ -55,7 +56,12 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
     OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH="/harp:$PYTHONPATH" \
       nice -n 10 python3 /harp/harp/mapper.py &
   fi
-  nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
+  # A Nav2 server that dies ends the launch (nav2.launch.py): start it again, NAV2_TRIES times
+  # in all (Foxy's servers sometimes crash as they start).
+  ( for try in $(seq "$NAV2_TRIES"); do
+      nice -n 10 ros2 launch /harp/nav2/nav2.launch.py
+      printf '{"source": "entrypoint", "event": "nav2_stopped", "wall": %s, "try": %s}\n' "$(date +%s.%N)" "$try"
+    done ) &
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH="/harp:$PYTHONPATH" \
     nice -n 10 python3 "/harp/harp/${avoidance_filter}.py" &
   if [[ "${G1_TASK_COMMAND:-}" == *'"behavior"'* ]]; then

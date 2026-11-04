@@ -22,6 +22,9 @@ Nav2 runs on nav2_params.yaml, or on a rewritten copy (parameters_for) when:
   - the task builds or uses a map ("mapping" or "map" in G1_TASK_COMMAND, harp/mapper.py):
     both costmaps start with a static layer on MAP_TOPIC (frame "map", which harp/mapper.py
     ties to odom), so the planner keeps every wall the map holds, seen lately or not.
+A server that dies ends the whole launch (Shutdown on exit), and entrypoint.sh starts it again:
+Foxy's servers sometimes crash as they start (bt_navigator, recoveries_server: 5 of about 340
+sim runs), and the lifecycle manager doesn't bring one back, so the goal never went out.
 A rewritten file rather than launch overrides: Foxy gives the file's own node entries
 priority over a launch override (written for every node, /**), whatever the order.
 """
@@ -34,6 +37,7 @@ import tempfile
 import yaml
 
 from launch import LaunchDescription
+from launch.actions import Shutdown
 from launch_ros.actions import Node
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -111,9 +115,11 @@ def generate_launch_description():
         Node(package=package, executable=name, name=name, output="both",
              parameters=[params, {"default_bt_xml_filename": TREE}]
              if name == "bt_navigator" else [params],
-             remappings=[("cmd_vel", "cmd_vel_nav")] if name in DRIVES else [])
+             remappings=[("cmd_vel", "cmd_vel_nav")] if name in DRIVES else [],
+             on_exit=Shutdown(reason=name + " stopped"))
         for package, name in SERVERS
     ]
     nodes.append(Node(package="nav2_lifecycle_manager", executable="lifecycle_manager",
-                      name="lifecycle_manager_navigation", output="both", parameters=[params]))
+                      name="lifecycle_manager_navigation", output="both", parameters=[params],
+                      on_exit=Shutdown(reason="lifecycle_manager stopped")))
     return LaunchDescription(nodes)

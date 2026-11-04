@@ -3,14 +3,14 @@ name: nav2-sim
 description: Read before tuning Nav2 (submission/nav2/, the Graceful port), changing a course, or comparing course results — why each setting is what it is, current results and what's next
 metadata:
   type: reference
-  updated: 2026-11-04T13:02:42Z
+  updated: 2026-11-04T14:56:54Z
   covers: [submission/nav2/**, submission/nav2_graceful_controller/**, submission/worlds/*, submission/harp/movers.py, submission/harp/lidar.py, submission/harp/lidar_mount.py, submission/tests/test_lidar_mount.py]
 ---
 
 Nav2 runs in our image on Foxy ([[submission-image]]); values are in `submission/nav2/nav2_params.yaml`, this note gives the reasons. Research behind it: [[lidar-nav2-research]].
 
 **Setup and why**
-- `nav2.launch.py` starts each server as its own node (controller, planner, recoveries, bt_navigator, one lifecycle manager). No map: everything in `odom` (leg odometry), goals in that frame; the global costmap is a 20 × 20 m rolling window.
+- `nav2.launch.py` starts each server as its own node (controller, planner, recoveries, bt_navigator, one lifecycle manager). A server that exits ends the launch and `entrypoint.sh` starts it again (3 tries): Foxy's servers sometimes segfault as they start (5 of about 340 runs, Nov 3–4) and the lifecycle manager doesn't bring one back, so the goal never went out (`NAV2_NOT_ACTIVE`). The container's output then shows a `nav2_stopped` event. No map: everything in `odom` (leg odometry), goals in that frame; the global costmap is a 20 × 20 m rolling window.
 - NavFn (`allow_unknown`) + the **Graceful Controller** (Park & Kuipers, the same law as our `{"to": ...}` move), so a goal is reached in one curve already facing its heading: the way to walk up to a person. Foxy lacks it, so it is our port, `submission/nav2_graceful_controller/` (Nav2 commit `d5d768b`, `HARP_PATCHES.md`). Speed minimums stay well above GR00T's 0.05 Balance switch.
 - `failure_tolerance` 0.3 (ours, in the port): without it each moment with no collision-free trajectory (a person crossing) aborted the path, 6 recoveries and a failed `crossing`. `goal_dist_tolerance` 0.25 matches the goal checker, which Foxy doesn't hand to the controller.
 - Regulated Pure Pursuit (settings in commit `ca382d5`) was rejected: faster, but no final-heading curve, and its collision look-ahead tripped on the walker's sway at 1 s (cut to 0.5 s in those settings).
