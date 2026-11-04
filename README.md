@@ -50,7 +50,9 @@ unchanged, cloned next to this repo, and keep only our code here.
   next, check the profile in HIM's sim.
 - ✅ Sim: driven over ROS 2, `/cmd_vel` in and `/odom` + `/tf` out (`harp_node.py`).
 - ⬜ Robot: all of the above, and leg odometry checked against a tape measure.
-- ⬜ Body language: facing the person, gestures.
+- ✅ Sim: a right-arm hello wave (`{"wave": {}}`, `harp/wave.py`) within HARP's
+  checks as the robot runs them.
+- ⬜ Body language: facing the person, more gestures, the wave on the robot.
 
 ### Get around obstacles
 
@@ -266,6 +268,23 @@ the target heading. Target and fault stops request zero immediately.
 Planned-move faults return a nonzero exit status. Nav2 commands stay at zero
 until usable lidar, its live transform, and speed feedback arrive. Losing any
 of these for over 0.5 s holds zero. A failed route holds zero until a new session.
+
+This raises the right arm, waves three times and lowers it while GR00T keeps
+the robot standing (`harp/wave.py`); it starts 2 s after our image takes over,
+and the hand is up for 6.4 s:
+
+```bash
+G1_SIM_THRASH_MODE=enforce G1_TASK_COMMAND='{"wave": {}}' submission/sim.sh --seconds 16
+```
+
+`G1_SIM_THRASH_MODE=enforce` stops the run on joint thrashing, as on the
+robot (the sim only logs it by default). To score a run against the wave's
+rules (balance, sway, feet, thrashing, timing), add `--no-view --output
+RUN_FOLDER`, then:
+
+```bash
+python3 submission/wave_check.py RUN_FOLDER
+```
 
 If your computer runs short of memory, HARP's harness can stop the run
 (`host_stall`, `observation_timeout`). Close other apps and any viewer still
