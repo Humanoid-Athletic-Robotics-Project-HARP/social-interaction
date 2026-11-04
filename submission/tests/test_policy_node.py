@@ -98,18 +98,20 @@ class WavingPolicyTests(unittest.TestCase):
         self.assertEqual(self.policy.command(state(START - 0.01)), self.walker)
         self.emit.assert_not_called()
 
-    def test_wave_starts_from_the_measured_arm_pose(self):
+    def test_wave_starts_from_the_walkers_arm_targets(self):
+        # Not the measured pose: the arm sags below its targets, and commanding the sag drops it.
         self.policy.command(state(READY))
         frame = self.policy.command(state(START, arm=[0.05] * 7))
-        np.testing.assert_allclose(frame["q"][22:29], [0.05] * 7, atol=1e-9)
-        self.emit.assert_called_with("wave_start", START, pose=[0.05] * 7)
+        np.testing.assert_allclose(frame["q"][22:29], [0.1] * 7, atol=1e-9)
+        np.testing.assert_allclose(frame["dq"][22:29], [0.0] * 7, atol=1e-9)
+        self.emit.assert_called_with("wave_start", START, pose=[0.1] * 7)
 
     def test_only_the_right_arm_changes(self):
         self.policy.command(state(READY))
         self.policy.command(state(START))
         t = START + wave.RAISE_S + 0.3
         frame = self.policy.command(state(t))
-        q, dq, _ = wave.Wave(START, wave.NEUTRAL).at(t)
+        q, dq, _ = wave.Wave(START, [0.1] * 7).at(t)
         self.assertEqual(frame["q"][:22], [0.1] * 22)
         self.assertEqual(frame["dq"][:22], [0.0] * 22)
         np.testing.assert_allclose(frame["q"][22:29], q)
@@ -119,7 +121,7 @@ class WavingPolicyTests(unittest.TestCase):
         self.policy.command(state(READY, sim=False))
         self.assertEqual(self.policy.command(state(START - 0.01, sim=False)), self.walker)
         self.policy.command(state(START, sim=False))
-        self.emit.assert_called_with("wave_start", None, pose=[0.0] * 7)
+        self.emit.assert_called_with("wave_start", None, pose=[0.1] * 7)
         frame = self.policy.command(state(START + wave.RAISE_S + 0.3, sim=False))
         self.assertNotEqual(frame["q"][22:29], self.walker["q"][22:29])
 

@@ -6,14 +6,16 @@ One JSON line per run, its metrics and "failed" (the checks it failed); exit 1 i
 failed. The window runs from wave_start to AFTER s past wave_done, on the sim's clock.
   status           report.json says within_limits
   thrash_mode      HIM's back-and-forth check was enforced, as on the robot
+  torque_stop      HIM's torque and spin stops were on, as on the robot (not G1_SIM_LIMIT_MODE=clip)
   weighted_rms     that check's peak score in the window (missing: thrash_telemetry)
   pelvis_drift_m   how far the pelvis moved over the floor
   tilt_change_deg  how far the pelvis tipped from its tilt at the window's start
   foot_move_m      how far either foot moved (forward kinematics on HIM's G1 model)
   reply_s          our node's worst reply time (its timing events)
   wave_done        the wave finished
-Reported, not checked: arm_error_rad (the right arm's worst gap from the wave's targets),
-arm_warnings (HIM's right-arm joint warnings) and late_states.
+Reported, not checked: arm_error_rad (the right arm's worst gap from the wave's targets;
+null for a run of other wave constants), arm_warnings (HIM's right-arm joint warnings),
+warning_joints (every joint HIM warned about) and late_states.
 
 Needs MuJoCo, so it runs under HIM's .venv-policy-safety (it re-executes itself there).
 """
@@ -64,9 +66,20 @@ def failures(m):
     """The names of the checks a run's metrics fail."""
     out = [name for name, ok in (("status", m.get("status") == "within_limits"),
                                  ("thrash_mode", m.get("thrash_mode") == "enforce"),
+                                 ("torque_stop", m.get("torque_stop") is True),
                                  ("thrash_telemetry", m.get("weighted_rms") is not None)) if not ok]
     out += [key for key, limit in LIMITS.items() if m.get(key) is not None and m[key] > limit]
     return out + ([] if m.get("wave_done") else ["wave_done"])
+
+
+def arm_error(times, arm, motion, done_time):
+    """The arm's worst gap (rad) from motion's targets while it runs, or None if the run's
+    wave_done came over 0.03 s off motion's end: a run of other constants (a test layer)."""
+    if done_time is None or abs(done_time - motion.end) > 0.03:
+        return None
+    gaps = [float(np.max(np.abs(arm[i] - motion.at(float(t))[0]))) for i, t in enumerate(times)
+            if motion.start <= t <= motion.end]
+    return max(gaps) if gaps else None
 
 
 def events(run):
@@ -106,6 +119,8 @@ def measure(run):
     report = json.loads((run / "report.json").read_text())
     m = {"run": str(run), "status": report.get("status"),
          "thrash_mode": (report.get("thrash") or {}).get("mode"),
+         "torque_stop": (report.get("checks") or {}).get("torque_limit_stop") is True,
+         "warning_joints": sorted(report.get("warnings") or {}),
          "arm_warnings": {k: v for k, v in (report.get("warnings") or {}).items() if k.startswith(ARM)}}
     records = events(run)
     start = next((e for e in records if e["event"] == "wave_start"), None)
@@ -129,8 +144,8 @@ def measure(run):
     m["foot_move_m"] = round(foot_move(qpos, rows), 4)
     score = peak_score(thrash, rows)
     m["weighted_rms"] = None if score is None else round(score, 3)
-    m["arm_error_rad"] = round(max(float(np.max(np.abs(qpos[row, 29:36] - motion.at(float(time[row]))[0])))
-                                   for row in rows if time[row] <= t0 + motion.duration), 3)
+    gap = arm_error(time[rows], qpos[rows, 29:36], motion, done["sim_time"] if done else None)
+    m["arm_error_rad"] = None if gap is None else round(gap, 3)
     timing = [e["reply"] for e in records if e["event"] == "timing" and e.get("sim_time") is not None
               and t0 <= e["sim_time"] <= t1 + 1.0]    # a timing line covers the second before it
     m["reply_s"] = max(timing) if timing else None

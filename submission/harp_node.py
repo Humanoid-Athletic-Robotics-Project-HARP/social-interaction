@@ -51,8 +51,9 @@ def wave_task(task):
 
 class WavingPolicy:
     """HIM's walker with the right arm's targets and velocities taken from harp/wave.py: the
-    wave starts wave.SETTLE_S after control_ready, from the arm's measured pose, and runs once.
-    Its clock is the state's (sim_time in the sim, received_at_secs on the robot)."""
+    wave starts wave.SETTLE_S after control_ready, from the walker's own arm targets (the last
+    command; the measured arm sags below them, and commanding the sag would drop it), and runs
+    once. Its clock is the state's (sim_time in the sim, received_at_secs on the robot)."""
 
     def __init__(self, policy, emit):
         self.policy, self.emit = policy, emit
@@ -68,7 +69,7 @@ class WavingPolicy:
         if self.wave is None:
             if now < self.ready_at + wave.SETTLE_S:
                 return frame
-            pose = [float(v) for v in state["q"][wave.RIGHT_ARM]]
+            pose = [float(v) for v in frame["q"][wave.RIGHT_ARM]]
             self.wave = wave.Wave(now, pose)
             self.emit("wave_start", sim_time, pose=pose)
         q, dq, phase = self.wave.at(now)
