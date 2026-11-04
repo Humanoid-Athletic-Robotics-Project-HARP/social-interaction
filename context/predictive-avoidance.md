@@ -3,7 +3,7 @@ name: predictive-avoidance
 description: Read before running or changing generic moving-object tracking, predictive avoidance or its alerts
 metadata:
   type: reference
-  updated: 2026-11-04T09:07:42Z
+  updated: 2026-11-04T10:23:19Z
   covers: [submission/harp/obstacle_tracker.py, submission/harp/predictive_mpc.py, submission/harp/game_planner.py, submission/harp/predictive_avoidance.py, submission/harp/detour.py, submission/harp/avoidance_config.py, submission/harp/SFM_NMPC_REFERENCE.md, submission/tests/test_predictive*.py, submission/tests/test_obstacle_tracker.py, submission/tests/test_avoidance_config.py, submission/tests/test_detour.py, submission/tests/test_game_planner.py, submission/planner_bench.py]
 ---
 
@@ -32,7 +32,7 @@ metadata:
 - **Costs:** comfort intrusion squared, a linear cost inside the 0.30 m clearance rule (`RULE`), body overlap; walls and fixed objects get the same rule cost in the robot's prior (`WALL_RULE`), since the rule counts walls.
 - **Results must be plain Python:** a numpy bool in `alert` crashed the filter in HIM (its JSON event), which looked like the robot freezing.
 - **Dropped from the MPC:** the straight goal pull, which fought Nav2.
-- **Benchmark** (`submission/planner_bench.py`, 90 generated worlds, realistic tracker faults, Nav2 without a map: `--map seen`), MPC → game, walkers who give way: passed every check (walls included) 6 → 20, reached 80 → 83, median time 50 → 45 s; walkers who never react: contacts the robot caused 47 → 38. `--map mapped` gives the Nav2 stand-in a mapping walk's walls ([[mapping]]); 93 worlds, walkers who give way, MPC / game: no map reached 82 / 85, passed every check 6 / 20; mapping walk's map 89 / 91, 8 / 17; full map 92 / 89, 7 / 14 (a map shortens routes, so passes near walls get closer).
+- **Benchmark** (`submission/planner_bench.py`, 90 generated worlds, realistic tracker faults, Nav2 without a map: `--map seen`), MPC → game, walkers who give way: passed every check (walls included) 6 → 20, reached 80 → 83, median time 50 → 45 s; walkers who never react: contacts the robot caused 47 → 38. `--map mapped` gives the Nav2 stand-in a mapping walk's walls, and `HARP_PREDICTIVE_MAP_FLOOR=1` (off) leaves still people on a map's open floor out of Nav2's map ([[mapping]]); 93 worlds, walkers who give way, MPC / game: no map reached 82 / 85, passed every check 6 / 20; mapping walk's map 89 / 91, 8 / 17; full map 92 / 89, 7 / 14 (a map shortens routes, so passes near walls get closer).
 - **People clearance** (60 of 90 runs pass a person under 0.30 m) stays put for every setting tried, and the evidence says why: a robot that ignores people keeps 0.30 m in 10 of 90, the game core in 30; walkers take back room the robot makes (they close 0.75 m in the last 2 s, against 0.44 m with that blind robot); no forecast beat the straight line (turn rate, return to the recent heading); the people model expects too much giving way (fitted to the walkers' motion, ρ ≈ 0.1, but using it only moves the robot along the same trade-off).
 - **Tried and dropped** (no measurable help): a comfort tier, a 4 s plan B against stubborn people, a heavier comfort weight, not closing in when nothing is safe, the forecast's spread in the hard check, CVaR α 0.2 and 0.15, a longer risk discount (`RISK_TIME` 3, 4), people ignoring the robot's rule in their own cost, people giving way a quarter as much (with α 0.3, 0.5, 1).
 

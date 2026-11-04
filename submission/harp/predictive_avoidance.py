@@ -16,7 +16,7 @@ from dataclasses import asdict, replace
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry, Path
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
@@ -29,6 +29,8 @@ from harp.detour import DetourPatience, path_length
 from harp.approach_stop import CAMERA_AGE, CAMERA_MIN_Z, CAMERA_TOPIC, TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.make_way import MakeWay, toward
+from harp.map_floor import MapFloor
+from harp.mapper import MAP_TOPIC, task_mode
 from harp.obstacle_tracker import STRUCTURE_ID, Tracker
 from harp.game_planner import GamePlanner
 from harp.predictive_mpc import CONTROL_PERIOD, Config, Planner, Responsiveness
@@ -201,6 +203,19 @@ class PredictiveAvoidance:
         self.motion = MotionHistory(os.environ.get('HARP_PREDICTIVE_MOVED_HOME', '1') != '0')
         self.moved = set()       # ids of tracks seen moving: people, still people when they pause
         self.displaced = set()   # ids now over MOVED_DISTANCE from where they were first seen
+        # With a map (harp/mapper.py) and HARP_PREDICTIVE_MAP_FLOOR=1, still compact tracks on its
+        # open floor are not part of the building (harp/map_floor.py): left out of STATIC_TOPIC
+        # too, so a person standing by the only doorway doesn't leave Nav2 without a route. Off by
+        # default: in HIM Nav2 then kept its route (1 planning failure against 37), but the robot
+        # stood off at the doorway instead and none of 5 such runs got through.
+        self.floor = None
+        try:
+            mapped = task_mode(os.environ.get("G1_TASK_COMMAND", ""))[0] is not None
+        except ValueError:
+            mapped = False
+        if mapped and os.environ.get('HARP_PREDICTIVE_MAP_FLOOR', '0') == '1':
+            node.create_subscription(OccupancyGrid, MAP_TOPIC, self.on_map, QoSProfile(
+                depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE))
         # Out of a tight spot it is stuck in (HARP_PREDICTIVE_MAKE_WAY=1). Off by default: in HIM's
         # office it made way 5-6 times a run but reached the goal no more often (0/3 either way).
         self.make_way = (MakeWay(self.planner.config.robot_radius)
@@ -330,6 +345,26 @@ class PredictiveAvoidance:
         if cloud.header.frame_id == camera_mount.FRAME:
             self.camera_cloud = cloud
 
+    def on_map(self, msg):
+        try:
+            grid = np.array(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
+            self.floor = MapFloor(grid, (msg.info.origin.position.x, msg.info.origin.position.y),
+                                  msg.info.resolution)
+        except ValueError:
+            self.floor = None
+
+    def temporary(self, tracks, stamp):
+        """Ids of still tracks standing on the map's open floor (none without a map)."""
+        if self.floor is None:
+            return set()
+        try:
+            t = self.tf.lookup_transform("map", "odom", Time())
+        except TransformException:
+            return set()
+        q, p = t.transform.rotation, t.transform.translation
+        return self.floor.temporary(tracks, stamp, (p.x, p.y, 2 * math.atan2(q.z, q.w)),
+                                    MOVING_SIZE, STRUCTURE_ID)
+
     def camera_points(self, stamp):
         """(odom points, camera origin) of the camera frame nearest this scan, or None: the
         camera is optional, so a stale frame, a missing transform or bad data skip it."""
@@ -389,7 +424,7 @@ class PredictiveAvoidance:
             return
         self.pending_cloud = None
         self.scan_stamp, self.scan_receipt = stamp, time.monotonic()
-        moved = self.moved if self.config.smoothing else ()
+        moved = (set(self.moved) if self.config.smoothing else set()) | self.temporary(tracks, stamp)
         static = local[static_mask(points[:, :2], self.last_tracks, stamp, base[:2], moved, self.displaced)]
         if camera is not None:
             # The camera's still points too (its floor left out), in the lidar's frame: Nav2

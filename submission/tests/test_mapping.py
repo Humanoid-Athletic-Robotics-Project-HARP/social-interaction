@@ -324,5 +324,26 @@ class TestMapperNode(unittest.TestCase):
         self.assertLess(abs(m.pose[2] - truth[2]), math.radians(.5))
 
 
+
+class TestMapFloor(unittest.TestCase):
+    def test_a_still_person_on_open_floor_is_temporary_a_pillar_is_not(self):
+        from types import SimpleNamespace
+        from harp.map_floor import MapFloor
+        m = room_map()
+        floor = MapFloor(m.grid(), m.origin, m.resolution)
+        track = lambda i, x, y, r=.2, seen=5.0: SimpleNamespace(id=i, x=x, y=y, radius=r, last_seen=seen)
+        tracks = [track(1, 4.5, 3.0),             # a person in the open
+                  track(2, 3.1, 2.1, .15),        # the pillar, in the map
+                  track(3, 4.5, .15),             # someone against the south wall
+                  track(4, 30.0, 30.0),           # off the map
+                  track(5, 4.5, 3.0, seen=4.0),   # not seen in this scan
+                  track(6, 2.0, 3.0, .8),         # too big to be a person
+                  track(10000, 4.5, 3.0)]         # a wall tile
+        self.assertEqual(floor.temporary(tracks, 5.0, (0.0, 0.0, 0.0), .7, 10000), {1})
+        # In an odom frame 1 m off the map, the same person is found where the map has them.
+        moved = [track(1, 3.5, 3.0)]
+        self.assertEqual(floor.temporary(moved, 5.0, (1.0, 0.0, 0.0), .7, 10000), {1})
+
+
 if __name__ == "__main__":
     unittest.main()
