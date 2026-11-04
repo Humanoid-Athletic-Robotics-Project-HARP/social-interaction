@@ -80,6 +80,16 @@ class Adapter(unittest.TestCase):
     def event(self, event, **fields):
         self.guard.on_event(String(data=json.dumps(dict(source='goal', event=event, **fields))))
 
+    def test_with_a_map_the_goal_is_planned_for_in_odom(self):
+        self.event('goal_sent', x=3., y=1.)
+        self.assertEqual(self.guard.goal_in_odom(), (3., 1.))      # no map: as sent
+        self.guard.mapped, self.robot_x, self.robot_yaw = True, .5, math.pi/2
+        self.lookups.clear()
+        x, y = self.guard.goal_in_odom()
+        self.assertEqual(self.lookups[0][:2], ("odom", "map"))
+        self.assertAlmostEqual(x, .5-1.)
+        self.assertAlmostEqual(y, 3.)
+
     def fresh_active(self):
         self.guard.on_cloud(self.cloud([[2, 0, 0]]))  # Valid floor-only scan: no obstacles.
         self.guard.on_odom(self.odom())

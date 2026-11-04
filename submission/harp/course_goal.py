@@ -55,6 +55,7 @@ ARRIVED = 0.5         # m: a SUCCEEDED this far from the point (by Nav2's own po
 CANCEL_TIMEOUT = 5.0  # s for Nav2 to confirm a cancelled goal has ended
 MAP_WAIT = 10.0       # s for harp/mapper.py's map -> odom transform
 RETRY_WAIT = 2.0      # s after Nav2 fails a goal before it is sent again
+STALE_WAIT = 0.5      # s after a success the robot's pose contradicts before it is sent again
 RETARGET = 0.1        # m the map -> odom transform may move a point before it is sent again
 STATUS = {GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED", GoalStatus.STATUS_ABORTED: "FAILED",
           GoalStatus.STATUS_CANCELED: "CANCELED"}
@@ -199,6 +200,10 @@ def go_to(node, nav, point, deadline, interrupt=None, handoff=None):
     feedback = {}
     sent = nav.send_goal_async(goal, feedback_callback=lambda f: feedback.update(f=f.feedback))
     if not spin_until(node, sent.done, deadline - time.monotonic()):
+        # Out of time before Nav2 answered, but it may still take the goal: cancel it then,
+        # rather than leave Nav2 driving to a point nobody watches.
+        if spin_until(node, sent.done, CANCEL_TIMEOUT) and sent.result().accepted:
+            cancel(node, sent.result(), sent.result().get_result_async())
         return "TIMEOUT", None
     handle = sent.result()
     if not handle.accepted:
@@ -270,6 +275,7 @@ def follow(node, nav, route, event, waypoint_events, change=lambda point: point)
             while status == "SUCCEEDED" and not arrived(f, target) and time.monotonic() < began + TIMEOUT:
                 # A success the robot's own pose contradicts is not an arrival.
                 event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, target), 2))
+                pause(node, STALE_WAIT)   # back to back, a goal ended short of its point flooded Nav2
                 status, f, target = drive(node, nav, point, began + TIMEOUT, change)
             while status == "FAILED" and time.monotonic() + RETRY_WAIT < began + TIMEOUT:
                 # No path left (people in the only doorway are in Nav2's map): they move on.
@@ -279,6 +285,7 @@ def follow(node, nav, route, event, waypoint_events, change=lambda point: point)
                 status, f, target = drive(node, nav, point, began + TIMEOUT, change)
                 while status == "SUCCEEDED" and not arrived(f, target) and time.monotonic() < began + TIMEOUT:
                     event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, target), 2))
+                    pause(node, STALE_WAIT)
                     status, f, target = drive(node, nav, point, began + TIMEOUT, change)
             if status == "SUCCEEDED" and not arrived(f, target):
                 status = "TIMEOUT"

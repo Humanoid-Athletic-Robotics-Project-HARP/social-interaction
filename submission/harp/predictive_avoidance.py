@@ -213,6 +213,7 @@ class PredictiveAvoidance:
             mapped = task_mode(os.environ.get("G1_TASK_COMMAND", ""))[0] is not None
         except ValueError:
             mapped = False
+        self.mapped = mapped   # course_goal.py's goal events are then in the map's frame
         if mapped and os.environ.get('HARP_PREDICTIVE_MAP_FLOOR', '0') == '1':
             node.create_subscription(OccupancyGrid, MAP_TOPIC, self.on_map, QoSProfile(
                 depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE))
@@ -364,6 +365,21 @@ class PredictiveAvoidance:
                                   msg.info.resolution)
         except ValueError:
             self.floor = None
+
+    def goal_in_odom(self):
+        """The goal in odom, where the robot's pose is: with a map, course_goal.py's events
+        give it in the map's frame, which localization moves against odom."""
+        if self.goal is None or not self.mapped:
+            return self.goal
+        try:
+            t = self.tf.lookup_transform("odom", "map", Time())
+        except TransformException:
+            return self.goal
+        q, p = t.transform.rotation, t.transform.translation
+        turn = 2 * math.atan2(q.z, q.w)
+        c, s = math.cos(turn), math.sin(turn)
+        x, y = self.goal
+        return (p.x + c * x - s * y, p.y + s * x + c * y)
 
     def temporary(self, tracks, stamp):
         """Ids of still tracks standing on the map's open floor (none without a map)."""
@@ -605,12 +621,12 @@ class PredictiveAvoidance:
             # spatial margin. Its future velocity is unknown, not a CV estimate
             # that can be extrapolated forever. Fresh scans still gate all motion.
             tracks = self.planning_tracks(stamp)
-            desired, goal = self.desired, self.goal
+            desired, goal = self.desired, self.goal_in_odom()
             if self.detour is not None and self.detour.waiting(stamp):
                 desired = (0., 0., 0.)   # stand for the short way; still checked as usual
             field = getattr(self.planner, 'field', None)
             spot = self.make_way and self.make_way.update(
-                stamp, self.pose, self.goal, self.mode, tracks,
+                stamp, self.pose, goal, self.mode, tracks,
                 None if field is None else (lambda p: self.planner._field_at(p, 0)))
             if spot is not None:
                 # Walk there instead of Nav2's way, with every usual check (harp/make_way.py).

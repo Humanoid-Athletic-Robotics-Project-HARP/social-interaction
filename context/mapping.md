@@ -3,7 +3,7 @@ name: mapping
 description: Read before building or using a map in the sim (course.py --mapping / --map), changing harp/mapper.py, occupancy.py or localizer.py, or judging map results
 metadata:
   type: project
-  updated: 2026-11-04T10:23:19Z
+  updated: 2026-11-04T17:05:54Z
   covers: [submission/harp/mapper.py, submission/harp/occupancy.py, submission/harp/localizer.py, submission/harp/map_floor.py, submission/tests/test_mapping.py]
 ---
 
@@ -12,7 +12,7 @@ metadata:
 **How a run gets one:**
 - `course.py WORLD --mapping` walks the course in an empty building (`--crowd none` unless given: the movers parked far away, `harp/movers.py` `parked_path`) building the map; Nav2 already plans on the growing map. The map leaves the container as "map" events every 5 s; scoring keeps the last as `map.pgm`/`map.yaml` in the run folder.
 - `course.py WORLD --map RUN` puts that map in the task (`G1_TASK_COMMAND` "map", base64 zlib, about 15 KB); the robot is taken to start where the mapping walk did (`"map_pose"` otherwise).
-- `entrypoint.sh` starts `harp/mapper.py` only for such a task; `nav2.launch.py` then puts a static layer (on `/map`) first in both costmaps, still in odom; `course_goal.py` sends each goal through map -> odom.
+- `entrypoint.sh` starts `harp/mapper.py` only for such a task; `nav2.launch.py` then puts a static layer (on `/map`) first in both costmaps, still in odom; `course_goal.py` sends each goal through map -> odom. The goal events stay in the map's frame; the predictive filter turns its goal into odom itself (`goal_in_odom`; before Nov 4 it planned progress toward the map-frame point in odom).
 
 **Map** (`harp/occupancy.py`): 5 cm log-odds cells from `/harp/static_cloud` (moving objects left out). A return at 0.08–1.8 m marks; a ray clears only cells it passes below 0.4 m (a ray high over a low box proves nothing about it), so floor returns clear.
 

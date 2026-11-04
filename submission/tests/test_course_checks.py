@@ -77,7 +77,8 @@ class StaleSuccess(unittest.TestCase):
                    ("SUCCEEDED", _feedback(0., 2.)),      # waypoint 2: stale, still at 1
                    ("SUCCEEDED", _feedback(.05, .1))]     # waypoint 2 after resending
         events = []
-        with patch.object(course_goal, "go_to", side_effect=replies) as go:
+        with patch.object(course_goal, "go_to", side_effect=replies) as go, \
+                patch.object(course_goal, "pause"):
             status = course_goal.follow(None, None, route,
                                         lambda name, **f: events.append((name, f)), True)
         self.assertEqual(status, "SUCCEEDED")
@@ -137,6 +138,27 @@ class FailedGoal(unittest.TestCase):
                 patch.object(course_goal, "TIMEOUT", 1.0), patch.object(course_goal, "pause"):
             status = course_goal.follow(None, None, route, lambda name, **f: None, True)
         self.assertEqual((status, go.call_count), ("FAILED", 1))
+
+
+    def test_a_contradicted_success_is_sent_again_after_a_pause(self):
+        route = route_from_data({"frame": "odom", "waypoints": [[2, 0]], "laps": 1})
+        replies = [("SUCCEEDED", _feedback(1.4, 0.)), ("SUCCEEDED", _feedback(2., 0.))]
+        with patch.object(course_goal, "go_to", side_effect=replies) as go, \
+                patch.object(course_goal, "pause") as pause:
+            status = course_goal.follow(None, None, route, lambda name, **f: None, True)
+        self.assertEqual((status, go.call_count), ("SUCCEEDED", 2))
+        pause.assert_called_once_with(None, course_goal.STALE_WAIT)
+
+    def test_a_goal_nav2_takes_only_after_the_deadline_is_cancelled(self):
+        handle = Mock(accepted=True)
+        sent = Mock(done=lambda: True, result=lambda: handle)
+        nav = Mock(wait_for_server=lambda timeout_sec: True, send_goal_async=lambda *a, **k: sent)
+        node = Mock()
+        with patch.object(course_goal, "spin_until", side_effect=[False, True]), \
+                patch.object(course_goal, "cancel") as cancel:
+            status = course_goal.go_to(node, nav, (2., 0., 0.), 0.)
+        self.assertEqual(status, ("TIMEOUT", None))
+        cancel.assert_called_once()
 
 
 class RouteMovers(unittest.TestCase):
