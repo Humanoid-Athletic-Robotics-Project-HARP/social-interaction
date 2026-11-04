@@ -7,6 +7,9 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Speech test clips and results (speech/bench/)
+speech/bench/out/
+
 # Secrets
 .env
 

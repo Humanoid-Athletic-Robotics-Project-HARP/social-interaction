@@ -172,6 +172,37 @@ Tests of the turn rules and the text handling (no models needed):
 .venv/bin/python -m unittest discover -s tests
 ```
 
+## Bench
+
+Tests on made-up audio and scripted conversations, for tuning without a mic, speakers or
+a person. They write to `bench/out/` (ignored).
+
+Clips for listening, from macOS's `say` voices with noise, room echo, a rough robot mic,
+quiet speakers and pauses (macOS only, about 2 minutes):
+
+```bash
+.venv/bin/python bench/clips.py
+```
+
+Listening on those clips: word errors, turns, false starts, and how soon each turn ends.
+`--sweep` tries each setting alone; `--configs` takes your own:
+
+```bash
+.venv/bin/python bench/listen_bench.py
+```
+
+Scripted conversations through `talk.py`, silent, with the LLM server running:
+
+```bash
+.venv/bin/python bench/talk_bench.py
+```
+
+How clearly each voice comes through, with speech-to-text as the listener:
+
+```bash
+.venv/bin/python bench/voice_bench.py
+```
+
 ## Licenses
 
 Each package and model, its license, and the credit Parakeet's license asks for, is in

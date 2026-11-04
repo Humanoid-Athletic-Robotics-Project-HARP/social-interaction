@@ -3,8 +3,8 @@ name: speech-tuning
 description: Read before changing listen.py's turn settings, talk.py's prompt, grammar, goodbye rules or fillers, or choosing the voice — what synthetic tests found and the changes they point to
 metadata:
   type: project
-  updated: 2026-11-04T22:17:16Z
-  covers: [speech/listen.py, speech/talk.py]
+  updated: 2026-11-04T22:17:26Z
+  covers: [speech/listen.py, speech/talk.py, speech/bench/*]
 ---
 
 Synthetic tests on an M1 MacBook Air's CPU (2026-11-03/04), with no mic or speakers: 222 clips from macOS `say` voices with noise, room echo, a rough robot-mic filter, loudness levels and pauses (each clip scored on turns, word errors, false starts and turn-end lag), and 17 scripted conversations through `talk.py --no-play`. The scripts are in `speech/bench/` (`speech/README.md`); results vary by about 3 points between noise draws. Designs: [[listening]], [[talking]].
