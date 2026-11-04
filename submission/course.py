@@ -43,7 +43,8 @@ moved out of policy.log: submission/lidar_view.py --run shows them), and our sum
 --mapping walks the course in an empty building (--crowd none unless given) building a map;
 --map RUN gives a later walk that run's map (the robot starts where the mapping walk did);
 --odom-drift SCALE DEG_PER_MIN makes the sim's leg odometry drift (scale error, heading
-drift) to test localization.
+drift) to test localization. --time-limit S replaces the world's max_time_s (how long the sim
+runs, and the criterion), for slower speed caps than the worlds were made for.
 A world whose criteria give a task (people.yaml: the behavior loop, harp/behavior.py) runs
 that as G1_TASK_COMMAND instead of its goal. Then outcome is succeeded if the loop started
 and didn't stop on an error, seconds are from its start to its first talk, there's no end
@@ -419,6 +420,8 @@ def score(run):
         criteria = route.criteria
     else:
         criteria = world_criteria(name)
+        if criteria and meta.get("time_limit"):
+            criteria = dict(criteria, max_time_s=meta["time_limit"])   # --time-limit
     summary["passed"], summary["failed_checks"] = check(summary, criteria)
     (run / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
@@ -869,9 +872,10 @@ def course_task(existing, route=None, avoidance=None, crowd=None, extra=None):
     return text
 
 
-def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None, extra=None, map_from=None):
+def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None, extra=None, map_from=None,
+             time_limit=None):
     criteria = world_criteria(name) or {}
-    max_time = route_time(route) if route else criteria.get("max_time_s", 60)
+    max_time = time_limit or (route_time(route) if route else criteria.get("max_time_s", 60))
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
     run = RUNS / "_".join(filter(None, (stamp, "sim", name, tag)))
     run.mkdir(parents=True)
@@ -883,7 +887,7 @@ def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None, extr
         existing = json.dumps(criteria["task"])   # e.g. harp/behavior.py's loop
     env["G1_TASK_COMMAND"] = course_task(existing, route, avoidance, crowd, extra)
     (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
-                                                  tag=tag, map_from=map_from)) + "\n")
+                                                  tag=tag, map_from=map_from, time_limit=time_limit)) + "\n")
     for note in memory_warnings():
         print(f"{run.name}: warning: {note}", flush=True)
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
@@ -1049,6 +1053,8 @@ def main():
     mapping.add_argument("--mapping", action="store_true",
                          help="build a map on this walk (harp/mapper.py), in an empty building unless --crowd")
     mapping.add_argument("--map", metavar="RUN", help="walk with the map a --mapping run built")
+    parser.add_argument("--time-limit", type=float, metavar="S",
+                        help="the world's max_time_s instead (sim length and criterion), e.g. at 0.3 m/s")
     parser.add_argument("--odom-drift", nargs=2, type=float, metavar=("SCALE", "DEG_PER_MIN"),
                         help="sim only: leg odometry's scale error and heading drift")
     parser.add_argument("--view", action="store_true",
@@ -1118,7 +1124,7 @@ def run_and_score(run, args, route):
     """Run (unless --score) and score one run, print its line, and prune; False if it
     didn't succeed or failed its criteria."""
     run = run if args.score else run_once(args.world, args.tag, route, args.view, args.avoidance,
-                                          args.crowd, args.extra, args.map_from)
+                                          args.crowd, args.extra, args.map_from, args.time_limit)
     if run is None:
         return False
     try:
