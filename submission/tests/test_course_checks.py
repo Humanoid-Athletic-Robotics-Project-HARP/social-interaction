@@ -95,6 +95,50 @@ class StaleSuccess(unittest.TestCase):
         self.assertEqual((status, go.call_count), ("SUCCEEDED", 1))
 
 
+class FailedGoal(unittest.TestCase):
+    def test_a_failed_goal_is_sent_again_while_time_remains(self):
+        # Walkers waiting in the only doorway leave Nav2 no path; once they move on it finds one.
+        route = route_from_data({"frame": "odom", "waypoints": [[2, 0]], "laps": 1})
+        replies = [("FAILED", _feedback(0., 0.)), ("FAILED", _feedback(.5, 0.)),
+                   ("SUCCEEDED", _feedback(2., 0.))]
+        events = []
+        with patch.object(course_goal, "go_to", side_effect=replies) as go, \
+                patch.object(course_goal, "pause") as pause:
+            status = course_goal.follow(None, None, route,
+                                        lambda name, **f: events.append((name, f)), True)
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertEqual(go.call_count, 3)
+        self.assertEqual(pause.call_count, 2)
+        self.assertEqual(sum(name == "goal_retry" for name, _ in events), 2)
+
+    def test_a_goal_localization_moves_is_sent_again_where_it_now_is(self):
+        # Leg odometry drifts; once map -> odom has moved the point 0.1 m, Nav2 gets it again.
+        route = route_from_data({"frame": "odom", "waypoints": [[2, 0]], "laps": 1})
+        shift = [0.0]
+        change = lambda p: (p[0] + shift[0], p[1], p[2])
+        sent = []
+
+        def go_to(node, nav, point, deadline, interrupt=None, handoff=None):
+            sent.append(point)
+            if len(sent) == 1:
+                shift[0] = .3                       # localization corrects 0.3 m meanwhile
+                self.assertTrue(interrupt() and handoff())
+                return "HANDED_OFF", None
+            self.assertFalse(interrupt())
+            return "SUCCEEDED", _feedback(2.3, 0.)
+        with patch.object(course_goal, "go_to", side_effect=go_to):
+            status = course_goal.follow(None, None, route, lambda name, **f: None, True, change)
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertEqual([p[0] for p in sent], [2.0, 2.3])
+
+    def test_without_time_left_a_failure_ends_the_route(self):
+        route = route_from_data({"frame": "odom", "waypoints": [[2, 0]], "laps": 1})
+        with patch.object(course_goal, "go_to", return_value=("FAILED", None)) as go, \
+                patch.object(course_goal, "TIMEOUT", 1.0), patch.object(course_goal, "pause"):
+            status = course_goal.follow(None, None, route, lambda name, **f: None, True)
+        self.assertEqual((status, go.call_count), ("FAILED", 1))
+
+
 class RouteMovers(unittest.TestCase):
     def test_a_route_mover_walks_its_points_and_turns_back(self):
         import mujoco

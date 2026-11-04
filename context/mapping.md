@@ -3,7 +3,7 @@ name: mapping
 description: Read before building or using a map in the sim (course.py --mapping / --map), changing harp/mapper.py, occupancy.py or localizer.py, or judging map results
 metadata:
   type: project
-  updated: 2026-11-04T02:07:16Z
+  updated: 2026-11-04T09:07:42Z
   covers: [submission/harp/mapper.py, submission/harp/occupancy.py, submission/harp/localizer.py, submission/tests/test_mapping.py]
 ---
 
@@ -18,6 +18,6 @@ metadata:
 
 **Localization** (`harp/localizer.py`): a correlative search (Olson 2009) on a smooth likelihood field round the estimate, coarse to fine, turned about the robot. Turned about odom's origin, 8 m behind, each 1° of the torso's heading sway moved the robot 14 cm and the window couldn't reach the fix: HIM showed corrections jumping 28 cm. The estimate takes 30% of each match's position and 5% of its heading (heading jitters about 1° scan to scan). Matches need 80 inlier returns and 40% fit, and may move the robot at most 0.3 m.
 
-**Results (HIM, building, aware crowd, 0.5 m/s):** the mapping walk reached the goal in 30 s with a clean map (walls, doors, pillars). Replayed offline, localization is within about 5 cm of the truth at the robot (mostly the mapping walk's own drift). Walks on the map: 1 reached the goal of 3 (one dodged into a side room with walkers, not a map fault); A/B on fresh held-out worlds next. Sim odometry drifts only about 5 cm a run; `--odom-drift SCALE DEG_PER_MIN` makes it drift more, to test localization.
+**Results (HIM, aware crowd, 0.5 m/s; 7 held-out worlds, office, atrium, building; code `c28b5be`):** mapping walks reach their goals with clean maps. At the goal: game core with the map 7 of 11, without 6 of 10 (passed every check 3 and 3); NMPC 6 of 10 and 5 of 10 (passed 0 and 0); median time at the goal 46 / 70 s (game), 61 / 80 s (NMPC). A small gain from the map, a larger one from the game core. Map-only misses: walkers waiting in the only doorway, so Nav2 found no path and gave up (6 recoveries); `course_goal.py` now sends the goal again. Drift test (`--odom-drift 0.03 6`): localization found the drift (−9.5°) but the goal stayed where it was sent, 0.5 m off; `course_goal.py` now resends it. Localization offline: within about 5 cm of the truth at the robot. Benchmark: [[predictive-avoidance]].
 
 **Not done:** nothing on the robot (its odometry drifts more and its map would need a mapping walk there); no map editing (a standing person on the mapping walk stays a wall); doors closing after mapping.

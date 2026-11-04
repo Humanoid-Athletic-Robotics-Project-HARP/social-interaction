@@ -14,7 +14,8 @@ seed) or a named world. In it:
   replanned every 2 s, and a pure-pursuit follower that turns on the spot when far off its
   heading. With --map seen it plans as Nav2 does here without a map: walls only where seen
   (within 6 m, in line of sight), forgotten 15 s after last seen, unseen space free; and the
-  filter's detour patience (harp/detour.py) runs on its paths;
+  filter's detour patience (harp/detour.py) runs on its paths. --map mapped adds a map (as
+  course.py --map): every wall a people-free walk to the goal saw first stays known;
 - the planner sees tracks (true positions and velocities with small noise; with --noise
   real, the tracker's typical faults too: velocity noise up to 0.2 m/s, most on slow
   objects, and people near the robot sometimes left behind as remembered still objects for
@@ -122,6 +123,7 @@ class SeenMap:
                 occupied |= np.hypot(X-s[1], Y-s[2]) <= s[3]
         self.occupied, self.wall = occupied, wall
         self.seen = np.full(len(wall), -math.inf)
+        self.mapped = np.zeros(len(wall), bool)   # tiles a map holds: never forgotten
 
     def update(self, xy, t):
         if not len(self.wall):
@@ -140,8 +142,30 @@ class SeenMap:
         self.seen[near[~blocked]] = t
 
     def shapes(self, t):
-        keep = t-self.seen <= FORGET
+        keep = (t-self.seen <= FORGET) | self.mapped
         return [("cyl", float(x), float(y), float(r)) for x, y, r in self.wall[keep]]
+
+
+def mapping_walk(seen_map, goal, bounds, limit=120.):
+    """A people-free walk from the start to the goal planning on every wall it has seen, as
+    course.py --mapping does: marks those walls mapped. Kinematic, at the follower's request."""
+    pose, step = np.zeros(3), .2
+    route = None
+    for k in range(int(limit/step)):
+        if k % 3 == 0:
+            seen_map.update(pose[:2].copy(), k*step)
+            seen_map.mapped |= seen_map.seen > -math.inf
+        if k % 10 == 0 or route is None:
+            route = plan_route(seen_map.shapes(k*step), tuple(pose[:2]), goal, bounds) or route
+            if route is None:
+                break
+        v = follow(route, pose, goal)
+        if not v.any():
+            break
+        pose = pose + step*np.array([v[0]*math.cos(pose[2]), v[0]*math.sin(pose[2]), v[2]])
+    seen_map.update(pose[:2].copy(), limit)
+    seen_map.mapped |= seen_map.seen > -math.inf
+    return seen_map.mapped.copy()
 
 
 def plan_route(shapes, start, goal, bounds, inflate=.5, cell=.1):
@@ -228,7 +252,9 @@ def run(job):
     xs = [p for s in shapes for p in ((s[1]-s[3], s[1]+s[3]) if s[0] == "box" else (s[1]-s[3], s[1]+s[3]))]
     ys = [p for s in shapes for p in ((s[2]-s[4], s[2]+s[4]) if s[0] == "box" else (s[2]-s[3], s[2]+s[3]))]
     bounds = (min(xs+[-2.])-1, max(xs+[goal[0]])+1, min(ys+[-2.])-1, max(ys+[2.])+1)
-    seen_map = SeenMap(shapes, wall, bounds) if job.get("map") == "seen" else None
+    seen_map = SeenMap(shapes, wall, bounds) if job.get("map") in ("seen", "mapped") else None
+    if job.get("map") == "mapped":
+        seen_map.mapped = mapping_walk(SeenMap(shapes, wall, bounds), goal, bounds)
     if seen_map is not None:
         seen_map.update(np.zeros(2), 0.)
     route = plan_route(shapes if seen_map is None else seen_map.shapes(0.), (0., 0.), goal, bounds)
@@ -385,8 +411,9 @@ def main():
     parser.add_argument("--worlds", nargs="*", default=[], help="named worlds too (e.g. building office atrium)")
     parser.add_argument("--crowds", nargs="+", default=["aware"], choices=["aware", "scripted"])
     parser.add_argument("--noise", default="clean", choices=["clean", "real"])
-    parser.add_argument("--map", default="known", choices=["known", "seen"],
-                        help="the Nav2 stand-in's map: known walls, or only those seen recently (as in HIM)")
+    parser.add_argument("--map", default="known", choices=["known", "seen", "mapped"],
+                        help="the Nav2 stand-in's map: known walls, only those seen recently (as in HIM), "
+                             "or those and a mapping walk's (course.py --map)")
     parser.add_argument("--set", nargs="*", default=[], metavar="NAME=VALUE",
                         help="harp/game_planner.py module constants for this run, e.g. COMFORT_WEIGHT=4")
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2)-2))

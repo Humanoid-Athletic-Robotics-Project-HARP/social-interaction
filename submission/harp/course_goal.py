@@ -5,7 +5,9 @@ The goal is the world's goal site, in odom (harp/state.py's leg odometry, which
 starts at the world's origin with the robot). A route in G1_TASK_COMMAND
 ({"route": {...}}, harp/route.py; course.py --route sets it) replaces it: each
 point in turn, laps times, moving on only once Nav2 reports the point reached.
-A rejection, failure or timeout ends the route there. Everything goes out once
+A rejection or timeout ends the route there; so does a failure, once the point's time is up:
+Nav2 fails a goal when no path is left, as when people stand in the only doorway (still, they
+are in its map), so a failed goal is sent again after RETRY_WAIT s (a goal_retry event). Everything goes out once
 HIM's sim has handed control to our policy (harp_node's control_ready event),
 Nav2 is active, and SETTLE s have passed.
 
@@ -18,7 +20,8 @@ Nav2 isn't active within NAV2_START s, the result is NAV2_NOT_ACTIVE.
 
 With a map (harp/mapper.py: "mapping" or "map" in the task), points are in the map's frame
 (the mapping walk's odom: the world's, as each walk starts at its origin) and each goes to Nav2
-in odom through the map -> odom transform as it is when the point is sent.
+in odom through the map -> odom transform; Foxy's Nav2 keeps a goal where it was sent, so the
+point is sent again once localization has moved it RETARGET in odom (leg odometry drifting).
 
 Each point gets TIMEOUT s, finding Nav2's action server and its accepting the
 goal included, so no wait here is unbounded. A timeout cancels the goal and
@@ -51,6 +54,8 @@ TIMEOUT = 240.0       # s for each point, from sending it to Nav2's result
 ARRIVED = 0.5         # m: a SUCCEEDED this far from the point (by Nav2's own pose) is not trusted
 CANCEL_TIMEOUT = 5.0  # s for Nav2 to confirm a cancelled goal has ended
 MAP_WAIT = 10.0       # s for harp/mapper.py's map -> odom transform
+RETRY_WAIT = 2.0      # s after Nav2 fails a goal before it is sent again
+RETARGET = 0.1        # m the map -> odom transform may move a point before it is sent again
 STATUS = {GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED", GoalStatus.STATUS_ABORTED: "FAILED",
           GoalStatus.STATUS_CANCELED: "CANCELED"}
 
@@ -213,6 +218,10 @@ def go_to(node, nav, point, deadline, interrupt=None, handoff=None):
     return (ended if cancel(node, handle, result) else "CANCEL_TIMEOUT"), feedback.get("f")
 
 
+def pause(node, seconds):
+    spin_until(node, lambda: False, seconds)
+
+
 def distance_to(feedback, point):
     """Distance from Nav2's last reported robot pose to the point (inf without one)."""
     pose = getattr(getattr(feedback, "current_pose", None), "pose", None)
@@ -225,6 +234,22 @@ def arrived(feedback, point):
     """Trust a SUCCEEDED unless Nav2's own last pose puts the robot clearly elsewhere."""
     distance = distance_to(feedback, point)
     return not math.isfinite(distance) or distance <= ARRIVED
+
+
+def drive(node, nav, point, deadline, change):
+    """go_to the point (change: from its frame to odom), sent again whenever change moves it
+    RETARGET from where it was sent: (status, feedback, the point in odom last sent)."""
+    sent = [change(point)]
+
+    def moved():
+        now = change(point)
+        return math.hypot(now[0] - sent[0][0], now[1] - sent[0][1]) > RETARGET
+
+    while True:
+        status, f = go_to(node, nav, sent[0], deadline, moved, lambda: True)
+        if status != "HANDED_OFF":
+            return status, f, sent[0]
+        sent[0] = change(point)
 
 
 def follow(node, nav, route, event, waypoint_events, change=lambda point: point):
@@ -241,13 +266,20 @@ def follow(node, nav, route, event, waypoint_events, change=lambda point: point)
             if waypoint_events:
                 event("waypoint_sent", lap=lap, waypoint=waypoint, x=point[0], y=point[1], yaw=point[2])
             began = time.monotonic()
-            target = change(point)
-            status, f = go_to(node, nav, target, began + TIMEOUT)
+            status, f, target = drive(node, nav, point, began + TIMEOUT, change)
             while status == "SUCCEEDED" and not arrived(f, target) and time.monotonic() < began + TIMEOUT:
                 # A success the robot's own pose contradicts is not an arrival.
                 event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, target), 2))
-                target = change(point)
-                status, f = go_to(node, nav, target, began + TIMEOUT)
+                status, f, target = drive(node, nav, point, began + TIMEOUT, change)
+            while status == "FAILED" and time.monotonic() + RETRY_WAIT < began + TIMEOUT:
+                # No path left (people in the only doorway are in Nav2's map): they move on.
+                recoveries += getattr(f, "number_of_recoveries", 0)
+                event("goal_retry", lap=lap, waypoint=waypoint, after=round(time.monotonic() - began, 1))
+                pause(node, RETRY_WAIT)
+                status, f, target = drive(node, nav, point, began + TIMEOUT, change)
+                while status == "SUCCEEDED" and not arrived(f, target) and time.monotonic() < began + TIMEOUT:
+                    event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, target), 2))
+                    status, f, target = drive(node, nav, point, began + TIMEOUT, change)
             if status == "SUCCEEDED" and not arrived(f, target):
                 status = "TIMEOUT"
             recoveries += getattr(f, "number_of_recoveries", 0)
