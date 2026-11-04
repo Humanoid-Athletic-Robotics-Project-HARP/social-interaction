@@ -3,13 +3,13 @@ name: submission-image
 description: Read before changing submission/ (the image, entrypoint, Dockerfile, worlds) or debugging what runs inside a run
 metadata:
   type: project
-  updated: 2026-11-04T16:47:32Z
+  updated: 2026-11-04T16:58:53Z
   covers: [submission/**]
 ---
 
 `submission/` is our code on top of him-sim2real-management ([[him-sim2real]]): one image, `harp-submission:local` (`build.sh`), plus a thin layer per world (`harp-submission:NAME`, `Dockerfile.world`); a git worktree has its own image names ([[worktrees]]). Running and scoring it: [[course-runs]].
 
-**How it fits:** `build.sh` runs HIM's own `containers/examples/prepare.py walker` into `submission/.build/` (ignored) and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. `harp_node.py` subclasses HIM's `client.PolicyNode`: the task velocity is the latest `/cmd_vel` (clipped to 0.6/0.4 m/s, 1 rad/s; zero after 0.5 s), and each state is republished by `harp/state.py` (`/odom`, `/tf`, `/joint_states`, `/imu`). Leg odometry runs on HIM's G1 model (`/harp/model`, MuJoCo 3.2.3, the newest for Python 3.8). The lidar and depth camera mounts are the rev 1.0 URDF's (`harp/lidar_mount.py`, `harp/camera_mount.py`).
+**How it fits:** `build.sh` runs HIM's own `containers/examples/prepare.py walker` into `submission/.build/` (ignored) and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. `harp_node.py` subclasses HIM's `client.PolicyNode`: the task velocity is the latest `/cmd_vel` (clipped to 0.6/0.4 m/s, 1 rad/s; zero after 0.5 s); a velocity task (`G1_TASK_COMMAND='[vx, vy, yaw]'`) is clipped the same way (unclipped before Nov 4) and a malformed one stands. HIM's `--command FILE` schedule still bypasses both, and each state is republished by `harp/state.py` (`/odom`, `/tf`, `/joint_states`, `/imu`). Leg odometry runs on HIM's G1 model (`/harp/model`, MuJoCo 3.2.3, the newest for Python 3.8). The lidar and depth camera mounts are the rev 1.0 URDF's (`harp/lidar_mount.py`, `harp/camera_mount.py`).
 
 **Size:** `submission.tar` is about 306 MB; HIM sets no limit, and `ros:foxy-ros-base` alone is 252 MB. The `Dockerfile` has two stages: `build` compiles (CycloneDDS, HIM's interfaces, our Graceful port) and pip-installs; the image copies in only the results. Foxy's debs name far more than they load (STVL names all of PCL and so VTK and Mesa; `behaviortree_cpp_v3` names `libboost-all-dev` and so OpenMPI and Flang, 950 MB), so the image installs empty stand-in debs under those names and only the libraries STVL and Nav2 load come in; it also uninstalls OpenCV, SymPy and PyOpenGL (pulled in, never imported). If a new package fails to load a library, `ldd` its `.so` in the image and add the real runtime package, not the stand-in's name.
 

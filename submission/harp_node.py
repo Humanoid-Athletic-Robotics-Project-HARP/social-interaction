@@ -30,6 +30,17 @@ MODEL = "/harp/model/g1_robot.xml"      # him-sim2real-management's G1, for leg 
 LATE = 0.04                             # s: a state this old gets its own late_state line
 
 
+def clipped(cmd):
+    """cmd ([vx, vy, yaw rate]) within CMD_LIMITS, or None unless it is three finite numbers."""
+    try:
+        cmd = [float(v) for v in cmd]
+    except (TypeError, ValueError):
+        return None
+    if len(cmd) != 3 or not all(math.isfinite(v) for v in cmd):
+        return None
+    return np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).tolist()
+
+
 class Timing:
     """Worst case each second of how HIM's 0.2 s state deadline is spent, as a "timing" line:
     age (s from HIM receiving the state to it reaching us), reply (our joint command),
@@ -74,6 +85,9 @@ class HarpPolicyNode(client.PolicyNode):
         # A {"moves": ...} or {"to": ...} task is for harp/moves.py, which drives /cmd_vel.
         if self.task_command is None or isinstance(self.task_command, dict):
             self.task_command = [0.0, 0.0, 0.0]
+        else:
+            # A velocity task ([vx, vy, yaw rate]) gets the /cmd_vel limits; a malformed one stands.
+            self.task_command = clipped(self.task_command) or [0.0, 0.0, 0.0]
         self.cmd_time = None
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd_vel, 10)
         self.state_out = StatePublisher(self, MODEL)
@@ -82,13 +96,13 @@ class HarpPolicyNode(client.PolicyNode):
         self.timing = Timing()
 
     def on_cmd_vel(self, msg):
-        cmd = [msg.linear.x, msg.linear.y, msg.angular.z]
-        if not all(math.isfinite(v) for v in cmd):
+        cmd = clipped([msg.linear.x, msg.linear.y, msg.angular.z])
+        if cmd is None:
             # Stand at once rather than keep the last command until the timeout.
             self.task_command, self.cmd_time = [0.0, 0.0, 0.0], None
             print("Non-finite /cmd_vel: standing.", file=sys.stderr, flush=True)
             return
-        self.task_command = np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).tolist()
+        self.task_command = cmd
         self.cmd_time = time.monotonic()
 
     def publish_command(self):
