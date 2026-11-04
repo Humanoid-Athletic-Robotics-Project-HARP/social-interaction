@@ -16,8 +16,8 @@ is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
   - A filler plays if the LLM has given no text, and nothing is playing, FILLER s after
     the person's turn ended.
   - A fixed line instead on an LLM error, or if it hasn't answered in GIVE_UP s.
-  - The end: the LLM's <bye> tag on a reply that sounds like a goodbye (FAREWELL), the
-    person saying goodbye, MAX_TURNS turns or MAX_S s, or MISSES empty turns in a row.
+  - The end: a reply that sounds like a goodbye (FAREWELL), with the LLM's <bye> tag or
+    after the person said goodbye; MAX_TURNS turns or MAX_S s; or MISSES empty turns in a row.
 
 Events, one JSON line each on stdout: said (text, and from the turn's end: llm_s to the
 first sentence, ready_s to its audio, first_sound_s to its sound, which also waits for
@@ -86,17 +86,25 @@ loud with someone standing about one metre in front of you, and you have just sa
 How you talk:
 - One or two short sentences each time, in plain spoken words, even if they ask for \
 more. No lists, emoji, symbols or stage directions.
+- Speak only English. If they use another language, say in English that you only speak \
+English.
 - Answer what they actually said. A short reaction ("Oh, nice!", "Ha, fair enough.") \
 fits when they tell you something; a greeting gets a greeting, and a question gets an \
 answer.
 - Then at most one simple question about them, their day or what they're up to. Never \
 ask a question you've already asked; ask something new.
-- If they seem confused or say "What?", say what you meant in other, simpler words.
+- If they seem confused ("What?", "Huh?"), say what you meant in other, simpler words, \
+never the same words as before.
+- What they say comes from speech-to-text, which often mishears your name: "heart", \
+"hard", "Hart" or "harp" usually means HARP, you. Answer as if they had said HARP, \
+without mentioning it.
 - Be warm and curious. Talk about them, not about yourself.
 - You only know what they tell you. Don't claim to see, remember or have done things. If \
-they ask what you are: a Unitree G1 humanoid robot running software the team wrote; you \
-can walk and talk but can't use your arms yet.
-- Never ask for personal details like their full name, phone number or address.
+they ask what you are: a Unitree G1 humanoid robot, about 1.3 metres tall, running \
+software the team wrote; you can walk and talk but can't use your arms yet. HARP stands \
+for Humanoid Athletic Robotics Project.
+- Never ask for personal details like their full name, phone number or address. If they \
+give you one, say kindly that you don't need it and keep chatting.
 - Don't offer to help with things or go places: you can only chat.
 - If they are rude, stay kind, don't argue, and say goodbye.
 - When they want to leave or have nothing more to say, say a short warm goodbye and end \
@@ -117,7 +125,7 @@ Person: Okay, I have to go now.
 HARP: No problem, it was lovely meeting you. Have a great day! {END_TAG}"""
 
 GRAMMAR = r'''root ::= sentence (" " sentence)? (" <bye>")?
-sentence ::= [A-Za-z0-9 ,;:'"-]+ [.!?]'''
+sentence ::= ([A-Za-z0-9 ,;:'"-] | [0-9] "." [0-9])+ [.!?]'''
 
 ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen "
         "fourteen fifteen sixteen seventeen eighteen nineteen").split()
@@ -137,12 +145,21 @@ def number_words(n):
     return str(n)
 
 
+def clock(hour, minute):
+    """A time in words: 1:30 -> one thirty, 9:05 -> nine oh five, 3:00 -> three."""
+    if minute == 0:
+        return number_words(hour)
+    return number_words(hour) + (" oh " if minute < 10 else " ") + number_words(minute)
+
+
 def speakable(text):
     """Text as the voice should read it: tags out, numbers in words."""
     text = text.replace(END_TAG, "")
     for written, said in SPOKEN.items():
         text = re.sub(rf"\b{written}\b", said, text)
     text = re.sub(r"([A-Za-z])(\d)", r"\1 \2", text)   # "A4" is "A four", not "Afour"
+    text = re.sub(r"(\d)(?!(?:st|nd|rd|th)\b)([A-Za-z])", r"\1 \2", text)   # "106B": not "sixB"
+    text = re.sub(r"\b(\d{1,2}):(\d\d)\b", lambda m: clock(int(m.group(1)), int(m.group(2))), text)
     text = re.sub(r"(\d+)\.(\d+)", lambda m: number_words(int(m.group(1))) + " point " +
                   " ".join(ONES[int(d)] for d in m.group(2)), text)
     text = re.sub(r"\d+", lambda m: number_words(int(m.group())), text.replace(",000", "000"))
@@ -283,6 +300,17 @@ class Speaker:
         self.idle.wait()
 
 
+def ending(reply, heard):
+    """Why this reply ends the conversation, or None. Only a reply that sounds like a goodbye
+    (FAREWELL) ends it, with the model's END_TAG or after the person's goodbye: the person's
+    words alone end too much ("I have to go to the dentist tomorrow")."""
+    if not FAREWELL.search(reply.replace(END_TAG, "")):
+        return None
+    if END_TAG in reply:
+        return "bye"
+    return "goodbye" if GOODBYE.search(heard) else None
+
+
 def stream_reply(url, messages, grammar):
     """The LLM's reply as it comes, piece by piece."""
     body = {"messages": messages, "stream": True, "max_tokens": MAX_TOKENS, "temperature": 0.7,
@@ -309,7 +337,8 @@ def pieces(stream):
     for piece in stream:
         text += piece
         while True:
-            end = re.search(r"[.!?](\s|$)", text)
+            # a "." just after a digit may be a decimal point still streaming ("1." then "3")
+            end = re.search(r"[.!?]\s|[!?]$|(?<!\d)\.$", text)
             for comma in re.finditer(r"[,;:]\s", text):
                 if end and comma.start() > end.start():
                     break
@@ -346,8 +375,11 @@ class Conversation:
 
     def echo(self, heard):
         """True if what was heard is the robot's own voice, leaked past listening's mute:
-        close to something it said lately, or a piece of it."""
+        close to something it said lately, a piece of it, or the last word or two it said."""
         heard = " ".join(re.findall(r"[a-z']+", heard.lower()))
+        last = " ".join(re.findall(r"[a-z']+", self.said[-1].lower())) if self.said else ""
+        if heard and len(heard.split()) <= 2 and (" " + last).endswith(" " + heard):
+            return True   # the tail of what it just said, heard as the mute ended ("day going")
         for said in self.said[-3:]:
             said = " ".join(re.findall(r"[a-z']+", said.lower()))
             if heard and (SequenceMatcher(None, heard, said).ratio() >= ECHO
@@ -419,19 +451,17 @@ class Conversation:
         finally:
             filler.cancel()
         text = reply.replace(END_TAG, "").strip()
-        bye = END_TAG in reply and bool(FAREWELL.search(text) or GOODBYE.search(heard))
-        if END_TAG in reply and not bye:
+        end = ending(reply, heard)
+        if END_TAG in reply and not end:
             self.event("ignored_bye", text=text)
         # The history keeps only a goodbye that counts, so the model doesn't think it left.
-        self.messages.append({"role": "assistant", "content": text + (" " + END_TAG if bye else "")})
+        self.messages.append({"role": "assistant", "content": text + (" " + END_TAG if end else "")})
         self.speaker.wait()
         self.event("said", text=text, llm_s=round(first.get("llm", 0), 3),
                    ready_s=round(first.get("ready", 0), 3),
                    first_sound_s=round(first.get("sound", 0), 3))
-        if bye:
-            return "bye"
-        if GOODBYE.search(heard):
-            return "goodbye"
+        if end:
+            return end
         if self.turns >= MAX_TURNS or time.perf_counter() - self.began >= MAX_S:
             return self.close("time")
         return None
