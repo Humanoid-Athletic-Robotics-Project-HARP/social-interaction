@@ -33,6 +33,7 @@ remembered surfaces and slow objects come from the MPC's distance field (Planner
 """
 
 import math
+import time
 
 import numpy as np
 
@@ -59,9 +60,12 @@ WALL_RULE = 3.3          # the same per metre for walls and fixed objects (the r
                          # map-less worlds, passed every check with walls 9 / 17 / 20 / 21 and
                          # reached 85 / 83 / 83 / 78 at 0 / 1 / 3.3 / 10 (the MPC: 6, 80); doors under
                          # 1.3 m leave no way to keep 0.30 m from both sides, and 10 made it hesitate
-RULE = 10.               # cost per metre inside RULE_GAP (linear): the quadratic comfort part
+RULE = 20.               # cost per metre inside RULE_GAP (linear): the quadratic comfort part
                          # made a pass just under the rule cheaper than a slow G1 sidestep, and
-                         # in 30 of 90 runs a walker passed under 0.20 m while the robot kept on
+                         # in 30 of 90 runs a walker passed under 0.20 m while the robot kept on.
+                         # 20, not 10, with the speed-scaled prior: benchmark at 0.3 m/s, 63
+                         # worlds, passed every check 2 / 4 / 2 and reached 57 / 60 / 57 at 10 /
+                         # 20 / 30; at 0.5 m/s, 93 worlds, passed 20 either way, reached 85 / 87
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
 SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY)
 CONTINGENCY_TIME = 2.5   # s a plan B must stay clear for if people don't react at all
@@ -72,7 +76,21 @@ REACTION = .5            # s before a person's change of pace or direction can s
                          # the equilibrium had a close walker sidestep at once, so the robot
                          # kept walking in (benchmark: it closed 0.18 m of the last 2 s before
                          # its closest passes, the MPC 0.07 m) and passes came closer
-PRIOR_TEMPERATURE = .08  # request cost (m/s)^2 per nat of robot prior: 2σ², σ = 0.2 m/s
+PRIOR_TEMPERATURE = .08  # request cost (m/s)^2 per nat of robot prior: 2σ², σ = 0.2 m/s at
+                         # REFERENCE_SPEED, scaled with the speed cap squared (σ 0.12 m/s at 0.3):
+                         # unscaled, at 0.3 m/s σ spanned most of the robot's speeds, and the
+                         # benchmark's robot stood 17 s a run and reached 48 of 63 goals (scaled:
+                         # 10 s, 57; the MPC: 12 s, 52)
+REFERENCE_SPEED = .5     # m/s: the speed cap the weights were set at
+BUDGET = .08             # s: plans slower than this on average step down a LEVEL (the filter
+                         # stops the robot at 0.15 s; PC2's cores are about 2.5-3x slower than a
+                         # Mac's, where plans take 36 ms typically, 49 ms at the 95th percentile)
+LEVELS = ((32, 6), (16, 4), (8, 3))   # samples per person and rounds, full to cheapest: 95th
+                         # percentile 62 / 39 ms on a Mac. Benchmark at 0.3 m/s, 63 worlds, plans
+                         # counted 2.75x slower: reached 58 with the steps down, 49 without (the
+                         # filter stood the robot on 16,163 late plans, 54 s a run)
+LITE = LEVELS[1]
+JUDGE = 3                # plans at a level before its average decides a step
 SIDEWAYS = 3.            # a sideways request costs this much more than forward (slow sidestep)
 TURNING = .3             # turn-rate deviation weight (a round footprint doesn't turn)
 SWITCHING = 1.           # cost of changing the request from the last one, per (m/s)^2
@@ -92,6 +110,11 @@ class GamePlanner(Planner):
         self.rng = np.random.default_rng(seed)
         self.stubborn = {}       # track id -> scans seen keeping course into a conflict
         self.equilibrium = {}    # last plan's diagnostics (players, rounds, expected collision)
+        self.samples, self.rounds = SAMPLES, ROUNDS   # a cheaper LEVEL while plans run slow
+        self.level = self.since = 0
+        self.solve = 0.           # recent plan time, s (an average)
+        self.time_scale = 1.      # sim tests: plan times count this much slower (PC2's cores)
+        self.rule, self.speed_prior = RULE, True   # (10, False): the tuning before, for A/B runs
 
     # ----- the players' clouds -----
     def _robot_seeds(self, desired):
@@ -124,7 +147,8 @@ class GamePlanner(Planner):
         error = seeds-desired[None, None, :]
         track = np.mean(error[..., 0]**2+SIDEWAYS*error[..., 1]**2+TURNING*error[..., 2]**2, axis=1)
         switch = SWITCHING*np.sum((seeds[:, 0, :2]-self.previous[:2])**2, axis=-1)
-        log = -(track+switch)/PRIOR_TEMPERATURE
+        scale = (self.config.speed/REFERENCE_SPEED)**2 if self.speed_prior else 1.
+        log = -(track+switch)/(PRIOR_TEMPERATURE*scale)
         if self.field is not None:
             c = self.config
             wall = self._field_at(paths[:, 1:], 1, self.times[1:])-c.robot_radius
@@ -168,15 +192,15 @@ class GamePlanner(Planner):
         log prior weights (m, SAMPLES): off walls."""
         t = self.times[None, None, :, None]
         late = np.maximum(0., t-REACTION)
-        dv = self.rng.normal(0., PERSON_SPREAD[0], (len(objects), SAMPLES, 1, 2))
-        da = self.rng.normal(0., PERSON_SPREAD[1], (len(objects), SAMPLES, 1, 2))
+        dv = self.rng.normal(0., PERSON_SPREAD[0], (len(objects), self.samples, 1, 2))
+        da = self.rng.normal(0., PERSON_SPREAD[1], (len(objects), self.samples, 1, 2))
         dv[:, 0], da[:, 0] = 0., 0.
         base = objects[:, None, None, :2]+objects[:, None, None, 2:4]*t
         clouds = base+dv*late+.5*da*late*late
-        log = np.zeros((len(objects), SAMPLES))
+        log = np.zeros((len(objects), self.samples))
         if self.field is not None and len(objects):
             inside = self._field_at(clouds.reshape(-1, len(self.times), 2), 0)
-            inside = inside.reshape(len(objects), SAMPLES, -1)-objects[:, None, None, 4]
+            inside = inside.reshape(len(objects), self.samples, -1)-objects[:, None, None, 4]
             log = np.where(np.min(inside, axis=-1) < 0., -BETA, 0.)
             log[:, 0] = 0.   # keep the tracked walk itself
         return clouds, log
@@ -190,7 +214,7 @@ class GamePlanner(Planner):
         comfort = body+COMFORT_GAP
         d = np.linalg.norm(paths[None, :, None, ::STRIDE, :]-clouds[:, None, :, ::STRIDE, :], axis=-1)
         soft = (np.maximum(0., comfort[:, None, None, None]-d)/COMFORT_GAP)**2
-        soft = soft+RULE*np.maximum(0., (body+RULE_GAP)[:, None, None, None]-d)
+        soft = soft+self.rule*np.maximum(0., (body+RULE_GAP)[:, None, None, None]-d)
         hard = HARD*np.maximum(0., body[:, None, None, None]-d)
         return np.max((soft+hard)*weight, axis=-1)
 
@@ -233,7 +257,7 @@ class GamePlanner(Planner):
         robot = self._normalise(robot_log)
         people = self._normalise(people_log)
         history = []
-        for _ in range(ROUNDS):
+        for _ in range(self.rounds):
             expected = self._cvar(cost, people, RISK_ALPHA)          # robot vs every person
             robot = self._normalise(robot_log-BETA*expected)
             facing = np.einsum('mrs,r->ms', cost, robot)             # each person vs the robot
@@ -242,6 +266,26 @@ class GamePlanner(Planner):
         return robot, people, history
 
     def plan(self, pose, velocity, desired, tracks, now, goal=None):
+        started = time.perf_counter()
+        try:
+            return self._play(pose, velocity, desired, tracks, now, goal)
+        finally:
+            self._budget((time.perf_counter()-started)*self.time_scale)
+
+    def _budget(self, seconds):
+        """One LEVEL cheaper while plans average over BUDGET, one dearer once they average under
+        half of it; each level is judged on JUDGE plans of its own first."""
+        self.solve = seconds if not self.since else .7*self.solve+.3*seconds
+        self.since += 1
+        if self.since < JUDGE:
+            return
+        step = 1 if self.solve > BUDGET else -1 if self.solve < .5*BUDGET else 0
+        level = min(max(self.level+step, 0), len(LEVELS)-1)
+        if level != self.level:
+            self.level, self.since = level, 0
+            self.samples, self.rounds = (SAMPLES, ROUNDS) if level == 0 else LEVELS[level]
+
+    def _play(self, pose, velocity, desired, tracks, now, goal=None):
         c = self.config
         prepared = self._prepare(pose, velocity, desired, tracks, now, goal)
         if isinstance(prepared, Result):
@@ -269,7 +313,7 @@ class GamePlanner(Planner):
         if len(playing):
             cost = self._collisions(paths, clouds, playing)
         else:
-            cost = np.zeros((0, len(seeds), SAMPLES))
+            cost = np.zeros((0, len(seeds), self.samples))
         # Non-playing objects (far or many): their straight-line forecast as a fixed cost.
         rest = objects[~players] if len(objects) else objects
         if len(rest):

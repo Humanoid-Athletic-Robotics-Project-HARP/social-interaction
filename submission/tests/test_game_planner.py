@@ -150,3 +150,40 @@ class GameCore(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SlowComputer(unittest.TestCase):
+    """Plans that run slow (PC2's cores) step down to cheaper LEVELS, and back up when fast."""
+
+    def test_slow_plans_step_down_a_level_at_a_time_and_fast_ones_back(self):
+        p = planner()
+        for _ in range(3):
+            p._budget(2*game.BUDGET)
+        self.assertEqual((p.level, p.samples, p.rounds), (1,) + game.LEVELS[1])
+        for _ in range(3):
+            p._budget(2*game.BUDGET)
+        self.assertEqual(p.level, 2)
+        for _ in range(9):
+            p._budget(2*game.BUDGET)
+        self.assertEqual(p.level, len(game.LEVELS)-1)   # never past the cheapest
+        for _ in range(3*game.JUDGE):
+            p._budget(.1*game.BUDGET)
+        self.assertEqual((p.level, p.samples, p.rounds), (0, game.SAMPLES, game.ROUNDS))
+
+    def test_a_cheaper_level_still_plans_round_a_walker(self):
+        p = planner()
+        p.level, (p.samples, p.rounds) = 2, game.LEVELS[2]
+        result = p.plan((0., 0., 0.), (.3, 0., 0.), (.5, 0., 0.), [person(2.5, 0., -1., 0., 0.)], 0.)
+        self.assertTrue(np.isfinite(result.command).all())
+        self.assertLess(result.command[0], .5)
+
+    def test_the_prior_follows_the_speed_cap(self):
+        # Requests off Nav2's by the same share of the speed cap cost the same at 0.3 and 0.5 m/s.
+        logs = []
+        for speed in (.3, .5):
+            p = GamePlanner(Config(speed=speed, tracking_gain=.85, lateral_tracking_gain=.6))
+            seeds = np.array([[[speed, 0., 0.]]*3, [[.5*speed, 0., 0.]]*3])
+            paths = np.zeros((2, len(p.times), 3))
+            log = p._robot_prior(seeds, paths, np.array([speed, 0., 0.]))
+            logs.append(log[1]-log[0])
+        self.assertAlmostEqual(logs[0], logs[1], places=6)

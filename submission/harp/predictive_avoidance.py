@@ -227,6 +227,18 @@ class PredictiveAvoidance:
                        if os.environ.get('HARP_PREDICTIVE_DETOUR', '1') != '0' else None)
         self.responsiveness = Responsiveness()   # who gives way: the planner's forecast credit
         self.config = self.planner.config
+        # Sim tests of PC2's slower cores: solve times count HARP_PREDICTIVE_TIME_SCALE times
+        # longer, for the deadline here and the planner's budget (harp/game_planner.py LITE).
+        self.time_scale = float(os.environ.get('HARP_PREDICTIVE_TIME_SCALE', '1'))
+        if not 1. <= self.time_scale <= 10.:
+            raise ValueError('HARP_PREDICTIVE_TIME_SCALE must be within 1 to 10')
+        if hasattr(self.planner, 'time_scale'):
+            self.planner.time_scale = self.time_scale
+        # HARP_PREDICTIVE_SPEED_TUNING=0 (image layer): the game core as tuned before for 0.5 m/s
+        # (unscaled prior, RULE 10), for A/B runs.
+        if os.environ.get('HARP_PREDICTIVE_SPEED_TUNING', '1') == '0' and hasattr(self.planner, 'rule'):
+            self.planner.rule, self.planner.speed_prior = 10., False
+        self.lite = 0          # the planner's compute level last logged
         self.out = node.create_publisher(Twist, "/cmd_vel", 10)
         latched = QoSProfile(depth=1000, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.events = node.create_publisher(String, "/harp/events", latched)
@@ -608,7 +620,12 @@ class PredictiveAvoidance:
             self.making_way = spot is not None
             result = self.planner.plan(self.pose, self.velocity, desired, tracks, stamp, goal)
             # A slow solve cannot renew an obsolete movement request.
-            if time.monotonic()-now > MAX_SOLVE_TIME or not self.ready(time.monotonic(), self.clock()):
+            level = getattr(self.planner, 'level', 0)
+            if level != self.lite:
+                self.lite = level   # harp/game_planner.py LEVELS: cheaper planning on a slow computer
+                print(events.record('predictive', 'compute', level=level,
+                                    samples=getattr(self.planner, 'samples', None)), flush=True)
+            if (time.monotonic()-now)*self.time_scale > MAX_SOLVE_TIME or not self.ready(time.monotonic(), self.clock()):
                 self.stop("planning_deadline", True)
                 return
             if not np.isfinite(result.command).all():

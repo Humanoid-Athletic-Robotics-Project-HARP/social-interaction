@@ -59,6 +59,7 @@ GAINS = np.array([.85, .67, 1.])   # GR00T's measured response in HIM
 LAG, DELAY, ACCEL = .25, .1, .6
 ARMS = .355              # m from base_link: the scorer's clearance is from the arms
 SPEED = .5
+MAX_SOLVE_TIME = .15     # s: harp/predictive_avoidance.py's: a later plan stands the robot
 CORES = {"mpc": Planner, "game": GamePlanner}
 
 
@@ -210,7 +211,7 @@ def plan_route(shapes, start, goal, bounds, inflate=.5, cell=.1):
     return path[::-1]
 
 
-def follow(route, pose, goal):
+def follow(route, pose, goal, speed=SPEED):
     """The Nav2 stand-in's request (vx, 0, wz): pure pursuit 0.8 m ahead, turning on the
     spot when over 0.9 rad off, slowing in the last metre; zero within 0.2 m of the goal."""
     if math.hypot(goal[0]-pose[0], goal[1]-pose[1]) < .2:
@@ -224,7 +225,7 @@ def follow(route, pose, goal):
     if abs(err) > .9:
         return np.array([0., 0., math.copysign(.6, err)])
     slow = min(1., math.hypot(goal[0]-pose[0], goal[1]-pose[1]))
-    return np.array([SPEED*max(0., math.cos(err))*max(slow, .3), 0., float(np.clip(1.5*err, -.6, .6))])
+    return np.array([speed*max(0., math.cos(err))*max(slow, .3), 0., float(np.clip(1.5*err, -.6, .6))])
 
 
 def run(job):
@@ -263,12 +264,17 @@ def run(job):
     detour = DetourPatience() if seen_map is not None else None
     if detour is not None:
         detour.update(0., path_length(route))
-    planner = CORES[core](Config(speed=SPEED, tracking_gain=.85, lateral_tracking_gain=.6))
+    speed = job.get("speed", SPEED)
+    planner = CORES[core](Config(speed=speed, tracking_gain=.85, lateral_tracking_gain=.6))
+    scale = job.get("time_scale", 1.)
+    if hasattr(planner, "time_scale"):
+        planner.time_scale = scale
+    deadline_stops = lite_plans = 0
     resp = Responsiveness()
     pose, vel = np.zeros(3), np.zeros(3)
     queue = [np.zeros(3)]*int(round(DELAY/DT))
     command = np.zeros(3)
-    limit = 120.
+    limit = 120.*max(1., SPEED/speed)   # s: 120 at 0.5 m/s, longer when slower
     closest, fixed_close, contacts, touching = math.inf, math.inf, 0, False
     asked = fought = 0
     plan_times, reached_at, standing = [], None, 0.
@@ -294,7 +300,7 @@ def run(job):
                     detour.update(t, path_length(route))
             if seen_map is not None and step % (PLAN_EVERY*5) == 0:
                 seen_map.update(pose[:2].copy(), t)
-            desired = follow(route, pose, goal)
+            desired = follow(route, pose, goal, speed)
             if detour is not None and detour.waiting(t) and desired.any():
                 desired = np.zeros(3)   # the filter stands for the short way
             pv = (people-last_people)/(DT*PLAN_EVERY) if last_people is not None else np.zeros_like(people)
@@ -321,10 +327,14 @@ def run(job):
             started = time.perf_counter()
             result = planner.plan(tuple(pose), tuple(vel), tuple(desired), tracks, t, tuple(goal))
             plan_times.append(time.perf_counter()-started)
+            lite_plans += getattr(planner, "level", 0) > 0
             # As the filter does with every result (a numpy type here crashed it in HIM).
             events.record("predictive", "avoidance", mode=result.mode, alert=bool(result.alert) and result.alert,
                           solver=result.solver, clearance=result.clearance if math.isfinite(result.clearance) else None)
             command = np.asarray(result.command, dtype=float)
+            if plan_times[-1]*scale > MAX_SOLVE_TIME:
+                command = np.zeros(3)   # the filter stands the robot on a late plan
+                deadline_stops += 1
             if abs(desired[0]) < .05 and abs(desired[2]) > .2:
                 asked += 1
                 fought += command[0] > .25
@@ -392,7 +402,10 @@ def run(job):
     return dict(job, reached=reached_at is not None and end < .35, time=reached_at, end=round(end, 2),
                 closest=round(closest, 3), contacts=contacts, at_fault=at_fault, wall=round(fixed_close, 3),
                 fight=round(fought/max(asked, 1), 3), path=round(path_len, 1), standing=round(standing, 1),
-                plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1), at_closest=at_closest, faults=faults,
+                plan_p95_ms=round(1000*float(np.percentile(plan_times, 95)), 1),
+                plan_p50_ms=round(1000*float(np.percentile(plan_times, 50)), 1),
+                deadline_stops=deadline_stops, lite_share=round(lite_plans/max(1, len(plan_times)), 3),
+                plan_max_ms=round(1000*float(np.max(plan_times)), 1), at_closest=at_closest, faults=faults,
                 closing_by=closing_by, wall_at=wall_at)
 
 
@@ -417,13 +430,15 @@ def main():
     parser.add_argument("--set", nargs="*", default=[], metavar="NAME=VALUE",
                         help="harp/game_planner.py module constants for this run, e.g. COMFORT_WEIGHT=4")
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2)-2))
+    parser.add_argument("--speed", type=float, default=SPEED, help="the robot's speed cap, m/s (HARP_PREDICTIVE_SPEED)")
+    parser.add_argument("--time-scale", type=float, default=1., help="plans count this much slower (PC2), as HARP_PREDICTIVE_TIME_SCALE: the planner's budget, and the filter's 0.15 s deadline stops")
     parser.add_argument("--out", help="also write the runs as JSON lines here")
     args = parser.parse_args()
     held = set(range(20261103, 20261111))
-    consts = {k: float(v) for k, v in (a.split("=", 1) for a in args.set)}
-    jobs = [dict(seed=s, crowd=c, core=k, noise=args.noise, set=consts, map=args.map) for s in seeds(args.seeds) if s not in held
+    consts = {k: (int(v) if v.lstrip("-").isdigit() else float(v)) for k, v in (a.split("=", 1) for a in args.set)}
+    jobs = [dict(seed=s, crowd=c, core=k, noise=args.noise, set=consts, map=args.map, speed=args.speed, time_scale=args.time_scale) for s in seeds(args.seeds) if s not in held
             for c in args.crowds for k in args.cores]
-    jobs += [dict(seed=0, world=w, crowd=c, core=k, noise=args.noise, set=consts, map=args.map)
+    jobs += [dict(seed=0, world=w, crowd=c, core=k, noise=args.noise, set=consts, map=args.map, speed=args.speed, time_scale=args.time_scale)
              for w in args.worlds for c in args.crowds for k in args.cores]
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
     with Pool(args.jobs) as pool:
@@ -445,7 +460,9 @@ def main():
                   f"(runs with any {sum(r['contacts'] > 0 for r in rs)})  clearance>=0.30 {sum(r['closest'] >= .3 for r in rs)}/{n}"
                   f"  median time {np.median([r['time'] for r in reached]) if reached else None}"
                   f"  fight {np.mean([r['fight'] for r in rs]):.3f}  standing {np.mean([r['standing'] for r in rs]):.1f}s"
-                  f"  plan p95 {np.median([r['plan_p95_ms'] for r in rs]):.0f} ms")
+                  f"  plan p95 {np.median([r['plan_p95_ms'] for r in rs]):.0f} ms"
+                  f"  deadline stops {sum(r.get('deadline_stops', 0) for r in rs)}"
+                  f"  lite {np.mean([r.get('lite_share', 0) for r in rs]):.2f}")
 
 
 if __name__ == "__main__":
