@@ -3,8 +3,8 @@ name: wave
 description: Read before changing or running the wave (harp/wave.py, the {"wave": {}} task), or adding another arm gesture
 metadata:
   type: project
-  updated: 2026-11-04T20:43:12Z
-  covers: [submission/harp/wave.py, submission/harp_node.py, submission/tests/test_wave.py]
+  updated: 2026-11-04T20:45:35Z
+  covers: [submission/harp/wave.py, submission/harp_node.py, submission/wave_check.py, submission/tests/test_wave.py, submission/tests/test_wave_check.py]
 ---
 
 **What it is (Lam's design, 2026-11-04):** a scripted right-arm hello wave under HIM's GR00T walker: our code sets only the right arm's 7 joints (indices 22–28) while GR00T keeps the legs and waist. Standalone for now; the behavior loop ([[behavior-loop]]) is to trigger it once person detection exists. Picked over a learned BeyondMimic wave (HIM's `dance/` method: GPU training, policy switching mid-run) and Unitree's built-in arm action 26 (needs Unitree's motion control, which HIM releases, [[g1-builtin-apis]]). **When balance and looks conflict, balance wins** (Lam): give up swing speed and size first, lower the hand last, never counter-move the left arm or waist.
@@ -12,3 +12,5 @@ metadata:
 **Motion** (`harp/wave.py`, a pure function of time): a 1 s minimum-jerk raise from the measured arm pose to `HAND_UP`, 3 elbow swings at 2 Hz (0.4 rad each way) with wrist roll a quarter of that and 0.15 cycle behind, faded in and out over half a swing, then a 1 s minimum-jerk lower to the walker's zeros. Wrist pitch and yaw never move: their 5 Nm caps leave about 0.11 rad of tracking room at HIM's kp 40. `HAND_UP` (0, −1.6, −1.4, 0, 0, 0, 0) is from forward kinematics on HIM's G1 model: wrist 0.21 m above, 0.23 m out and 0.03 m ahead of the shoulder, forearm upright, an elbow swing moving it sideways; `tests/test_wave.py` checks this on `/harp/model/g1_robot.xml`. Which way the palm faces is unconfirmed (the model has no hand).
 
 **The task** (`harp_node.py`): `G1_TASK_COMMAND='{"wave": {}}'` stands the walker (zero velocity) and wraps HIM's walker policy object in `WavingPolicy`, so each frame's `q`/`dq[22:29]` come from the wave and the other 22 joints stay as GR00T set them; HIM's `publish_command` is unchanged. The wave starts `SETTLE_S` (2 s) after the first `control_ready` state, from the arm's measured pose, runs once, and then leaves the frame untouched (the walker's arm targets are the same zeros). Its clock is the state's `sim_time`, or `received_at_secs` on the robot, so a missed tick can't stretch it. `entrypoint.sh` needs nothing: the task falls through to `harp_node.py` alone. Events (source `policy`): `wave_start` (`pose`), `wave_phase` (`wave`, `lower`), `wave_done`.
+
+**Checking a run** (`submission/wave_check.py RUN_DIR ...`, under HIM's venv like `course.py`): over wave_start to 1 s after wave_done it checks `within_limits`, HIM's back-and-forth check enforced (`G1_SIM_THRASH_MODE=enforce`, as on the robot) with a peak score at most 0.75 (HIM stops at 1.5), pelvis drift at most 3 cm, tilt change at most 5°, either foot moving at most 2 cm, and our worst reply at most 20 ms; it reports the arm's worst gap from the wave's targets, HIM's right-arm warnings and late states. It needs the trace's thrash telemetry, so check a run before `course.py --prune` strips it.
