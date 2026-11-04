@@ -21,6 +21,12 @@ def select(task_text, execution_mode="sim", has_world=True):
             raise ValueError("predictive avoidance currently requires a simulator world")
         if "moves" in task or "to" in task:
             raise ValueError("predictive avoidance requires Nav2; use a waypoint route")
+        if "behavior" in task:
+            # It follows course_goal.py's goals only: with the behavior loop it stood the robot.
+            raise ValueError("predictive avoidance doesn't follow the behavior loop's goals yet")
+    elif isinstance(task, dict) and (task.get("mapping") or task.get("map") is not None):
+        # harp/mapper.py maps from /harp/static_cloud, which only the predictive filter publishes.
+        raise ValueError("a map (mapping or map) needs predictive avoidance")
     return "predictive_avoidance" if mode == "predictive" else "approach_stop"
 
 

@@ -90,6 +90,25 @@ class GameCore(unittest.TestCase):
         p.stubborn = {3: 3}
         self.assertEqual(p._reactivity(objects).tolist(), [game.REACT_PRIOR, .9, 0.])
 
+    def test_a_stubborn_player_is_recognised_while_someone_far_away_does_not_play(self):
+        # object_ids covers every moving object; the far one doesn't play, so the lengths differ.
+        p = planner()
+        p.stubborn = {3: 3}
+        seen = []
+        reactivity = p._reactivity
+        p._reactivity = lambda objects, ids=None: seen.append(reactivity(objects, ids)) or seen[-1]
+        tracks = [person(2.5, 0., -1., 0., 0., ident=3), person(0., 5.4, 0., -1., 0., ident=9)]
+        p.plan((0., 0., 0.), (.4, 0., 0.), (.4, 0., 0.), tracks, 0., (8., 0.))
+        self.assertEqual(len(p.object_ids), 2)
+        self.assertEqual(seen[-1].tolist(), [0.])
+
+    def test_the_mode_mean_keeps_its_size_when_every_weight_is_tiny(self):
+        seeds = np.array([[[.4, 0., 0.]], [[.2, .2, 0.]], [[0., 0., 0.]]])
+        near = np.array([True, True, False])
+        mean = GamePlanner._mode_mean(np.array([1e-14, 1e-14, .9]), seeds, near, 0)
+        self.assertTrue(np.allclose(mean, [[.3, .1, 0.]]))
+        self.assertTrue(np.allclose(GamePlanner._mode_mean(np.zeros(3), seeds, near, 1), seeds[1]))
+
     def test_in_the_equilibrium_a_person_who_plays_makes_room_and_one_who_doesnt_does_not(self):
         # Robot: straight on or step left; person: straight on or step aside. Each straight
         # pair collides. A playing person takes some of the avoiding; a stubborn one none.

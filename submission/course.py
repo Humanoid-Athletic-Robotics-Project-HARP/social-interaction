@@ -1102,6 +1102,8 @@ def main():
             slim(run_folders())
         return 0
     args.extra, args.map_from = {}, None
+    if (args.mapping or args.map) and args.avoidance != "predictive":
+        parser.error("--mapping and --map need --avoidance predictive (its static cloud feeds the mapper)")
     if args.mapping:
         args.extra["mapping"] = True
         args.crowd = args.crowd or "none"

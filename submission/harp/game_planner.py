@@ -218,8 +218,12 @@ class GamePlanner(Planner):
         hard = HARD*np.maximum(0., body[:, None, None, None]-d)
         return np.max((soft+hard)*weight, axis=-1)
 
-    def _reactivity(self, objects):
-        ids = self.object_ids if len(self.object_ids) == len(objects) else np.zeros(len(objects), int)
+    def _reactivity(self, objects, ids=None):
+        """Each object's reactivity; ids: their track ids (default: _prepare's, for all of them)."""
+        if ids is None:
+            ids = self.object_ids
+        if len(ids) != len(objects):
+            ids = np.zeros(len(objects), int)
         out = np.empty(len(objects))
         for k, ident in enumerate(ids):
             if self.stubborn.get(int(ident), 0) >= 3:
@@ -227,6 +231,18 @@ class GamePlanner(Planner):
             else:
                 out[k] = max(REACT_PRIOR, float(objects[k, 6]) if objects.shape[1] > 6 else 0.)
         return out
+
+    @staticmethod
+    def _mode_mean(robot, seeds, near, chosen):
+        """Weighted mean of the candidates near the chosen one. The weights are scaled to their
+        largest first: a chosen plan B far below the equilibrium's favourite has weights under
+        1e-12, and dividing by that floor had shrunk the mean toward standing."""
+        weights = robot[near]
+        top = float(np.max(weights))
+        if not top > 0.:
+            return seeds[chosen]
+        weights = weights/top
+        return np.sum(weights[:, None, None]*seeds[near], axis=0)/float(weights.sum())
 
     # ----- the game -----
     @staticmethod
@@ -309,7 +325,9 @@ class GamePlanner(Planner):
             robot_log = robot_log-self._keep_right(paths, objects, pose)
         playing = objects[players]
         clouds, people_log = self._people(playing)
-        react = self._reactivity(playing)
+        # The players' own ids: object_ids lists every moving object, so with any not playing
+        # (far, or past PLAYERS) the lengths differed and stubborn walkers went unrecognised.
+        react = self._reactivity(playing, self.object_ids[players] if len(self.object_ids) == len(objects) else None)
         if len(playing):
             cost = self._collisions(paths, clouds, playing)
         else:
@@ -351,7 +369,7 @@ class GamePlanner(Planner):
         near = np.linalg.norm(seeds[:, 0]-seeds[chosen, 0], axis=-1) < MODE_RADIUS
         near &= (safety >= min(0., safety[chosen])) & (robot >= .25*robot[chosen])
         near[chosen] = True
-        mean = np.sum(robot[near, None, None]*seeds[near], axis=0)/max(float(robot[near].sum()), 1e-12)
+        mean = self._mode_mean(robot, seeds, near, chosen)
         mean_paths, mean_first = self._rollout(mean[None], pose, velocity)
         mean_safe = self._safe(mean_paths, objects)[0]
         if mean_safe >= min(0., safety[chosen]):
