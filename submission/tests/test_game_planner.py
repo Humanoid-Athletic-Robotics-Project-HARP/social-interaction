@@ -105,6 +105,22 @@ class GameCore(unittest.TestCase):
         p.plan((0., 0., 0.), (.4, 0., 0.), (.4, 0., 0.), tracks, .2, (8., 0.))
         self.assertGreater(seen[-1][0], 0.)
 
+    def test_the_safe_horizon_follows_safe_time_as_set_at_run_time(self):
+        # The benchmark's --set changes module constants after import; a default argument bound
+        # at import had kept SAFE_TIME at 1.2 whatever was set.
+        p = planner()
+        p.field = None
+        path = np.zeros((1, len(p.times), 2))                         # standing at the origin
+        person = np.array([[3., 0., -1., 0., .25, .05, 0.]])          # 3 m off, walking at it
+        old = game.SAFE_TIME
+        try:
+            game.SAFE_TIME = .5                                       # arrives after 2.35 s
+            self.assertGreater(p._safe(path, person)[0], 0.)
+            game.SAFE_TIME = 3.
+            self.assertLess(p._safe(path, person)[0], 0.)
+        finally:
+            game.SAFE_TIME = old
+
     def test_the_mode_mean_keeps_its_size_when_every_weight_is_tiny(self):
         seeds = np.array([[[.4, 0., 0.]], [[.2, .2, 0.]], [[0., 0., 0.]]])
         near = np.array([True, True, False])

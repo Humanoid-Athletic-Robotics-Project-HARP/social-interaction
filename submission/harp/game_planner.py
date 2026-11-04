@@ -67,7 +67,10 @@ RULE = 20.               # cost per metre inside RULE_GAP (linear): the quadrati
                          # worlds, passed every check 2 / 4 / 2 and reached 57 / 60 / 57 at 10 /
                          # 20 / 30; at 0.5 m/s, 93 worlds, passed 20 either way, reached 85 / 87
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
-SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY)
+SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY). The robot's stop
+                         # from 0.5 m/s takes about 1.45 s, but in HIM (aware, 0.5 m/s, 8 runs each)
+                         # 1.45 reached 3 goals against 6 at 1.2, though the benchmark (73 worlds)
+                         # had favoured it a little (reached 70 against 67; 1.7: 65)
 CONTINGENCY_TIME = 2.5   # s a plan B must stay clear for if people don't react at all
 STILL_SPEED = .15        # m/s: slower tracks count as standing in the hard check (velocity noise)
 TIE = .02                # m: violations this close count as equal when nothing is safe
@@ -405,9 +408,11 @@ class GamePlanner(Planner):
             mode = 'evade'
         return Result(command, mode, alert, float(clearance), solver)
 
-    def _safe(self, paths, objects, horizon=SAFE_TIME, gap=0.):
+    def _safe(self, paths, objects, horizon=None, gap=0.):
         """Body clearance (m, negative inside) of each path from every object's straight-line
-        forecast over horizon (s), less gap (m), and from walls over the whole plan."""
+        forecast over horizon (s, SAFE_TIME by default, read here so the benchmark's --set
+        reaches it), less gap (m), and from walls over the whole plan."""
+        horizon = SAFE_TIME if horizon is None else horizon
         c = self.config
         out = np.full(len(paths), np.inf)
         steps = int(np.searchsorted(self.times, horizon))+1
