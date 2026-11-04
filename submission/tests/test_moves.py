@@ -25,6 +25,7 @@ def walking(distance=1.0, speed=0.4):
     moves.heading = moves.start_heading = 0.0
     moves.cmd = [0.0, 0.0]
     moves.phase, moves.give_up_at = "moving", 1000.0
+    moves.facing = moves.ahead = False
     moves.sent, moves.events = [], []
     moves.send = lambda: moves.sent.append(moves.cmd[:])
     moves.event = lambda name, **fields: moves.events.append((name, fields))
@@ -234,6 +235,25 @@ class TurnSpeed(unittest.TestCase):
         self.assertAlmostEqual(moves.cmd[1], TURN_MIN_SPEED)
         moves.pose = moves.target
         self.assertIsNone(moves.curve_command())
+
+    def test_point_close_behind_at_the_start_is_walked_to_not_passed(self):
+        moves = walking()
+        moves.target = (-0.25, 0.0, math.pi)   # {"to": [-0.25, 0]}
+        self.assertIsNotNone(moves.curve_command())
+        self.assertFalse(moves.facing)
+        moves.pose = (-0.15, 0.0, math.pi)     # turned round and walking to it: in front
+        moves.curve_command()
+        self.assertFalse(moves.facing)
+        moves.pose = (-0.35, 0.0, math.pi)     # then just past it, behind
+        moves.curve_command()
+        self.assertTrue(moves.facing)
+
+    def test_curve_speed_floor_does_not_exceed_a_low_requested_speed(self):
+        moves = walking(speed=0.05)
+        moves.target = (1.0, 1.0, math.pi / 2)
+        for _ in range(100):
+            moves.cmd = moves.curve_command()
+            self.assertLessEqual(moves.cmd[0], 0.05 + 1e-12)
 
     def test_target_and_wrong_way_turns_bypass_smoothing(self):
         for sign in (-1, 1):

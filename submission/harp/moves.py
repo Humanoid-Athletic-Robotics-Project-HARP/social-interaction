@@ -168,6 +168,7 @@ class Moves:
             c, s = math.cos(syaw), math.sin(syaw)
             self.target = (sx + c * x - s * y, sy + s * x + c * y, syaw + end_heading)
             self.facing = False   # True once at the point, turning to the final heading
+            self.ahead = False    # True once the point has been in front (behind then means passed)
             # Generous: the curve is longer than the straight line and slows near the point.
             duration = 3.0 * math.hypot(x, y) / self.speed + 2.0 * abs(end_heading) / self.turn_speed
         elif kind == "turn":
@@ -233,8 +234,10 @@ class Moves:
     def curve_command(self):
         """Forward speed and turn rate toward the target; None once it is reached."""
         r, _, delta = ego_polar(self.pose, self.target)
-        # Reached the point, or passed it (it is close and behind): face the final heading.
-        if not self.facing and (r < POSITION_TOLERANCE or (r < 0.3 and abs(delta) > math.pi / 2)):
+        self.ahead = self.ahead or abs(delta) <= math.pi / 2
+        # Reached the point, or passed it (it was in front and is now close behind): face the
+        # final heading. A point that starts close behind is walked to, not taken as passed.
+        if not self.facing and (r < POSITION_TOLERANCE or (self.ahead and r < 0.3 and abs(delta) > math.pi / 2)):
             self.facing = True
             self.facing_sign = math.copysign(1.0, wrap_angle(self.target[2] - self.pose[2]))
         if self.facing:
@@ -243,7 +246,8 @@ class Moves:
             if abs(error) < HEADING_TOLERANCE or error * self.facing_sign < 0:
                 return None
             return [0.0, self.turn_rate(abs(error) - HEADING_TOLERANCE, self.facing_sign)]
-        v, w = command(self.pose, self.target, self.speed, self.turn_speed, CURVE_MIN_SPEED)
+        # The walking floor, but never above the requested speed (as for walks).
+        v, w = command(self.pose, self.target, self.speed, self.turn_speed, min(CURVE_MIN_SPEED, self.speed))
         # Ramp toward the law's command so the robot doesn't lurch into or out of the curve.
         return [toward(self.cmd[0], v, CURVE_ACCEL / RATE),
                 toward(self.cmd[1], w, CURVE_TURN_ACCEL / RATE)]
