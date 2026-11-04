@@ -82,5 +82,40 @@ class TestTurns(unittest.TestCase):
         self.assertLessEqual(end - start, listen.MAX_SPEECH + listen.PREROLL)
 
 
+class TestSmartTurn(unittest.TestCase):
+    """The turn's end with a made-up Smart Turn (listen.TurnEnd) that always answers p."""
+
+    def silence_before_end(self, speech_frames, p, parts=()):
+        """Seconds of silence after which the turn ends, and how often Smart Turn was asked."""
+        asked = []
+        turns_ = listen.Turns(lambda audio: asked.append(len(audio)) or p)
+        for frame, prob in frames(10, 0.0, QUIET) + frames(speech_frames, 0.9, LOUD) + list(parts):
+            self.assertIsNone(turns_.push(frame, prob))
+        for quiet in range(1, int(5 / FRAME_S)):
+            if turns_.push(np.full(listen.FRAME, QUIET, np.float32), 0.0):
+                return quiet * FRAME_S, len(asked)
+        self.fail("the turn never ended")
+
+    def test_finished_ends_soon(self):
+        waited, asked = self.silence_before_end(50, 0.9)
+        self.assertAlmostEqual(waited, listen.CHECK, delta=FRAME_S)
+        self.assertEqual(asked, 1)
+
+    def test_unfinished_waits(self):
+        waited, _ = self.silence_before_end(50, 0.1)
+        self.assertAlmostEqual(waited, listen.WAIT, delta=FRAME_S)
+
+    def test_one_word_isnt_judged(self):
+        waited, asked = self.silence_before_end(int(0.5 / FRAME_S), 0.9)
+        self.assertAlmostEqual(waited, listen.SILENCE, delta=FRAME_S)
+        self.assertEqual(asked, 0)
+
+    def test_going_on_is_judged_again(self):
+        # judged unfinished in a pause, then they go on: one turn, asked again at its end
+        pause = frames(int(listen.WAIT / 2 / FRAME_S), 0.0, QUIET) + frames(30, 0.9, LOUD)
+        _, asked = self.silence_before_end(50, 0.1, pause)
+        self.assertEqual(asked, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

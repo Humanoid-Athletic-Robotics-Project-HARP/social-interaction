@@ -1,6 +1,7 @@
 """Made-up test clips for listen.py (context/speech-tuning.md): macOS `say` voices with
 noise, room echo, a rough robot mic, quiet speakers and pauses, so listening can be tuned
-without a mic or a person. macOS only (it needs `say`).
+without a mic or a person; and Kokoro's voices for when a turn ends (the end_ groups), since
+Smart Turn judges `say`'s flat voices unfinished. macOS only (it needs `say`).
 
   python3 bench/clips.py      (from speech/, in its venv; about 2 minutes)
 
@@ -13,10 +14,14 @@ import hashlib
 import json
 import random
 import subprocess
+import sys
 import wave
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import talk  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "out"
 CLIPS, CACHE = OUT / "clips", OUT / "say"
@@ -48,6 +53,19 @@ HESITANT = [   # one turn each, said with a pause between the pieces
     ["I'm not sure,", "let me think about it."],
     ["So yesterday I was walking past the Oval", "and I saw a bunch of people flying drones."],
 ]
+KOKORO = [3, 0, 11, 14, 20, 25]   # Kokoro speakers: American and British, women and men
+WHOLE = ["I just got out of my chemistry class.", "Pretty good, thanks for asking.",
+         "Yeah, I'm a computer science major.", "What's your name?", "Okay, see you later.",
+         "I'm waiting for my friend to get here.", "Is it hard to walk on two legs?",
+         "We're going to the game this weekend.", "Not much, just heading home.",
+         "I think robots are really cool."]
+ONE_WORD = ["Yeah.", "No.", "Sure.", "Okay.", "Bye!", "Hi!"]
+PAUSED = [("I went to the library,", "and then I got lunch with some friends."),
+          ("Well, I think", "maybe I'll go to the gym later."),
+          ("My favorite class is, um,", "probably the robotics one."),
+          ("So yesterday I was walking past the Oval,", "and I saw people flying drones."),
+          ("I'm studying, uh,", "mechanical engineering."),
+          ("The thing is,", "I'm not really sure yet.")]
 OTHERS = ["Did you finish the problem set yet?", "I think the dining hall closes at eight.",
           "We should get coffee after the lecture.", "No way, that's hilarious.",
           "Have you seen the new building on campus?", "I'm so tired, I barely slept.",
@@ -65,6 +83,26 @@ def say(text, voice="Samantha", rate=180):
         audio = np.frombuffer(f.readframes(f.getnframes()), np.int16).astype(np.float32) / 32768
     sound = np.flatnonzero(np.abs(audio) > 1e-3)
     return audio[sound[0]:sound[-1] + 1] if len(sound) else audio
+
+
+KOKORO_VOICE = []   # talk.Voice, loaded on first use
+
+
+def kokoro(text, speaker):
+    """A line in one of Kokoro's voices at 16 kHz (cached in out/say/)."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    path = CACHE / (hashlib.sha1(f"kokoro|{speaker}|{text}".encode()).hexdigest()[:16] + ".npy")
+    if not path.exists():
+        if not KOKORO_VOICE:
+            KOKORO_VOICE.append(talk.Voice("kokoro", "cpu"))
+        voice = KOKORO_VOICE[0]
+        audio = np.array(voice.tts.generate(text, sid=speaker).samples, np.float32)
+        rate = voice.rate
+        np.save(path, np.interp(np.arange(0, len(audio) / rate, 1 / RATE), np.arange(len(audio)) / rate,
+                                audio).astype(np.float32))
+    audio = np.load(path)
+    sound = np.flatnonzero(np.abs(audio) > 1e-3)
+    return audio[sound[0]:sound[-1] + 1]
 
 
 def rms(x):
@@ -244,6 +282,24 @@ def main():
     for gap in [1.0, 1.5]:   # two turns
         first, second = (at_db(say(LINES[k], "Daniel", 185), PERSON_DB) for k in (0, 2))
         add(f"two_{gap}", np.concatenate([first, silence(gap), second]), "two", [LINES[0], LINES[2]], gap=gap)
+
+    room = lambda n: colored(n, 1) * 10 ** (-60 / 20)   # a quiet room under the end_ clips
+    for i, line in enumerate(WHOLE):   # when a turn ends, in Kokoro's voices
+        for speaker in KOKORO:
+            audio, span = in_noise(at_db(kokoro(line, speaker), PERSON_DB), room, after=4.0)
+            add(f"end_whole_{i}_{speaker}", audio, "end_whole", [line], span, speaker=speaker)
+    for i, word in enumerate(ONE_WORD):
+        for speaker in KOKORO:
+            audio, span = in_noise(at_db(kokoro(word, speaker), PERSON_DB), room, after=4.0)
+            add(f"end_word_{i}_{speaker}", audio, "end_word", [word], span, speaker=speaker)
+    for i, (first, rest) in enumerate(PAUSED):
+        for speaker in KOKORO[:2]:
+            for pause in [0.5, 0.8, 1.2, 1.6]:
+                speech = np.concatenate([at_db(kokoro(first, speaker), PERSON_DB), silence(pause),
+                                         at_db(kokoro(rest, speaker), PERSON_DB)])
+                audio, span = in_noise(speech, room, after=4.0)
+                add(f"end_pause_{pause}_{i}_{speaker}", audio, "end_pause", [first + " " + rest], span,
+                    speaker=speaker, pause=pause)
 
     (CLIPS / "manifest.json").write_text(json.dumps(clips, indent=1))
     print(len(clips), "clips in", CLIPS)

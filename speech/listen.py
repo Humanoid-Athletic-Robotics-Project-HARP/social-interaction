@@ -12,9 +12,13 @@ Stages:
            voice assistant is in wake-up mode; other programs can read it too.
   voice    Silero VAD on each frame, plus a loudness check against the room's noise floor.
   turn     speech starts after START s of voice (a frame without voice takes one frame
-           off, so a quiet syllable doesn't start the count over); the turn ends after
-           SILENCE s without it. Turns under MIN_SPEECH s are dropped, ones over MAX_SPEECH s
-           are cut. The PREROLL s before the start are kept, so first syllables survive.
+           off, so a quiet syllable doesn't start the count over). After CHECK s without
+           voice, Smart Turn judges from the sound of the turn so far whether the person
+           has finished: if so the turn ends there, otherwise after WAIT s without voice.
+           Turns with under SHORT_TURN s of speech, which it misjudges ("Yeah."), and every
+           turn with --fixed-turn, end after SILENCE s. Turns under MIN_SPEECH s are dropped,
+           ones over MAX_SPEECH s are cut. The PREROLL s before the start are kept, so
+           first syllables survive.
   text     the whole turn through Parakeet TDT 0.6B v2 (sherpa-onnx).
   filter   empty text and phrases Whisper-style models make up from noise are dropped
            (Parakeet made none up on noise alone).
@@ -27,7 +31,8 @@ Stages:
 
 Each line: text, start and end (s into the stream), silence_s (the wait for the turn
 to end), stt_s (decoding time) and after_end_s (their sum: from the person going quiet
-to the text being ready); dropped turns carry "dropped" and the reason.
+to the text being ready), and where Smart Turn judged, finished (its probability) and
+turn_s (its time, included in after_end_s); dropped turns carry "dropped" and the reason.
 
 Models are found in models/ beside the main checkout, like HIM's recovery policy (or
 HARP_MODELS; README.md says how to get them). Plain Python that also runs on 3.8 (PC2's).
@@ -54,7 +59,12 @@ CONTEXT = 64        # samples of the previous frame Silero wants in front
 START_PROB = 0.6    # Silero's probability that starts speech (0.5 is its default; noise needs more)
 END_PROB = 0.45     # ...and below which a frame is silence
 START = 0.25        # s of voice before speech counts as started
-SILENCE = 0.7       # s of silence that ends the turn
+SILENCE = 0.7       # s of silence that ends the turn (--fixed-turn)
+CHECK = 0.2         # s of silence before Smart Turn judges whether the turn is finished
+FINISHED = 0.5      # Smart Turn's probability from which it is
+WAIT = 1.5          # s of silence that ends a turn it judged unfinished (longer leaves people waiting)
+JUDGED_S = 8.0      # s of the turn's end that Smart Turn hears
+SHORT_TURN = 1.0    # s of speech under which Smart Turn isn't asked: it calls one word unfinished
 MIN_SPEECH = 0.3    # s: shorter turns are dropped (coughs, clicks)
 MAX_SPEECH = 15.0   # s: longer turns are cut and sent as they are
 PREROLL = 0.8       # s kept before speech starts (a short "Not much," before it is kept)
@@ -69,6 +79,7 @@ GROUP, PORT = "239.168.123.161", 5555   # the G1's mic stream, from PC1
 PC2 = "192.168.123.164"                  # PC2's address on the robot network
 PACKET = 5120                            # bytes per mic packet (160 ms)
 SILERO = "silero_vad.onnx"
+SMART_TURN = "smart-turn-v3.2-cpu.onnx"
 PARAKEET = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 
 
@@ -204,9 +215,13 @@ class Mute:
 
 class Turns:
     """Frames and their speech probabilities in, finished turns out. Kept apart from Silero
-    so its timing rules can be tested with made-up probabilities (tests/test_turns.py)."""
+    and Smart Turn so its timing rules can be tested with made-up probabilities
+    (tests/test_turns.py). finished(audio) gives the probability that a turn is finished
+    (TurnEnd); without it, SILENCE s of silence end every turn."""
 
-    def __init__(self):
+    def __init__(self, finished=None):
+        self.finished = finished
+        self.judged = None        # finished()'s answer for this stretch of silence
         self.frame_s = FRAME / RATE
         self.preroll = collections.deque(maxlen=int(PREROLL / self.frame_s))
         self.frames = []          # the turn so far, from its preroll
@@ -233,14 +248,23 @@ class Turns:
                 self.first = self.count
             self.voiced = self.voiced + 1 if voice else max(0, self.voiced - 1)
             if self.voiced * self.frame_s >= START:
-                self.speaking, self.quiet = True, 0
+                self.speaking, self.quiet, self.judged = True, 0, None
                 self.frames = list(self.preroll)
                 self.start = (self.first - 1) * self.frame_s
             return None
         self.frames.append(frame)
         self.quiet = self.quiet + 1 if prob < END_PROB else 0
+        if not self.quiet:
+            self.judged = None    # they went on: judge the next silence afresh
+        quiet_s = self.quiet * self.frame_s
+        if self.finished is None or (self.count - self.quiet) * self.frame_s - self.start < SHORT_TURN:
+            wait = SILENCE
+        else:
+            if self.judged is None and quiet_s >= CHECK:
+                self.judged = self.finished(np.concatenate(self.frames))
+            wait = CHECK if self.judged is not None and self.judged >= FINISHED else WAIT
         speech_s = len(self.frames) * self.frame_s - PREROLL
-        if self.quiet * self.frame_s >= SILENCE or speech_s >= MAX_SPEECH:
+        if quiet_s >= wait or speech_s >= MAX_SPEECH:
             end = (self.count - self.quiet) * self.frame_s
             audio = np.concatenate(self.frames)
             self.speaking, self.voiced, self.frames = False, 0, []
@@ -253,7 +277,59 @@ class Turns:
         room's noise floor."""
         self.count += 1
         self.speaking, self.voiced, self.quiet, self.frames = False, 0, 0, []
+        self.judged = None
         self.preroll.clear()
+
+
+N_FFT, HOP, MELS = 400, 160, 80   # Whisper's log-mel features, which Smart Turn takes
+
+
+def mel_filters():
+    """Triangular filters on Slaney's mel scale, area-normalised, 0 to 8 kHz: (MELS, bins)."""
+    def mel(hz):
+        return np.where(hz < 1000, 3 * hz / 200, 15 + np.log(np.maximum(hz, 1e-9) / 1000) * 27 / np.log(6.4))
+
+    def hz(m):
+        return np.where(m < 15, 200 * m / 3, 1000 * np.exp((m - 15) * np.log(6.4) / 27))
+
+    edges = hz(np.linspace(mel(0.0), mel(RATE / 2), MELS + 2))
+    bins = np.linspace(0, RATE / 2, N_FFT // 2 + 1)
+    rising = (bins[None, :] - edges[:-2, None]) / (edges[1:-1] - edges[:-2])[:, None]
+    falling = (edges[2:, None] - bins[None, :]) / (edges[2:] - edges[1:-1])[:, None]
+    return np.maximum(0, np.minimum(rising, falling)) * (2 / (edges[2:] - edges[:-2]))[:, None]
+
+
+class TurnEnd:
+    """Pipecat's Smart Turn v3.2 (BSD-2): the probability that a turn is finished, from how
+    the last JUDGED_S s of it sound (zeros in front when shorter)."""
+
+    def __init__(self, model):
+        import onnxruntime
+        options = onnxruntime.SessionOptions()
+        options.intra_op_num_threads = options.inter_op_num_threads = 1
+        self.session = onnxruntime.InferenceSession(str(model), options,
+                                                    providers=["CPUExecutionProvider"])
+        self.window = np.hanning(N_FFT + 1)[:-1]   # periodic, as Whisper's
+        self.filters = mel_filters()
+        self.took = 0.0   # s the last judgement took
+
+    def features(self, audio):
+        """Whisper's log-mel: (MELS, JUDGED_S / 10 ms) from normalised audio."""
+        n = int(JUDGED_S * RATE)
+        audio = np.concatenate([np.zeros(max(0, n - len(audio))), audio[-n:]])
+        audio = (audio - audio.mean()) / np.sqrt(audio.var() + 1e-7)
+        frames = np.lib.stride_tricks.sliding_window_view(np.pad(audio, N_FFT // 2, mode="reflect"),
+                                                          N_FFT)[::HOP][:-1]
+        power = np.abs(np.fft.rfft(frames * self.window, axis=1)) ** 2
+        logs = np.log10(np.maximum(power @ self.filters.T, 1e-10))
+        logs = np.maximum(logs, logs.max() - 8.0)
+        return ((logs + 4) / 4).T.astype(np.float32)
+
+    def __call__(self, audio):
+        began = time.perf_counter()
+        finished = float(self.session.run(None, {"input_features": self.features(audio)[None]})[0][0][0])
+        self.took = time.perf_counter() - began
+        return finished
 
 
 class Text:
@@ -297,6 +373,8 @@ def main():
     parser.add_argument("--models", type=Path, default=None, help="where the models are")
     parser.add_argument("--provider", default="cpu", help="sherpa-onnx's device: cpu or cuda")
     parser.add_argument("--no-mute", action="store_true", help="hear the robot speaking too")
+    parser.add_argument("--fixed-turn", action="store_true",
+                        help=f"end every turn after {SILENCE} s of silence, without Smart Turn")
     parser.add_argument("--mute-port", type=int, default=MUTE_PORT, help="talk.py's speaking messages")
     args = parser.parse_args()
     if args.devices:
@@ -305,10 +383,13 @@ def main():
         return
 
     models = args.models or models_dir()
-    for path in (models / SILERO, models / PARAKEET):
+    needed = [models / SILERO, models / PARAKEET] + ([] if args.fixed_turn else [models / SMART_TURN])
+    for path in needed:
         if not path.exists():
             sys.exit(f"{path} is missing: README.md says how to get it")
-    voice, turns = Voice(models / SILERO), Turns()
+    voice = Voice(models / SILERO)
+    turn_end = None if args.fixed_turn else TurnEnd(models / SMART_TURN)
+    turns = Turns(turn_end)
     began = time.perf_counter()
     text = Text(models / PARAKEET, args.provider)
     log(f"models loaded in {time.perf_counter() - began:.1f} s")
@@ -332,12 +413,17 @@ def main():
             if turn is None:
                 continue
             start, end, audio = turn
+            waited = turns.count * turns.frame_s - end
+            judging = turn_end.took if turn_end and turns.judged is not None else 0.0
             began = time.perf_counter()
             said = text(audio) if end - start >= MIN_SPEECH else ""
             stt = time.perf_counter() - began
             line = {"text": said, "start": round(start, 2), "end": round(end, 2),
-                    "silence_s": SILENCE, "stt_s": round(stt, 3),
-                    "after_end_s": round(SILENCE + stt, 3)}
+                    "silence_s": round(waited, 2), "stt_s": round(stt, 3),
+                    "after_end_s": round(waited + judging + stt, 3)}
+            if turns.judged is not None:
+                line["finished"] = round(turns.judged, 2)
+                line["turn_s"] = round(judging, 3)
             reason = dropped(said, start, end)
             if reason:
                 line["dropped"] = reason

@@ -4,8 +4,9 @@ errors, false starts and how long after the person stops each turn ends.
   python3 bench/listen_bench.py [--only GROUP,...] [--sweep] [--configs JSON]
 
 Silero runs once per clip, then each config runs listen.py's turn rules on its
-probabilities, so a sweep takes minutes. A config is {NAME: value} for listen.py's settings
-(SILENCE, FLOOR_MARGIN, ...), plus two options still being tried:
+probabilities (Smart Turn's answers are kept per clip too), so a sweep takes minutes. A
+config is {NAME: value} for listen.py's settings (SILENCE, WAIT, FLOOR_MARGIN, ...), plus:
+  FIXED     true: end every turn after SILENCE s, as listen.py --fixed-turn
   MIN_DB    frames quieter than this (dBFS) are never voice: other people further away
   REL_END   during a turn, a frame this many dB quieter than the person counts as silence
 Per group: word errors, clips with the right number of turns, L mean lag from the end of
@@ -31,11 +32,13 @@ from talk import number_words  # noqa: E402
 CLIPS = HERE / "out" / "clips"
 SETTINGS = {k: getattr(listen, k) for k in
             ["START_PROB", "END_PROB", "START", "SILENCE", "MIN_SPEECH", "MAX_SPEECH", "PREROLL",
-             "FLOOR_MARGIN"]}
-SWEEP = {"SILENCE": [0.5, 0.6, 0.8, 0.9, 1.1], "START_PROB": [0.5, 0.7, 0.8],
-         "END_PROB": [0.35, 0.55], "START": [0.15, 0.2, 0.35], "FLOOR_MARGIN": [1.5, 2.0, 3.0],
-         "PREROLL": [0.5, 1.0]}
+             "FLOOR_MARGIN", "CHECK", "FINISHED", "WAIT", "SHORT_TURN"]}
+SWEEP = {"SILENCE": [0.5, 0.9], "WAIT": [1.0, 1.5, 2.0], "FINISHED": [0.3, 0.7],
+         "CHECK": [0.1, 0.3], "SHORT_TURN": [0.0, 1.5], "START_PROB": [0.5, 0.7],
+         "END_PROB": [0.35, 0.55], "START": [0.15, 0.35], "FLOOR_MARGIN": [1.5, 2.0],
+         "PREROLL": [0.5, 1.0], "FIXED": [True]}
 SAME = {"ok": "okay", "yep": "yeah"}
+FRAME_KEY = 64   # samples that, with the length, tell turns of one clip apart
 
 
 def words(text):
@@ -57,8 +60,8 @@ def errors(ref, hyp):
 class Trial(listen.Turns):
     """listen.Turns with MIN_DB and REL_END (see the docstring)."""
 
-    def __init__(self, min_db=None, rel_end=None):
-        super().__init__()
+    def __init__(self, finished=None, min_db=None, rel_end=None):
+        super().__init__(finished)
         self.min_db, self.rel_end, self.levels = min_db, rel_end, []
 
     def push(self, frame, prob):
@@ -75,10 +78,10 @@ class Trial(listen.Turns):
         return super().push(frame, prob)
 
 
-def find_turns(frames, probs, config):
+def find_turns(frames, probs, config, finished):
     for name, value in SETTINGS.items():
         setattr(listen, name, config.get(name, value))
-    turns = Trial(config.get("MIN_DB"), config.get("REL_END"))
+    turns = Trial(None if config.get("FIXED") else finished, config.get("MIN_DB"), config.get("REL_END"))
     found = []
     for i, (frame, prob) in enumerate(zip(frames, probs)):
         turn = turns.push(frame, prob)
@@ -100,6 +103,7 @@ def main():
         manifest = {k: v for k, v in manifest.items() if v["group"] in args.only.split(",")}
     models = listen.models_dir()
     voice, text = listen.Voice(models / listen.SILERO), listen.Text(models / listen.PARAKEET, "cpu")
+    turn_end, judged = listen.TurnEnd(models / listen.SMART_TURN), {}
 
     data = {}
     for name in manifest:
@@ -121,7 +125,14 @@ def main():
         for name, clip in manifest.items():
             frames, probs = data[name]
             passed = []
-            for start, end, audio, ended in find_turns(frames, probs, config):
+
+            def finished(audio, name=name):   # the same turn so far gets the same answer
+                key = (name, len(audio), float(audio[:FRAME_KEY].sum()))
+                if key not in judged:
+                    judged[key] = turn_end(audio)
+                return judged[key]
+
+            for start, end, audio, ended in find_turns(frames, probs, config, finished):
                 key = (name, round(start, 3), round(end, 3), len(audio))
                 if key not in heard:
                     began = time.perf_counter()
