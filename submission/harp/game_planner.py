@@ -68,9 +68,9 @@ RULE = 20.               # cost per metre inside RULE_GAP (linear): the quadrati
                          # 20 / 30; at 0.5 m/s, 93 worlds, passed 20 either way, reached 85 / 87
 RISK_TIME = 2.           # s: later predicted overlaps count less (prediction grows unsure)
 SAFE_TIME = 1.2          # s nobody is assumed to react in (the MPC's YIELD_DELAY). The robot's stop
-                         # from 0.5 m/s takes about 1.45 s, but in HIM (aware, 0.5 m/s, 8 runs each)
-                         # 1.45 reached 3 goals against 6 at 1.2, though the benchmark (73 worlds)
-                         # had favoured it a little (reached 70 against 67; 1.7: 65)
+                         # from 0.5 m/s takes about 1.45 s; the benchmark (73 worlds) favoured 1.45
+                         # a little (reached 70 against 67; 1.7: 65), HIM didn't confirm it (aware,
+                         # 0.5 m/s: 3 of 8 goals at 1.45 s; 1.2 s 6 of 8, then 2 of 8 the next round)
 CONTINGENCY_TIME = 2.5   # s a plan B must stay clear for if people don't react at all
 STILL_SPEED = .15        # m/s: slower tracks count as standing in the hard check (velocity noise)
 TIE = .02                # m: violations this close count as equal when nothing is safe
@@ -89,8 +89,8 @@ STUBBORN_PLAYERS = False # players' own ids for the stubborn rule (HARP_PREDICTI
                          # Off: with anyone not playing the ids don't line up, so stubborn walkers
                          # keep rho >= .6, as everything was tuned and tested. On: benchmark, 0.5 m/s,
                          # 73 worlds, walkers who give way passed every check 16 -> 20, kept 0.30 m
-                         # 21 -> 29; walkers who never react reached 40 -> 35; but in HIM (aware)
-                         # the robot stood ('blocked') more and missed building and heldout_20261106.
+                         # 21 -> 29; walkers who never react reached 40 -> 35; HIM (aware, 8 runs
+                         # each) reached 1 goal against the default's 2: no gain shows there.
 BUDGET = .08             # s: plans slower than this on average step down a LEVEL (the filter
                          # stops the robot at 0.15 s; PC2's cores are about 2.5-3x slower than a
                          # Mac's, where plans take 36 ms typically, 49 ms at the 95th percentile)
