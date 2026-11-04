@@ -182,7 +182,7 @@ class PredictiveAvoidance:
         self.tf = buffer if buffer is not None else Buffer(cache_time=Duration(seconds=2.0))
         self.listener = None if buffer is not None else TransformListener(self.tf, node)
         self.tracker = Tracker()
-        speed = float(os.environ.get('HARP_PREDICTIVE_SPEED', '.3'))
+        speed = float(os.environ.get('HARP_PREDICTIVE_SPEED', '.5'))   # Nav2's v_linear_max
         if not .05 <= speed <= .6:
             raise ValueError('predictive speed must be within .05 to .6 m/s')
         gain = float(os.environ.get('HARP_PREDICTIVE_TRACKING_GAIN','.85'))

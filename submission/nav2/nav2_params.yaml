@@ -60,7 +60,7 @@ controller_server:
       # GR00T walks at about 85% of the command, and below |cmd| 0.05 it
       # switches to standing still, so the minimums stay well above that.
       v_linear_min: 0.1
-      v_linear_max: 0.3
+      v_linear_max: 0.5   # the predictive filter's HARP_PREDICTIVE_SPEED matches it
       v_angular_max: 0.6
       v_angular_min_in_place: 0.3
       slowdown_radius: 0.8
