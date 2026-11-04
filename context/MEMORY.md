@@ -11,6 +11,7 @@
 - [GR00T WBC](gr00t-wbc.md) — when the walking policy comes up: HIM's GR00T walker, its contract and behavior
 - [Behavior loop](behavior-loop.md) — before changing the autonomous loop, its stand-in detector or the people world
 - [Planned moves](planned-moves.md) — when changing walks, turns, curves or leg odometry, or needing their accuracy
+- [Wave](wave.md) — before changing or running the right-arm wave, or adding another arm gesture
 - [Waypoint recorder](waypoint-recorder.md) — when capturing destinations or reusing recorded routes
 - [HARP safety harness and sim](him-sim2real.md) — before anything touching him-sim2real-management, or planning the first robot session
 - [Our submission image](submission-image.md) — before changing submission/ (image, entrypoint, worlds) or debugging what runs inside a run
