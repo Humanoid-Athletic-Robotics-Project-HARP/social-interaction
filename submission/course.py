@@ -8,6 +8,9 @@
   python3 submission/course.py --replay runs/2026-10-28_05-00-00Z_sim_one_box
   python3 submission/course.py --compare slalom
   python3 submission/course.py --events runs/2026-10-28_05-00-00Z_sim_one_box
+  python3 submission/course.py building --mapping --avoidance predictive
+  python3 submission/course.py building --map runs/2026-11-03_20-00-00Z_sim_building_mapping \
+      --avoidance predictive --crowd aware
 
 Each run gets a folder in the main checkout's runs/, shared by every git worktree
 (HARP_RUNS_DIR to change it; checkout.py), holding our run.json (world, tag, start, git
@@ -32,7 +35,15 @@ moved out of policy.log: submission/lidar_view.py --run shows them), and our sum
                         was coming closer (harp/approach_stop.py should have it standing)
   drift_m    leg odometry against the truth at the last "odom" line
   crowd      scripted, or aware: --crowd aware has the world's movers give way to the
-             robot (harp/movers.py AwareMovers) instead of keeping to their routes
+             robot (harp/movers.py AwareMovers) instead of keeping to their routes; or none
+             (the movers out of the way: an empty building)
+  map        with a map (harp/mapper.py): built (--mapping: its occupied and known cells; the
+             run also keeps it as map.pgm and map.yaml) or used (--map RUN: the mapping
+             run, and the localization's last report)
+--mapping walks the course in an empty building (--crowd none unless given) building a map;
+--map RUN gives a later walk that run's map (the robot starts where the mapping walk did);
+--odom-drift SCALE DEG_PER_MIN makes the sim's leg odometry drift (scale error, heading
+drift) to test localization.
 A world whose criteria give a task (people.yaml: the behavior loop, harp/behavior.py) runs
 that as G1_TASK_COMMAND instead of its goal. Then outcome is succeeded if the loop started
 and didn't stop on an error, seconds are from its start to its first talk, there's no end
@@ -136,6 +147,7 @@ import stage_world  # noqa: E402
 from harp.leg_odometry import wrap_angle, yaw_of  # noqa: E402
 from harp.movers import Movers, obstacle_geoms  # noqa: E402
 from harp.movers import CROWDS, Movers, logged_path, obstacle_geoms  # noqa: E402
+from harp import occupancy  # noqa: E402
 from harp.route import route_from_data  # noqa: E402
 
 SCENES = checkout.STAGE / "scenes"
@@ -374,8 +386,23 @@ def score(run):
         "path_m": round(path, 2),
         "end_error_m": None if goal is None else round(float(np.linalg.norm(xy[-1] - goal)), 3),
         "closest_m": closest, "contacts": contacts, "speed_near_people_mps": near_speed,
-        "drift_m": drift, "crowd": "scripted" if logged is None else "aware",
+        "drift_m": drift, "crowd": crowd_of(events),
     }
+    built = saved_map(run, events)
+    if built is not None:
+        grid, origin, resolution = occupancy.decode(built)
+        (run / "map.pgm").write_bytes(occupancy.pgm(grid))
+        (run / "map.yaml").write_text(yaml.safe_dump({
+            "image": "map.pgm", "resolution": resolution, "origin": [float(origin[0]), float(origin[1]), 0.0],
+            "negate": 0, "occupied_thresh": 0.65, "free_thresh": 0.196}, sort_keys=False))
+        summary["map"] = {"built": True, "occupied_cells": int((grid == 100).sum()),
+                          "known_m2": round(float((grid >= 0).sum()) * resolution ** 2, 1)}
+    localized = [e for e in events if e.get("source") == "mapper" and e.get("event") == "localization"]
+    if localized:
+        last = localized[-1]
+        summary["map"] = {"built": False, "from": meta.get("map_from"), "found": last.get("found"),
+                          "correction": last.get("pose"), "matches": last.get("matches"),
+                          "refused": last.get("refused")}
     if behavior:
         summary["loop"] = {
             "talks": talk_scores(world, trace, started, talks, [
@@ -395,6 +422,22 @@ def score(run):
     summary["passed"], summary["failed_checks"] = check(summary, criteria)
     (run / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def crowd_of(events):
+    """The run's crowd: the lidar's crowd event's mode (aware or none), else scripted."""
+    crowd = next((e for e in events if e.get("event") == "crowd"), None)
+    return crowd.get("mode", "aware") if crowd else "scripted"
+
+
+def saved_map(run, events=None):
+    """The map a mapping run built (its last "map" event from harp/mapper.py), or None."""
+    if events is None:
+        events, _ = read_log(Path(run))
+    maps = [e for e in events if e.get("source") == "mapper" and e.get("event") == "map"]
+    if not maps:
+        return None
+    return {k: maps[-1][k] for k in ("resolution", "origin", "width", "height", "cells")}
 
 
 def world_criteria(name):
@@ -799,10 +842,15 @@ def watch_live(process, run):
             report.write_bytes(kept)
 
 
-def course_task(existing, route=None, avoidance=None, crowd=None):
-    """Preserve the task's independent options when adding a route, avoidance mode or crowd."""
+def course_task(existing, route=None, avoidance=None, crowd=None, extra=None):
+    """Preserve the task's independent options when adding a route, avoidance mode, crowd or
+    extra fields (a map's: harp/mapper.py)."""
     from harp.avoidance_config import select
     task = json.loads(existing or "{}")
+    if extra:
+        if not isinstance(task, dict):
+            task = {}
+        task.update(extra)
     if route is not None or avoidance is not None or crowd is not None:
         if not isinstance(task, dict):
             task = {}
@@ -821,7 +869,7 @@ def course_task(existing, route=None, avoidance=None, crowd=None):
     return text
 
 
-def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None):
+def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None, extra=None, map_from=None):
     criteria = world_criteria(name) or {}
     max_time = route_time(route) if route else criteria.get("max_time_s", 60)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
@@ -833,9 +881,9 @@ def run_once(name, tag, route=None, view=False, avoidance=None, crowd=None):
     existing = env.get("G1_TASK_COMMAND")
     if not route and "task" in criteria:
         existing = json.dumps(criteria["task"])   # e.g. harp/behavior.py's loop
-    env["G1_TASK_COMMAND"] = course_task(existing, route, avoidance, crowd)
+    env["G1_TASK_COMMAND"] = course_task(existing, route, avoidance, crowd, extra)
     (run / "run.json").write_text(json.dumps(dict(new_run_json(run, stamp), world=name,
-                                                  tag=tag)) + "\n")
+                                                  tag=tag, map_from=map_from)) + "\n")
     for note in memory_warnings():
         print(f"{run.name}: warning: {note}", flush=True)
     command = [str(HERE / "sim.sh"), "--world", name, "--seconds", str(int(max_time + STARTUP)),
@@ -997,6 +1045,12 @@ def main():
     where.add_argument("--waypoint", action="append", nargs="+", type=float, metavar="NUM",
                        help="X Y [HEADING] in odom; one per point, in order")
     parser.add_argument("--laps", type=positive, help="laps of the route (default: its file's, or 1)")
+    mapping = parser.add_mutually_exclusive_group()
+    mapping.add_argument("--mapping", action="store_true",
+                         help="build a map on this walk (harp/mapper.py), in an empty building unless --crowd")
+    mapping.add_argument("--map", metavar="RUN", help="walk with the map a --mapping run built")
+    parser.add_argument("--odom-drift", nargs=2, type=float, metavar=("SCALE", "DEG_PER_MIN"),
+                        help="sim only: leg odometry's scale error and heading drift")
     parser.add_argument("--view", action="store_true",
                         help="watch each run in HIM's live viewer (closed before the next)")
     parser.add_argument("--score", metavar="RUN", help="only (re)score this run folder")
@@ -1041,6 +1095,17 @@ def main():
                 prune(run)
             slim(run_folders())
         return 0
+    args.extra, args.map_from = {}, None
+    if args.mapping:
+        args.extra["mapping"] = True
+        args.crowd = args.crowd or "none"
+    if args.map:
+        built = saved_map(args.map)
+        if built is None:
+            parser.error(f"{args.map} holds no map (a run made with --mapping)")
+        args.extra["map"], args.map_from = built, Path(args.map).name
+    if args.odom_drift:
+        args.extra["odom_drift"] = list(args.odom_drift)
     runs = [Path(args.score)] if args.score else range(args.repeat)
     failed = False
     for run in runs:
@@ -1053,7 +1118,7 @@ def run_and_score(run, args, route):
     """Run (unless --score) and score one run, print its line, and prune; False if it
     didn't succeed or failed its criteria."""
     run = run if args.score else run_once(args.world, args.tag, route, args.view, args.avoidance,
-                                          args.crowd)
+                                          args.crowd, args.extra, args.map_from)
     if run is None:
         return False
     try:
@@ -1069,6 +1134,12 @@ def run_and_score(run, args, route):
           f"{s['seconds']} s, path {s['path_m']} m, end {s['end_error_m']} m, "
           f"closest {s['closest_m']} m, contacts {s['contacts']}, "
           f"recoveries {s['recoveries']}, drift {s['drift_m']} m"
+          + (f", map {'built' if s['map']['built'] else 'used'}"
+             + (f" ({s['map']['occupied_cells']} walls cells, {s['map']['known_m2']} m2 known)"
+                if s['map']['built'] else
+                f" (found {s['map']['found']}, correction {s['map']['correction']}, "
+                f"matches {s['map']['matches']}, refused {s['map']['refused']})")
+             if "map" in s else "")
           + (f", speed near people {s['speed_near_people_mps']} m/s"
              if s["speed_near_people_mps"] is not None else "")
           + (f", waypoints {s['route']['completed_waypoints']}/{s['route']['waypoints']}"

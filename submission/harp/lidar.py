@@ -48,7 +48,7 @@ from std_msgs.msg import Header, String
 
 from harp import camera_mount, depth_camera, lidar_mount
 from harp.events import Events, latched
-from harp.movers import AwareMovers, Movers, crowd_event, crowd_mode, path_event
+from harp.movers import AwareMovers, Movers, crowd_event, crowd_mode, parked_path, path_event
 
 RAYS_PER_S = 200_000         # the real MID-360's points a second, no-echo ones included
 MIN_RANGE, MAX_RANGE = 0.1, 40.0   # m
@@ -75,11 +75,16 @@ class SimLidar:
         self.node = node
         self.model = mujoco.MjModel.from_xml_path(str(scene))
         self.data = mujoco.MjData(self.model)
-        aware = crowd_mode(os.environ.get("G1_TASK_COMMAND", "")) == "aware"
+        mode = crowd_mode(os.environ.get("G1_TASK_COMMAND", ""))
+        aware = mode == "aware"
         self.movers = (AwareMovers if aware else Movers)(self.model)
         self.aware = aware and bool(self.movers.names)
         if self.aware:
             print(crowd_event(self.movers.names), flush=True)
+        elif mode == "none":
+            # An empty building (a mapping walk): the movers parked out of reach.
+            print(crowd_event(self.movers.names, "none"), flush=True)
+            self.movers = Movers(self.model, path=parked_path(self.movers.names))
         self.torso = self.model.body(lidar_mount.PARENT).id
         self.mount = lidar_mount.rotation()
         self.rng = np.random.default_rng()

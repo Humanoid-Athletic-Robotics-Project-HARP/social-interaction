@@ -1,0 +1,23 @@
+---
+name: mapping
+description: Read before building or using a map in the sim (course.py --mapping / --map), changing harp/mapper.py, occupancy.py or localizer.py, or judging map results
+metadata:
+  type: project
+  updated: 2026-11-04T02:07:16Z
+  covers: [submission/harp/mapper.py, submission/harp/occupancy.py, submission/harp/localizer.py, submission/tests/test_mapping.py]
+---
+
+**What it is:** a saved building map plus localization for Nav2, so the planner keeps walls it has seen before, also out of view and long ago (without one Nav2 plans through unseen space and forgets walls after STVL's 15 s: the office's route flip-flops and the held-out partition doorways, [[predictive-avoidance]]). Lam chose to have it built (Nov 3), in place of designing it himself.
+
+**How a run gets one:**
+- `course.py WORLD --mapping` walks the course in an empty building (`--crowd none` unless given: the movers parked far away, `harp/movers.py` `parked_path`) building the map; Nav2 already plans on the growing map. The map leaves the container as "map" events every 5 s; scoring keeps the last as `map.pgm`/`map.yaml` in the run folder.
+- `course.py WORLD --map RUN` puts that map in the task (`G1_TASK_COMMAND` "map", base64 zlib, about 15 KB); the robot is taken to start where the mapping walk did (`"map_pose"` otherwise).
+- `entrypoint.sh` starts `harp/mapper.py` only for such a task; `nav2.launch.py` then puts a static layer (on `/map`) first in both costmaps, still in odom; `course_goal.py` sends each goal through map -> odom.
+
+**Map** (`harp/occupancy.py`): 5 cm log-odds cells from `/harp/static_cloud` (moving objects left out). A return at 0.08–1.8 m marks; a ray clears only cells it passes below 0.4 m (a ray high over a low box proves nothing about it), so floor returns clear.
+
+**Localization** (`harp/localizer.py`): a correlative search (Olson 2009) on a smooth likelihood field round the estimate, coarse to fine, turned about the robot. Turned about odom's origin, 8 m behind, each 1° of the torso's heading sway moved the robot 14 cm and the window couldn't reach the fix: HIM showed corrections jumping 28 cm. The estimate takes 30% of each match's position and 5% of its heading (heading jitters about 1° scan to scan). Matches need 80 inlier returns and 40% fit, and may move the robot at most 0.3 m.
+
+**Results (HIM, building, aware crowd, 0.5 m/s):** the mapping walk reached the goal in 30 s with a clean map (walls, doors, pillars). Replayed offline, localization is within about 5 cm of the truth at the robot (mostly the mapping walk's own drift). Walks on the map: 1 reached the goal of 3 (one dodged into a side room with walkers, not a map fault); A/B on fresh held-out worlds next. Sim odometry drifts only about 5 cm a run; `--odom-drift SCALE DEG_PER_MIN` makes it drift more, to test localization.
+
+**Not done:** nothing on the robot (its odometry drifts more and its map would need a mapping walk there); no map editing (a standing person on the mapping walk stays a wall); doors closing after mapping.

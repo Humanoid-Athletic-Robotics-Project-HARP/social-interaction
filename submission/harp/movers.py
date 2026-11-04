@@ -49,7 +49,9 @@ import numpy as np
 from harp import events
 
 START_DISTANCE = 0.3   # m the pelvis has to move from where it started
-CROWDS = ("scripted", "aware")   # the task's "crowd": scripted (the default) or aware movers
+CROWDS = ("scripted", "aware", "none")   # the task's "crowd": scripted (the default), aware
+                                         # movers, or none (an empty building: a mapping walk)
+PARKED = 1000.0   # m: where no crowd keeps the world's movers, out of every sensor's reach
 # How an aware crowd's movers walk and give way (AwareMovers): every call (each lidar scan)
 # each picks, from a few headings and speeds around its route's, the cheapest by how much
 # progress along its route it gives up, how far it is from the route, and how near it would
@@ -453,14 +455,20 @@ def crowd_mode(task_text):
         task = None   # other task readers tolerate bad JSON too
     mode = task.get("crowd", "scripted") if isinstance(task, dict) else "scripted"
     if mode not in CROWDS:
-        raise ValueError("crowd must be scripted or aware")
+        raise ValueError("crowd must be scripted, aware or none")
     return mode
 
 
-def crowd_event(names):
-    """The lidar's first event with an aware crowd (harp/events.py): the movers its path
-    events list."""
-    return events.record("lidar", "crowd", mode="aware", movers=list(names))
+def crowd_event(names, mode="aware"):
+    """The lidar's first event with an aware crowd or none (harp/events.py): the movers its
+    path events list (none: parked_path's)."""
+    return events.record("lidar", "crowd", mode=mode, movers=list(names))
+
+
+def parked_path(names):
+    """A logged_path for no crowd: every mover PARKED far away, for good."""
+    positions = [[PARKED + 2.0 * i, PARKED] for i in range(len(names))]
+    return list(names), np.array([0.0, 1e9]), np.array([positions, positions], dtype=float).reshape(2, -1, 2)
 
 
 def path_event(t, positions):
@@ -473,6 +481,8 @@ def logged_path(events):
     """(names, times, positions) from a run's crowd and movers events, for
     Movers(path=...), or None if its movers were scripted."""
     crowd = next((e for e in events if e.get("event") == "crowd"), None)
+    if crowd and crowd.get("mode") == "none":
+        return parked_path(crowd.get("movers", []))
     samples = [e for e in events if e.get("event") == "movers"]
     if not crowd or crowd.get("mode") != "aware" or not samples:
         return None

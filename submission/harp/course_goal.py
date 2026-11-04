@@ -16,6 +16,10 @@ route. A route also logs waypoint_sent (lap, waypoint, x, y, yaw) and
 waypoint_result (lap, waypoint, status, seconds, recoveries) for each point. If
 Nav2 isn't active within NAV2_START s, the result is NAV2_NOT_ACTIVE.
 
+With a map (harp/mapper.py: "mapping" or "map" in the task), points are in the map's frame
+(the mapping walk's odom: the world's, as each walk starts at its origin) and each goes to Nav2
+in odom through the map -> odom transform as it is when the point is sent.
+
 Each point gets TIMEOUT s, finding Nav2's action server and its accepting the
 goal included, so no wait here is unbounded. A timeout cancels the goal and
 waits up to CANCEL_TIMEOUT s for Nav2 to confirm (CANCEL_TIMEOUT if it doesn't).
@@ -33,7 +37,9 @@ from action_msgs.msg import GoalStatus
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
+from rclpy.time import Time
 from std_msgs.msg import String
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from harp.events import Events, latched
 from harp.route import Route, route_from_data
@@ -44,6 +50,7 @@ SETTLE = 2.0          # s after the handoff before the goal goes out
 TIMEOUT = 240.0       # s for each point, from sending it to Nav2's result
 ARRIVED = 0.5         # m: a SUCCEEDED this far from the point (by Nav2's own pose) is not trusted
 CANCEL_TIMEOUT = 5.0  # s for Nav2 to confirm a cancelled goal has ended
+MAP_WAIT = 10.0       # s for harp/mapper.py's map -> odom transform
 STATUS = {GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED", GoalStatus.STATUS_ABORTED: "FAILED",
           GoalStatus.STATUS_CANCELED: "CANCELED"}
 
@@ -51,6 +58,43 @@ STATUS = {GoalStatus.STATUS_SUCCEEDED: "SUCCEEDED", GoalStatus.STATUS_ABORTED: "
 def goal_site():
     model = mujoco.MjModel.from_xml_path(WORLD)
     return model.site("goal").pos[:2].tolist()
+
+
+def uses_map():
+    """Whether the task builds or uses a map (harp/mapper.py)."""
+    try:
+        task = json.loads(os.environ.get("G1_TASK_COMMAND") or "null")
+    except ValueError:
+        return False
+    return isinstance(task, dict) and bool(task.get("mapping") or task.get("map") is not None)
+
+
+def to_odom(point, transform):
+    """(x, y, heading deg) in the map -> odom, by the odom <- map transform."""
+    q, p = transform.transform.rotation, transform.transform.translation
+    turn = 2 * math.atan2(q.z, q.w)
+    c, s = math.cos(turn), math.sin(turn)
+    x, y, heading = point
+    return (p.x + c * x - s * y, p.y + s * x + c * y, heading + math.degrees(turn))
+
+
+def frame_change(node):
+    """A function from a point in the map to the same in odom (unchanged without a map)."""
+    if not uses_map():
+        return lambda point: point
+    buffer = Buffer()
+    node._harp_tf = TransformListener(buffer, node)   # kept alive with the node
+
+    def change(point):
+        until = time.monotonic() + MAP_WAIT
+        while True:
+            try:
+                return to_odom(point, buffer.lookup_transform("odom", "map", Time()))
+            except TransformException:
+                if time.monotonic() >= until:
+                    raise
+                rclpy.spin_once(node, timeout_sec=.1)
+    return change
 
 
 def route_from_env():
@@ -183,8 +227,9 @@ def arrived(feedback, point):
     return not math.isfinite(distance) or distance <= ARRIVED
 
 
-def follow(node, nav, route, event, waypoint_events):
-    """Every point of the route in turn; the goal_result's fields."""
+def follow(node, nav, route, event, waypoint_events, change=lambda point: point):
+    """Every point of the route in turn (change: from its frame to odom); the goal_result's
+    fields."""
     x, y, yaw = route.waypoints[-1]
     plan = {"waypoints": [list(p) for p in route.waypoints], "laps": route.laps} if waypoint_events else {}
     event("goal_sent", x=x, y=y, yaw=yaw, **plan)
@@ -196,12 +241,14 @@ def follow(node, nav, route, event, waypoint_events):
             if waypoint_events:
                 event("waypoint_sent", lap=lap, waypoint=waypoint, x=point[0], y=point[1], yaw=point[2])
             began = time.monotonic()
-            status, f = go_to(node, nav, point, began + TIMEOUT)
-            while status == "SUCCEEDED" and not arrived(f, point) and time.monotonic() < began + TIMEOUT:
+            target = change(point)
+            status, f = go_to(node, nav, target, began + TIMEOUT)
+            while status == "SUCCEEDED" and not arrived(f, target) and time.monotonic() < began + TIMEOUT:
                 # A success the robot's own pose contradicts is not an arrival.
-                event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, point), 2))
-                status, f = go_to(node, nav, point, began + TIMEOUT)
-            if status == "SUCCEEDED" and not arrived(f, point):
+                event("stale_success", lap=lap, waypoint=waypoint, distance=round(distance_to(f, target), 2))
+                target = change(point)
+                status, f = go_to(node, nav, target, began + TIMEOUT)
+            if status == "SUCCEEDED" and not arrived(f, target):
                 status = "TIMEOUT"
             recoveries += getattr(f, "number_of_recoveries", 0)
             remaining = getattr(f, "distance_remaining", None)
@@ -250,9 +297,10 @@ def run(node):
         return 1
     spin_until(node, lambda: False, SETTLE)
 
+    change = frame_change(node)
     nav = ActionClient(node, NavigateToPose, "navigate_to_pose")
     try:
-        return 0 if follow(node, nav, route, event, waypoint_events) == "SUCCEEDED" else 1
+        return 0 if follow(node, nav, route, event, waypoint_events, change) == "SUCCEEDED" else 1
     finally:
         nav.destroy()
 

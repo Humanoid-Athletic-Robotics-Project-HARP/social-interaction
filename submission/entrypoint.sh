@@ -7,6 +7,7 @@
 #    G1_TASK_COMMAND, {"route": ...}: course.py --route), and harp/approach_stop.py
 #    between Nav2's commands and our node (standing while something comes at the robot),
 #    and harp/view_feed.py (the lidar, pose, people and costmap for submission/lidar_view.py);
+#    with "mapping" or "map" in G1_TASK_COMMAND, harp/mapper.py (a map for Nav2);
 #    with {"behavior": ...} in G1_TASK_COMMAND, the behavior loop (harp/behavior.py: wander
 #    and walk up to people) and its stand-in person detector (harp/sim_people.py) in place
 #    of the course goal.
@@ -48,6 +49,12 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   # can fail one ("Failed to create log directory").
   mkdir -p "${ROS_LOG_DIR:-${ROS_HOME:-$HOME/.ros}/log}"
   PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
+  # A map to build or use ("mapping" or "map" in the task): harp/mapper.py, before Nav2,
+  # whose costmaps then wait for its map and its map -> odom transform.
+  if [[ "${G1_TASK_COMMAND:-}" == *'"mapping"'* || "${G1_TASK_COMMAND:-}" == *'"map"'* ]]; then
+    OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH="/harp:$PYTHONPATH" \
+      nice -n 10 python3 /harp/harp/mapper.py &
+  fi
   nice -n 10 ros2 launch /harp/nav2/nav2.launch.py &
   OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYTHONPATH="/harp:$PYTHONPATH" \
     nice -n 10 python3 "/harp/harp/${avoidance_filter}.py" &

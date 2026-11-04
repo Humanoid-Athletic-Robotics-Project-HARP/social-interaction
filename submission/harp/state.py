@@ -13,10 +13,13 @@ results get the same drifting estimate as on the robot (where HIM usually has
 no base position). HIM's `position` in the sim is the exact MuJoCo pose: it is
 only ground truth, logged once a second beside the estimate (an "odom" line in
 the container's output, HIM's policy.log) for drift checks and course scoring,
-never used for /odom.
+never used for /odom. A sim test can make the estimate drift more (the task's "odom_drift":
+[scale error, heading drift deg/min], course.py --odom-drift), to test localization on a map.
 """
 
+import json
 import math
+import os
 
 import numpy as np
 from geometry_msgs.msg import TransformStamped
@@ -32,6 +35,44 @@ VELOCITY_SMOOTHING = 0.2  # low-pass factor per state for leg-odometry velocity
 TRUTH_PERIOD = 1.0        # s between "odom" lines (estimate beside the sim's truth)
 
 
+def odom_drift(task_text, mode):
+    """(scale error, heading drift rad/s) from the task's "odom_drift" in the sim, or None."""
+    try:
+        task = json.loads(task_text or "null")
+    except ValueError:
+        return None
+    drift = task.get("odom_drift") if isinstance(task, dict) and mode == "sim" else None
+    if not drift:
+        return None
+    scale, per_minute = float(drift[0]), float(drift[1])
+    if not (math.isfinite(scale) and math.isfinite(per_minute) and abs(scale) < .5):
+        raise ValueError("odom_drift needs a scale error under 0.5 and a finite heading drift")
+    return scale, math.radians(per_minute) / 60.0
+
+
+class Drift:
+    """Leg odometry made to drift: each step's displacement scaled and turned by the heading
+    error so far, which grows at a fixed rate."""
+
+    def __init__(self, scale, rate):
+        self.scale, self.rate = scale, rate
+        self.last = None          # the estimate's last x, y
+        self.x = self.y = self.turn = 0.0
+
+    def apply(self, x, y, yaw, velocity):
+        if self.last is None:
+            self.x, self.y = x, y
+        else:
+            self.turn += self.rate * CONTROL_DT
+            dx, dy = x - self.last[0], y - self.last[1]
+            c, s = math.cos(self.turn), math.sin(self.turn)
+            self.x += (1 + self.scale) * (c * dx - s * dy)
+            self.y += (1 + self.scale) * (s * dx + c * dy)
+        self.last = (x, y)
+        v = (velocity[0] * (1 + self.scale), velocity[1] * (1 + self.scale), velocity[2] + self.rate)
+        return self.x, self.y, yaw + self.turn, v
+
+
 class StatePublisher:
     def __init__(self, node, model_path):
         self.node = node
@@ -45,11 +86,15 @@ class StatePublisher:
         self.last = None          # leg-odometry x, y, heading at the previous state
         self.velocity = np.zeros(3)
         self.next_truth = 0.0
+        drift = odom_drift(os.environ.get("G1_TASK_COMMAND", ""), os.environ.get("G1_EXECUTION_MODE", "sim"))
+        self.drift = Drift(*drift) if drift else None
 
     def publish(self, state):
         stamp = self.node.get_clock().now().to_msg()
         self.legs.update(state["q"], state["quat"])
         x, y, yaw, velocity = self.from_legs()
+        if self.drift is not None:
+            x, y, yaw, velocity = self.drift.apply(x, y, yaw, velocity)
         self.publish_odometry(stamp, x, y, yaw, velocity)
         self.publish_joints_imu(stamp, state)
         if "position" in state and state.get("sim_time", 0.0) >= self.next_truth:

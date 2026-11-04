@@ -34,6 +34,7 @@
 - [Robot reference data](robot-reference-data.md) — when you need real lidar or camera recordings: what exists, where, what's missing
 - [Seeing ahead](seeing-ahead-research.md) — when planning person detection or obstacle avoidance in front of the real robot
 - [Predictive avoidance](predictive-avoidance.md) — before running or changing moving-object tracking, predictive avoidance, its worlds or HIM results
+- [Mapping](mapping.md) — before building or using a map in the sim (--mapping, --map), or changing the mapper, map or localizer
 - [Unitree resources](unitree-resources.md) — when looking for G1 code to build on, or choosing PC2's ROS 2/JetPack
 - [G1 official docs](g1-official-docs.md) — for a Unitree doc page, or the robot's address, login and sensors
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
