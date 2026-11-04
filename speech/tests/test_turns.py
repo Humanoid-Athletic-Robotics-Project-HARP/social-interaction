@@ -57,6 +57,19 @@ class TestTurns(unittest.TestCase):
                       frames(20, 0.9, LOUD), frames(30, 0.0, QUIET))
         self.assertEqual(len(found), 2)
 
+    def test_gap_while_starting_keeps_the_start(self):
+        # voice, one frame without, voice: the start is where the voice began
+        start_frames = int(listen.START / FRAME_S)
+        (start, _, _), = turns(frames(10, 0.0, QUIET), frames(start_frames - 2, 0.9, LOUD),
+                               frames(1, 0.3, LOUD), frames(30, 0.9, LOUD),
+                               frames(30, 0.0, QUIET))
+        self.assertAlmostEqual(start, 10 * FRAME_S)
+
+    def test_goodbye_and_thanks_are_kept(self):
+        for said in ("Bye.", "Thank you.", "You"):
+            self.assertIsNone(listen.dropped(said, 0.0, 1.0))
+        self.assertEqual(listen.dropped("Thank you for watching.", 0.0, 1.0), "made_up")
+
     def test_voice_no_louder_than_the_room_is_ignored(self):
         self.assertEqual(turns(frames(20, 0.0, LOUD), frames(30, 0.9, LOUD),
                                frames(30, 0.0, LOUD)), [])

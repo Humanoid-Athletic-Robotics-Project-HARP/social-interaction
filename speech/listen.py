@@ -11,11 +11,13 @@ Stages:
            as UDP multicast from PC1 (context/g1-builtin-apis.md), only while Unitree's
            voice assistant is in wake-up mode; other programs can read it too.
   voice    Silero VAD on each frame, plus a loudness check against the room's noise floor.
-  turn     speech starts after START s of voice; the turn ends after SILENCE s without
-           it. Turns under MIN_SPEECH s are dropped, ones over MAX_SPEECH s are cut. The
-           PREROLL s before the start are kept, so first syllables survive.
+  turn     speech starts after START s of voice (a frame without voice takes one frame
+           off, so a quiet syllable doesn't start the count over); the turn ends after
+           SILENCE s without it. Turns under MIN_SPEECH s are dropped, ones over MAX_SPEECH s
+           are cut. The PREROLL s before the start are kept, so first syllables survive.
   text     the whole turn through Parakeet TDT 0.6B v2 (sherpa-onnx).
-  filter   empty text and phrases speech models make up from noise are dropped.
+  filter   empty text and phrases Whisper-style models make up from noise are dropped
+           (Parakeet made none up on noise alone).
   mute     with the mic or the robot's, nothing is heard while talk.py says the robot is
            speaking, and for TAIL s after, so it doesn't hear itself: talk.py sends
            {"speaking": true} every 0.5 s while it plays and {"speaking": false} when it
@@ -55,9 +57,9 @@ START = 0.25        # s of voice before speech counts as started
 SILENCE = 0.7       # s of silence that ends the turn
 MIN_SPEECH = 0.3    # s: shorter turns are dropped (coughs, clicks)
 MAX_SPEECH = 15.0   # s: longer turns are cut and sent as they are
-PREROLL = 0.5       # s kept before speech starts
-FLOOR_MARGIN = 2.0  # a voiced frame is this many times louder than the noise floor (6 dB)
-MADE_UP = {"thank you.", "thank you for watching.", "thanks for watching.", "you", "bye."}
+PREROLL = 0.8       # s kept before speech starts (a short "Not much," before it is kept)
+FLOOR_MARGIN = 1.0  # a voiced frame is louder than the noise floor (more lost quiet syllables in noise)
+MADE_UP = {"thank you for watching.", "thanks for watching."}   # Whisper-style; not "Bye." or "Thank you."
 MUTE_PORT = 28732   # UDP on this computer: talk.py's speaking messages (its LLM server is on 28731;
                     # both below Linux's temporary-port range, and unused by common software)
 TAIL = 0.5          # s still muted after the robot stops speaking (the room's echo)
@@ -209,7 +211,8 @@ class Turns:
         self.preroll = collections.deque(maxlen=int(PREROLL / self.frame_s))
         self.frames = []          # the turn so far, from its preroll
         self.speaking = False
-        self.voiced = 0           # frames of voice in a row (before the start)
+        self.voiced = 0           # frames of voice (before the start), less one per frame without
+        self.first = 0            # the frame where that run of voice began
         self.quiet = 0            # frames of silence in a row (during speech)
         self.floor = None         # the room's loudness without speech (RMS)
         self.count = 0            # frames seen
@@ -224,11 +227,15 @@ class Turns:
         voice = prob >= START_PROB and loud
         if not self.speaking:
             self.preroll.append(frame)
-            self.voiced = self.voiced + 1 if voice else 0
+            # One frame without voice takes one off rather than starting over: in noise, a
+            # quiet syllable otherwise delays the start past the first words.
+            if voice and not self.voiced:
+                self.first = self.count
+            self.voiced = self.voiced + 1 if voice else max(0, self.voiced - 1)
             if self.voiced * self.frame_s >= START:
                 self.speaking, self.quiet = True, 0
                 self.frames = list(self.preroll)
-                self.start = (self.count - self.voiced) * self.frame_s
+                self.start = (self.first - 1) * self.frame_s
             return None
         self.frames.append(frame)
         self.quiet = self.quiet + 1 if prob < END_PROB else 0
