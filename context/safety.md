@@ -3,7 +3,7 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-11-04T22:40:34Z
+  updated: 2026-11-05T00:45:34Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
@@ -12,7 +12,7 @@ metadata:
 - **Automatic:** tilt past 42° or pelvis below 0.49 m (recovery if standing, else damping), torque, joint speed, base spin 6 rad/s, thrashing (enforced on the robot), 0.2 s command and observation deadlines, stale telemetry, battery and motor temperature, and a stability gate before handover. A stop latches until double Start damps and the robot is back in ready mode.
 - HIM's own docs: physical stopping is not yet accepted (a jerky T-pose stop shut down a joint).
 
-**A wave** (`{"wave": {}}`, [[wave]]) moves only the right arm, and is accepted only with HIM's checks as the robot runs them (thrashing enforced, torque stops on). Its hand is up 6.4 s, so a stop then starts from a raised arm, which HIM's stop behavior isn't accepted for yet.
+**A wave** (`{"wave": {}}`, [[wave]]) moves only the right arm, and is accepted only with HIM's checks as the robot runs them (thrashing enforced, torque stops on). Its hand is up 7.75 s, so a stop then starts from a raised arm, which HIM's stop behavior isn't accepted for yet.
 
 **Our part:** answer every `/safety/policy_state` within 0.2 s (keep heavy work out of the policy process and at lower priority: [[submission-image]]); `/cmd_vel` drives the walker and goes to zero after 0.5 s of silence; moves and Nav2 stop by sending zero, and GR00T balances.
 

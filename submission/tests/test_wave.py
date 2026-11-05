@@ -63,6 +63,15 @@ class Motion(unittest.TestCase):
             self.assertEqual(dq[5], 0.0)    # wrist pitch: 5 Nm, about 0.11 rad of tracking room
             self.assertEqual(dq[6], 0.0)    # wrist yaw: the same
 
+    def test_swing_turns_gently_at_its_ends(self):
+        # The arm's push on the body peaks where the swing turns: at 26 rad/s² (1.25 Hz,
+        # 0.4 rad) the torso rocked 3.2° in HIM, at 8 rad/s² (0.8 Hz, 0.3 rad) 1.0°.
+        w, h = wave.Wave(START, wave.NEUTRAL), 1e-4
+        for t, _, _, phase in samples(w, step=0.005):
+            if phase == "wave":
+                acc = (w.at(t + h)[1][wave.ELBOW] - w.at(t - h)[1][wave.ELBOW]) / (2 * h)
+                self.assertLessEqual(abs(acc), 10.0, f"t={t}")
+
     def test_wave_has_the_set_cycles(self):
         signs = [np.sign(q[3] - wave.HAND_UP[3]) for _, q, _, phase in samples(wave.Wave(START, wave.NEUTRAL))
                  if phase == "wave" and abs(q[3] - wave.HAND_UP[3]) >= 1e-4]

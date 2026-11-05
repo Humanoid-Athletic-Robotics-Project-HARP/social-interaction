@@ -271,7 +271,7 @@ of these for over 0.5 s holds zero. A failed route holds zero until a new sessio
 
 This raises the right arm, waves three times and lowers it while GR00T keeps
 the robot standing (`harp/wave.py`); it starts 2 s after our image takes over,
-and the hand is up for 6.4 s:
+and the hand is up for 7.75 s:
 
 ```bash
 G1_SIM_THRASH_MODE=enforce G1_TASK_COMMAND='{"wave": {}}' submission/sim.sh --seconds 16
