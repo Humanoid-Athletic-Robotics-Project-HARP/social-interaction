@@ -58,7 +58,7 @@ CONTEXT = 64        # samples of the previous chunk Silero v5+ wants in front
 HARNESS = "him_safety_nodes"   # HARP's harness processes on PC2 (context/robot-pc2.md)
 SENTENCE_END = re.compile(r"[.!?](\s|$)")
 
-SYSTEM = """You are HARP, a humanoid robot built by the Human Interaction team of \
+SYSTEM = """You are HARP, a humanoid robot built by the social interaction team of \
 Stanford's HARP robotics project. You walk around, notice people, walk up to them and \
 talk with them. You are talking out loud with someone standing about one metre in \
 front of you, so everything you say is spoken: answer in one or two short sentences, \

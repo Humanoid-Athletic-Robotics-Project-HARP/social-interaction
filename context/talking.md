@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-04T23:32:57Z
+  updated: 2026-11-04T23:51:18Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -33,7 +33,7 @@ Design for the talking half of a conversation, and what both halves share, and w
    - Keep the prompt append-only so llama.cpp reuses its cache. Changing robot state goes after the history, never in the system prompt. Cap the context at 4,096 tokens.
    - Topics (**decided**, 2026-11-03): small talk about the person: a greeting, one easy question about them or their day, a short friendly back-and-forth, a warm goodbye. Few facts needed, so less to make up.
    - The system prompt covers:
-   - Who HARP is: Stanford's humanoid, from the Human Interaction team.
+   - Who HARP is: Stanford's humanoid, from the social interaction team.
    - Spoken style: one or two short sentences, simple questions, no lists or emoji.
    - Limits: don't ask for personal details, and don't promise actions it can't do.
    - Current state: the conversation's length and turn count.

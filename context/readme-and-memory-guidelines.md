@@ -3,19 +3,29 @@ name: readme-and-memory-guidelines
 description: Read before editing README.md or any file in context/ — how to write them, what to leave out, and the freshness check
 metadata:
   type: feedback
-  updated: 2026-10-28T08:59:18Z
+  updated: 2026-11-05T00:09:29Z
   covers: [context/check_memory.py]
 ---
 
 ## README
 
-`README.md` is the front page for newcomers and the maintainer.
+`README.md` is the first thing a visitor to the repo reads, and the front page for newcomers and the maintainer.
+- The top is an overview anyone can take in at a glance, in this order: who we are and what we're building (two or three short sentences), "What it does" (bullets), "How it works" (bullets), "Repository layout" (a table). No paragraph-long blobs; details go further down or in `context/`.
+- We are the social interaction team of HARP ([[project-overview]]).
 - Say what the robot does and has. Leave out what it doesn't do, what we don't use, and comparisons with what we replaced. Safety steps stay, phrased as what to do ("keep the robot supported").
 - Give only the correct way, not what fails: the right command (`submission/sim.sh --no-view`), with the reason and symptom in `context/`.
 - No process notes ("ask the team"), no "draft" labels. HARP is a robotics team: never "course" or "course staff".
 - Short: commands with one line on what they do, bullets over paragraphs, the stand-up sequence explained once and referred to elsewhere.
 - Measured results, limits, edge cases, design reasons and gotchas go in `context/`.
 - Update it in the same commit as the code it describes.
+
+## Writing style (README and memories)
+
+- Plain words ("use", not "leverage"), active voice, one idea per sentence. Say what it does, with a mechanism or number, not how it feels.
+- No em or en dashes as punctuation: use a period or a comma.
+- Headings in sentence case. No decorative emoji or bold; the Goals status marks (✅ 🟡 ⬜ ⛔) and safety warnings are the exceptions.
+- No stock AI words (crucial, robust, seamless, delve, showcase, enhance), filler ("in order to"), stacked hedges or generic wrap-ups.
+- No arrows or symbol shorthand in prose; write the sentence out.
 
 ## README "Goals and progress"
 

@@ -3,7 +3,7 @@ name: external-dependencies
 description: Read before adding, borrowing from or updating any outside code, package or model weights: the no-copying rule, which licenses are fine, and where each dependency and its license is recorded
 metadata:
   type: feedback
-  updated: 2026-11-04T22:45:11Z
+  updated: 2026-11-05T00:09:29Z
   covers: [README.md, speech/requirements.txt, testground/requirements.txt, submission/Dockerfile, third_party/README.md]
 ---
 
@@ -28,7 +28,7 @@ Projects with no license are all rights reserved: read their write-ups for ideas
 **Before adding one:** read its `LICENSE` file (and the weights' license), and pin the exact version, commit or file hash.
 
 **Where it is recorded**
-- The README's "Licenses" section: everything in the repo, in our image, or that our code downloads and runs. Each entry gives the name, the license, and where it's used, plus any credit a license asks for. Update it in the same commit as the dependency.
+- The README's "Licenses" section: everything in the repo, in our image, or that our code downloads and runs. Tables of project (with its link) and license, grouped by where it's used; no reasons or descriptions. CC-BY entries keep the author and what was changed in the project column (Parakeet: converted to int8 ONNX). Update it in the same commit as the dependency.
 - Code kept in the repo keeps its `LICENSE` and a patch log (`submission/nav2_graceful_controller/HARP_PATCHES.md`).
 - Submodules: `third_party/README.md`.
 - Each folder's README gives the setup commands; model weights are never committed. They go in `harp/models/` beside the main checkout ([[worktrees]]).
