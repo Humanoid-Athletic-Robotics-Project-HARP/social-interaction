@@ -6,8 +6,11 @@ arms the safety checker and answers every state with the NVIDIA walker's joint
 command. This replaces its fixed velocity with the latest /cmd_vel. A velocity
 schedule (HIM's --command FILE) still wins over /cmd_vel, as in HIM's client.
 
+A {"wave": {}} task stands and waves the right arm (harp/wave.py): WavingPolicy
+replaces only the walker's right-arm targets, so GR00T keeps the legs and waist.
+
 Events (harp/events.py): control_ready once HIM hands control to our policy, and a
-"timing" line each second.
+"timing" line each second; in a wave task wave_start, wave_phase and wave_done.
 """
 
 import math
@@ -21,13 +24,65 @@ sys.path.insert(0, "/harp")
 import client  # noqa: E402
 from geometry_msgs.msg import Twist  # noqa: E402
 
-from harp import events  # noqa: E402
+from harp import events, wave  # noqa: E402
 from harp.state import StatePublisher  # noqa: E402
 
 CMD_LIMITS = np.array([0.6, 0.4, 1.0])  # vx, vy (m/s), yaw rate (rad/s)
 CMD_TIMEOUT = 0.5                       # s of /cmd_vel silence before the walker stands
 MODEL = "/harp/model/g1_robot.xml"      # him-sim2real-management's G1, for leg kinematics
 LATE = 0.04                             # s: a state this old gets its own late_state line
+
+
+def clipped(cmd):
+    """cmd ([vx, vy, yaw rate]) within CMD_LIMITS, or None unless it is three finite numbers."""
+    try:
+        cmd = [float(v) for v in cmd]
+    except (TypeError, ValueError):
+        return None
+    if len(cmd) != 3 or not all(math.isfinite(v) for v in cmd):
+        return None
+    return np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).tolist()
+
+
+def wave_task(task):
+    """True for a {"wave": ...} task."""
+    return isinstance(task, dict) and "wave" in task
+
+
+class WavingPolicy:
+    """HIM's walker with the right arm's targets and velocities taken from harp/wave.py: the
+    wave starts wave.SETTLE_S after control_ready, from the walker's own arm targets (the last
+    command; the measured arm sags below them, and commanding the sag would drop it), and runs
+    once. Its clock is the state's (sim_time in the sim, received_at_secs on the robot)."""
+
+    def __init__(self, policy, emit):
+        self.policy, self.emit = policy, emit
+        self.ready_at, self.wave, self.phase, self.done = None, None, "raise", False
+
+    def command(self, state):
+        frame = self.policy.command(state)
+        if self.done or not state.get("control_ready"):
+            return frame
+        now, sim_time = state.get("sim_time", state["received_at_secs"]), state.get("sim_time")
+        if self.ready_at is None:
+            self.ready_at = now
+        if self.wave is None:
+            if now < self.ready_at + wave.SETTLE_S:
+                return frame
+            pose = [float(v) for v in frame["q"][wave.RIGHT_ARM]]
+            self.wave = wave.Wave(now, pose)
+            self.emit("wave_start", sim_time, pose=pose)
+        q, dq, phase = self.wave.at(now)
+        if phase == "done":
+            self.done = True
+            self.emit("wave_done", sim_time)
+            return frame
+        if phase != self.phase:
+            self.phase = phase
+            self.emit("wave_phase", sim_time, phase=phase)
+        frame["q"][wave.RIGHT_ARM] = [float(v) for v in q]
+        frame["dq"][wave.RIGHT_ARM] = [float(v) for v in dq]
+        return frame
 
 
 class Timing:
@@ -70,25 +125,31 @@ class Timing:
 class HarpPolicyNode(client.PolicyNode):
     def __init__(self, policy, mode="sim"):
         super().__init__(policy, mode)
+        waving = wave_task(self.task_command)
         # Without a task velocity the shared walker walks forward at 0.3 m/s; stand instead.
         # A {"moves": ...} or {"to": ...} task is for harp/moves.py, which drives /cmd_vel.
         if self.task_command is None or isinstance(self.task_command, dict):
             self.task_command = [0.0, 0.0, 0.0]
+        else:
+            # A velocity task ([vx, vy, yaw rate]) gets the /cmd_vel limits; a malformed one stands.
+            self.task_command = clipped(self.task_command) or [0.0, 0.0, 0.0]
         self.cmd_time = None
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd_vel, 10)
         self.state_out = StatePublisher(self, MODEL)
         self.events = events.Events(self, "policy")
+        if waving:
+            self.policy = WavingPolicy(self.policy, self.events)
         self.control_ready = False
         self.timing = Timing()
 
     def on_cmd_vel(self, msg):
-        cmd = [msg.linear.x, msg.linear.y, msg.angular.z]
-        if not all(math.isfinite(v) for v in cmd):
+        cmd = clipped([msg.linear.x, msg.linear.y, msg.angular.z])
+        if cmd is None:
             # Stand at once rather than keep the last command until the timeout.
             self.task_command, self.cmd_time = [0.0, 0.0, 0.0], None
             print("Non-finite /cmd_vel: standing.", file=sys.stderr, flush=True)
             return
-        self.task_command = np.clip(cmd, -CMD_LIMITS, CMD_LIMITS).tolist()
+        self.task_command = cmd
         self.cmd_time = time.monotonic()
 
     def publish_command(self):

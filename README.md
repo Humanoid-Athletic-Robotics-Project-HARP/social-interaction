@@ -75,7 +75,9 @@ the robot.
 - ✅ Sim: driven over ROS 2, `/cmd_vel` in, `/odom` and `/tf` out
   (`harp_node.py`).
 - ⬜ Robot: all of the above, and leg odometry checked against a tape measure.
-- ⬜ Body language: facing the person, gestures.
+- ✅ Sim: a right-arm hello wave (`{"wave": {}}`, `harp/wave.py`) within HARP's
+  checks as the robot runs them.
+- ⬜ Body language: facing the person, more gestures, the wave on the robot.
 
 ### Get around obstacles
 
@@ -240,6 +242,25 @@ G1_TASK_COMMAND='{"moves": [{"walk": 1}, {"turn": 90}, {"to": [1, 1, 45]}]}' sub
 - `"speed"` (m/s, up to 0.4) and `"turn_speed"` (deg/s, up to 30) are
   optional, next to `"moves"` or `"to"`.
 - `G1_TASK_COMMAND='[0,0,0]'` stands still.
+
+### Wave
+
+Raise the right arm, wave three times and lower it while GR00T keeps the
+robot standing (`harp/wave.py`). It starts 2 s after our image takes over, and
+the hand is up for 7.75 s:
+
+```bash
+G1_SIM_THRASH_MODE=enforce G1_TASK_COMMAND='{"wave": {}}' submission/sim.sh --seconds 16
+```
+
+`G1_SIM_THRASH_MODE=enforce` stops the run on joint thrashing, as on the
+robot (the sim only logs it by default). To score a run against the wave's
+rules (balance, sway, feet, thrashing, timing), add `--no-view --output
+RUN_FOLDER`, then:
+
+```bash
+python3 submission/wave_check.py RUN_FOLDER
+```
 
 ### Test courses
 

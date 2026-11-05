@@ -52,7 +52,8 @@ class StatePublisher:
         x, y, yaw, velocity = self.from_legs()
         self.publish_odometry(stamp, x, y, yaw, velocity)
         self.publish_joints_imu(stamp, state)
-        if "position" in state and state.get("sim_time", 0.0) >= self.next_truth:
+        # The sim's truth only: on the robot HIM adds "position" (G1_BASE_STATE_TOPIC) without sim_time.
+        if "position" in state and "sim_time" in state and state["sim_time"] >= self.next_truth:
             self.next_truth = state["sim_time"] + TRUTH_PERIOD
             truth = state["position"]
             events.emit("policy", "odom", state["sim_time"],
