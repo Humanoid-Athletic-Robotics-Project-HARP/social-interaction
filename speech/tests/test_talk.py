@@ -25,6 +25,9 @@ class TestNumbers(unittest.TestCase):
         self.assertEqual(talk.speakable("Have a great day! <bye>"), "Have a great day!")
         self.assertEqual(talk.speakable("I'm a Unitree G1 humanoid."), "I'm a Unitree gee one humanoid.")
         self.assertEqual(talk.speakable("Room B12."), "Room B twelve.")
+        self.assertEqual(talk.speakable("CS106B at 1:30, or 9:05."),
+                         "CS one hundred six B at one thirty, or nine oh five.")
+        self.assertEqual(talk.speakable("At 3:00."), "At three.")
 
 
 class TestSForms(unittest.TestCase):
@@ -66,6 +69,10 @@ class TestPieces(unittest.TestCase):
         self.assertEqual(list(talk.pieces(stream)),
                          ["Oh, that sounds like a really long and tiring day for anyone,", "so rest up."])
 
+    def test_a_decimal_point_is_not_a_sentence_end(self):
+        stream = ["I'm about 1", ".", "3 metres tall. ", "How about you?"]
+        self.assertEqual(list(talk.pieces(stream)), ["I'm about 1.3 metres tall.", "How about you?"])
+
     def test_end_tag_is_its_own_piece(self):
         self.assertEqual(list(talk.pieces(["Bye now! ", "<bye>"])), ["Bye now!", "<bye>"])
 
@@ -95,10 +102,29 @@ class TestEcho(unittest.TestCase):
                       "what was the lecture about"):
             self.assertTrue(self.talk.echo(heard), heard)
 
+    def test_the_tail_of_the_last_line_is_an_echo(self):
+        for heard in ("Lecture about?", "about"):
+            self.assertTrue(self.talk.echo(heard), heard)
+
     def test_the_person_is_not(self):
-        # under three words is too short to tell: a person may well say "Oh nice." too
-        for heard in ("It was about machine learning.", "Pretty good, thanks!", "Nice.", "Oh nice."):
+        # under three words is too short to tell, unless it ends what was just said: a
+        # person may well say "Oh nice." too
+        for heard in ("It was about machine learning.", "Pretty good, thanks!", "Nice.", "Oh nice.",
+                      "Day going?", "Lecture"):
             self.assertFalse(self.talk.echo(heard), heard)
+
+
+class TestEnding(unittest.TestCase):
+    def test_a_goodbye_reply_ends_it(self):
+        self.assertEqual(talk.ending("Enjoy your lunch! <bye>", "I'm getting lunch now."), "bye")
+        self.assertEqual(talk.ending("Okay, bye for now!", "Okay, bye!"), "goodbye")
+
+    def test_the_persons_words_alone_dont(self):
+        self.assertIsNone(talk.ending("Oh, that sounds stressful! Have you been before?",
+                                      "I have to go to the dentist tomorrow."))
+        # the grammar's forced tag on a reply that isn't a goodbye
+        self.assertIsNone(talk.ending("That sounds hard. Do you miss them? <bye>",
+                                      "I said goodbye to my parents."))
 
 
 class TestGoodbye(unittest.TestCase):

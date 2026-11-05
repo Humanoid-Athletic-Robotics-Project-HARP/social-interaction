@@ -23,6 +23,16 @@ mkdir -p models && curl -L -o models/silero_vad.onnx https://raw.githubuserconte
 echo "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  models/silero_vad.onnx" | shasum -a 256 -c
 ```
 
+Smart Turn v3.2 (BSD-2), which hears when someone has finished, 8.7 MB:
+
+```bash
+curl -L -o models/smart-turn-v3.2-cpu.onnx https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/f766f81d3cfdf7737ac64aad813d91bbfd56bf93/smart-turn-v3.2-cpu.onnx
+```
+
+```bash
+echo "2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f  models/smart-turn-v3.2-cpu.onnx" | shasum -a 256 -c
+```
+
 NVIDIA's Parakeet TDT 0.6B v2 for sherpa-onnx (CC-BY-4.0, credited in the README's
 Licenses), a 482 MB archive:
 
@@ -115,11 +125,15 @@ switching its mode changes the robot for everyone, so ask first.
 .venv/bin/python listen.py --robot
 ```
 
-Each turn is one JSON line on stdout:
+Each turn is one JSON line on stdout, with how long it waited after the person went
+quiet (`silence_s`), and Smart Turn's probability that they had finished and its time
+(`turn_s`, part of `after_end_s`):
 
 ```json
-{"text": "Hi there, are you the robot from Stanford?", "start": 0.54, "end": 2.5, "silence_s": 0.7, "stt_s": 0.142, "after_end_s": 0.842}
+{"text": "Hi there, are you the robot from Stanford?", "start": 0.54, "end": 2.5, "silence_s": 0.22, "stt_s": 0.142, "after_end_s": 0.452, "finished": 0.97, "turn_s": 0.09}
 ```
+
+`--fixed-turn` ends every turn after 0.7 s of silence instead, without Smart Turn.
 
 ## Talk
 
@@ -170,6 +184,37 @@ Tests of the turn rules and the text handling (no models needed):
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
+```
+
+## Bench
+
+Tests on made-up audio and scripted conversations, for tuning without a mic, speakers or
+a person. They write to `bench/out/` (ignored).
+
+Clips for listening, from macOS's `say` voices with noise, room echo, a rough robot mic,
+quiet speakers and pauses (macOS only, about 2 minutes):
+
+```bash
+.venv/bin/python bench/clips.py
+```
+
+Listening on those clips: word errors, turns, false starts, and how soon each turn ends.
+`--sweep` tries each setting alone; `--configs` takes your own:
+
+```bash
+.venv/bin/python bench/listen_bench.py
+```
+
+Scripted conversations through `talk.py`, silent, with the LLM server running:
+
+```bash
+.venv/bin/python bench/talk_bench.py
+```
+
+How clearly each voice comes through, with speech-to-text as the listener:
+
+```bash
+.venv/bin/python bench/voice_bench.py
 ```
 
 ## Licenses
