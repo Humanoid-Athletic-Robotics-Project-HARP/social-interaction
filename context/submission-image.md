@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (the image, entrypoint, Dockerfile, worlds) or debugging what runs inside a run
 metadata:
   type: project
-  updated: 2026-11-04T22:41:11Z
+  updated: 2026-11-05T00:53:38Z
   covers: [submission/**]
 ---
 
@@ -22,7 +22,7 @@ metadata:
 
 **Planned moves** (`harp/moves.py`, [[planned-moves]]): `G1_TASK_COMMAND` with `"moves"` or `"to"` reaches our image both in HIM's sim and through its robot launcher, and HIM's client is told it isn't a velocity. With `G1_TASK_COMMAND` empty and no world in the image, `entrypoint.sh` uses the image's `HARP_DEFAULT_TASK`, so an operator who launches it without a task still gets the move (HIM passes the variable empty when unset, so an image `ENV` of `G1_TASK_COMMAND` would be overwritten).
 
-**On the robot** HIM's launcher (`setup.sh`) runs our image with `--network host --ipc=host`, its ROS settings (`ROS_DOMAIN_ID` 97 in hardware mode, 98 in its other modes; `ROS_LOCALHOST_ONLY` 1, `rmw_fastrtps_cpp`), `ROBOT_INTERFACE`/`ROBOT_DOMAIN` and a few `G1_*` variables (plus `--runtime nvidia` with `G1_NVIDIA=1`), but no devices. So the image can't open the depth camera (or any USB device); a sensor node that needs one runs on PC2 with the same three ROS settings, and our container sees its topics ([[robot-services]]). `entrypoint.sh` starts the lidar relay when `G1_EXECUTION_MODE` isn't `sim` ([[lidar-nav2-research]]).
+**On the robot** HIM's launcher (`setup.sh`) runs our image with `--network host --ipc=host`, its ROS settings (`ROS_DOMAIN_ID` 97 in hardware mode, 98 in its other modes; `ROS_LOCALHOST_ONLY` 1, `rmw_fastrtps_cpp`), `ROBOT_INTERFACE`/`ROBOT_DOMAIN` and a few `G1_*` variables (plus `--runtime nvidia` with `G1_NVIDIA=1`), but no devices. So the image can't open the depth camera (or any USB device); a sensor node that needs one runs on PC2 with the same three ROS settings, and our container sees its topics ([[robot-services]]). `entrypoint.sh` starts the lidar relay when `G1_EXECUTION_MODE` isn't `sim` ([[lidar-nav2-research]]), and for a `"robot": true` route task (`harp/avoidance_config.py` checks it and prints `FILTER robot`) the world branch's Nav2, filter, `course_goal.py` and view feed too, with the relay as the lidar (no `harp/lidar.py`, mapper or behaviour loop). There `course_goal.py` waits up to 10 min for the operator's handoff (D-pad Left + B). Rehearsed in HIM's sim with a test-only layer that swaps the sim lidar in for the relay (Documents project `project-setup/scripts/robot-rehearsal/`); never run on the robot.
 
 **Foxy rclpy gotchas:** set a message's `data` from an `array.array("B", ...)`, not `bytes` (which checks every byte: 124 ms for an 800 KB image against 1 ms); a subscriber to large messages (images) needs reliable QoS (best effort dropped most 800 KB depth images); `rclpy.spin` never wakes for signals, so spin in short steps.
 

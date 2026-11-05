@@ -1,8 +1,8 @@
-"""What a sim run looks like to the robot, a few times a second on the container's output,
+"""What a run looks like to the robot, a few times a second on the container's output,
 for submission/lidar_view.py (Rerun) on the host: HIM's sim gives the container no network,
-so its output is the only way out (docker logs -f, then HIM's policy.log). Its own process
-at the lowest priority in a world's image (entrypoint.sh): the policy's process never
-handles the cloud.
+so its output is the only way out (docker logs -f, then HIM's policy.log; on the robot, HIM's
+policy.jsonl). Its own process at the lowest priority wherever Nav2 runs (entrypoint.sh): the
+policy's process never handles the cloud.
 
 Each line is an event from source "view" (harp/events.py); course.py moves them out of
 policy.log into the run's view.jsonl. First "world", once: the world's fixed obstacles
@@ -15,6 +15,8 @@ policy.log into the run's view.jsonl. First "world", once: the world's fixed obs
   people    {name: [x, y]}  each mover in the world (movers.py, from mover_start events; an
             aware crowd's from harp/lidar.py's /harp/movers, as it gives way)
   plan      [[x, y], ...]  Nav2's latest plan in odom (/plan), every PLAN_STEP-th pose
+  tracks    [[id, x, y, vx, vy, radius], ...]  the predictive filter's latest tracks in odom
+            (/harp/obstacle_tracks), wall tiles left out
   costmap   every COSTMAP_EVERY frames: Nav2's local costmap in odom (origin [x, y],
             resolution, width, height, cells: OccupancyGrid values as uint8, zlib, base64)
 """
@@ -38,6 +40,7 @@ from harp import events, lidar_mount
 from harp.leg_odometry import yaw_of
 from harp.lidar import TOPIC as CLOUD
 from harp.movers import Movers
+from harp.obstacle_tracker import STRUCTURE_ID
 
 PERIOD = 0.25        # s (wall) between frames
 VOXEL = 0.1          # m
@@ -70,10 +73,16 @@ def round_list(values, digits=3):
     return [round(float(v), digits) for v in values]
 
 
+def tracks_of(text):
+    """/harp/obstacle_tracks' JSON -> [[id, x, y, vx, vy, radius], ...], wall tiles left out."""
+    return [[int(t["id"])] + round_list((t["x"], t["y"], t["vx"], t["vy"], t["radius"]), 2)
+            for t in json.loads(text)["tracks"] if t["id"] < STRUCTURE_ID]
+
+
 class ViewFeed:
     def __init__(self, node):
         self.node = node
-        self.state = self.odom = self.lidar = self.cloud = self.plan = self.costmap = None
+        self.state = self.odom = self.lidar = self.cloud = self.plan = self.costmap = self.tracks = None
         self.frames = 0
         self.world = mujoco.MjModel.from_xml_path(str(WORLD)) if WORLD.is_file() else None
         self.world_data = self.world and mujoco.MjData(self.world)
@@ -88,6 +97,7 @@ class ViewFeed:
         node.create_subscription(TFMessage, "/tf", self.on_tf, 50)
         node.create_subscription(PointCloud2, CLOUD, self.on_cloud, best_effort)
         node.create_subscription(PlanPath, "/plan", self.on_plan, 10)
+        node.create_subscription(String, "/harp/obstacle_tracks", self.on_tracks, 10)
         node.create_subscription(OccupancyGrid, "/local_costmap/costmap", self.on_costmap, 1)
         node.create_timer(PERIOD, self.on_timer)
         if self.world:
@@ -137,6 +147,9 @@ class ViewFeed:
         poses = msg.poses[::PLAN_STEP] + msg.poses[-1:]
         self.plan = [round_list((p.pose.position.x, p.pose.position.y), 2) for p in poses]
 
+    def on_tracks(self, msg):
+        self.tracks = tracks_of(msg.data)
+
     def on_costmap(self, msg):
         info = msg.info
         self.costmap = {"origin": round_list((info.origin.position.x, info.origin.position.y)),
@@ -167,6 +180,8 @@ class ViewFeed:
                                for name, m in zip(self.movers.names, self.movers.mocap)}
         if self.plan is not None:
             frame["plan"], self.plan = self.plan, None
+        if self.tracks is not None:
+            frame["tracks"], self.tracks = self.tracks, None
         if self.costmap is not None and self.frames % COSTMAP_EVERY == 0:
             frame["costmap"], self.costmap = self.costmap, None
         self.frames += 1

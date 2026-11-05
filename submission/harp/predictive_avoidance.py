@@ -26,6 +26,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from harp import camera_mount, events
 from harp.detour import DetourPatience, path_length
+from harp.avoidance_config import speed_of
 from harp.approach_stop import CAMERA_AGE, CAMERA_MIN_Z, CAMERA_TOPIC, TOPIC, rotation, xyz
 from harp.lidar_mount import FRAME
 from harp.make_way import MakeWay, toward
@@ -182,7 +183,9 @@ class PredictiveAvoidance:
         self.tf = buffer if buffer is not None else Buffer(cache_time=Duration(seconds=2.0))
         self.listener = None if buffer is not None else TransformListener(self.tf, node)
         self.tracker = Tracker()
-        speed = float(os.environ.get('HARP_PREDICTIVE_SPEED', '.5'))   # Nav2's v_linear_max
+        # Nav2's v_linear_max: the task's "speed" if it lowers it (harp/avoidance_config.py), else .5
+        speed = speed_of(os.environ.get("G1_TASK_COMMAND", ""))
+        speed = speed if speed is not None else float(os.environ.get('HARP_PREDICTIVE_SPEED', '.5'))
         if not .05 <= speed <= .6:
             raise ValueError('predictive speed must be within .05 to .6 m/s')
         gain = float(os.environ.get('HARP_PREDICTIVE_TRACKING_GAIN','.85'))

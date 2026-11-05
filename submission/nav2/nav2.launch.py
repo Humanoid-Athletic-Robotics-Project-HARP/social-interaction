@@ -21,7 +21,8 @@ Nav2 runs on nav2_params.yaml, or on a rewritten copy (parameters_for) when:
         failure_tolerance, aborting the path;
   - the task builds or uses a map ("mapping" or "map" in G1_TASK_COMMAND, harp/mapper.py):
     both costmaps start with a static layer on MAP_TOPIC (frame "map", which harp/mapper.py
-    ties to odom), so the planner keeps every wall the map holds, seen lately or not.
+    ties to odom), so the planner keeps every wall the map holds, seen lately or not;
+  - the task lowers the top speed ("speed", harp/avoidance_config.py): FollowPath.v_linear_max.
 A server that dies ends the whole launch (Shutdown on exit), and entrypoint.sh starts it again:
 Foxy's servers sometimes crash as they start (bt_navigator, recoveries_server: 5 of about 340
 sim runs), and the lifecycle manager doesn't bring one back, so the goal never went out.
@@ -43,6 +44,7 @@ from launch_ros.actions import Node
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from harp import lidar_mount  # noqa: E402
+from harp.avoidance_config import speed_of  # noqa: E402
 
 PARAMS = os.path.join(HERE, "nav2_params.yaml")
 TREE = os.path.join(HERE, "navigate.xml")
@@ -70,11 +72,13 @@ def uses_map(task_text):
     return isinstance(task, dict) and bool(task.get("mapping") or task.get("map") is not None)
 
 
-def rewritten_parameters(visor, predictive, mapped=False):
+def rewritten_parameters(visor, predictive, mapped=False, speed=None):
     """nav2_params.yaml, as a dict, changed for the visor, for a filter that owns moving
-    objects and for a map."""
+    objects, for a map and for a lower top speed (the task's "speed")."""
     with open(PARAMS) as source:
         params = yaml.safe_load(source)
+    if speed is not None:
+        params["controller_server"]["ros__parameters"]["FollowPath"]["v_linear_max"] = speed
     if predictive:
         params["controller_server"]["ros__parameters"]["FollowPath"]["follow_when_blocked"] = True
     for costmap in ("local_costmap", "global_costmap"):
@@ -96,21 +100,22 @@ def rewritten_parameters(visor, predictive, mapped=False):
     return params
 
 
-def parameters_for(avoidance_filter=None, visor=None, mapped=False):
-    """The parameter file Nav2 runs with for this filter, visor setting and map."""
+def parameters_for(avoidance_filter=None, visor=None, mapped=False, speed=None):
+    """The parameter file Nav2 runs with for this filter, visor setting, map and speed."""
     visor = lidar_mount.VISOR if visor is None else visor
     predictive = avoidance_filter in OWNS_MOVING
-    if not (visor or predictive or mapped):
+    if not (visor or predictive or mapped or speed is not None):
         return PARAMS
     path = os.path.join(tempfile.mkdtemp(), "nav2_params.yaml")
     with open(path, "w") as out:
-        yaml.safe_dump(rewritten_parameters(visor, predictive, mapped), out, sort_keys=False)
+        yaml.safe_dump(rewritten_parameters(visor, predictive, mapped, speed), out, sort_keys=False)
     return path
 
 
 def generate_launch_description():
-    params = parameters_for(os.environ.get("HARP_AVOIDANCE_FILTER"),
-                            mapped=uses_map(os.environ.get("G1_TASK_COMMAND", "")))
+    task = os.environ.get("G1_TASK_COMMAND", "")
+    params = parameters_for(os.environ.get("HARP_AVOIDANCE_FILTER"), mapped=uses_map(task),
+                            speed=speed_of(task))
     nodes = [
         Node(package=package, executable=name, name=name, output="both",
              parameters=[params, {"default_bt_xml_filename": TREE}]

@@ -1,7 +1,10 @@
 """See a sim run as the robot does, in Rerun: its lidar, where it thinks it is and where it
-is, the people, Nav2's local costmap and plan, our events and HIM's state timing.
+is, the people, the predictive filter's tracks, Nav2's local costmap and plan, our events and
+HIM's state timing.
   python3 submission/lidar_view.py            follow each sim run live, until Ctrl-C
-  python3 submission/lidar_view.py --run RUN  a finished run folder
+  python3 submission/lidar_view.py --run RUN  a finished run folder, or a robot run's folder
+                                              from HIM (its policy.jsonl; no sim time there,
+                                              so the timeline is seconds since its first line)
 It prints a link to Rerun's web viewer (--native for its own window instead).
 
 Live, it reads our container's output (docker logs -f g1-desktop-sim-submission-1): the
@@ -94,7 +97,9 @@ def blueprint():
 class Recording:
     """One run in Rerun: draws our records as they come."""
 
-    def __init__(self, name, url):
+    def __init__(self, name, url, wall_clock=False):
+        self.wall_clock = wall_clock   # a robot run: seconds since its first record's wall time
+        self.first_wall = None
         self.rec = rr.RecordingStream("harp_sim", recording_id=name)
         self.rec.connect_grpc(url)
         self.rec.send_recording_name(name)
@@ -105,7 +110,10 @@ class Recording:
 
     def at(self, record):
         """Set the time to the record's sim time (estimated from wall time if it has none)."""
-        if "sim_time" in record:
+        if self.wall_clock and "wall" in record:
+            self.first_wall = record["wall"] if self.first_wall is None else self.first_wall
+            t = record["wall"] - self.first_wall
+        elif "sim_time" in record:
             if "wall" in record:
                 self.clock = (record["wall"], record["sim_time"])
             t = record["sim_time"]
@@ -191,6 +199,14 @@ class Recording:
             log("/world/truth/people", rr.Cylinders3D(
                 centers=[[*f["people"][n], 0.86] for n in names], radii=0.25, lengths=1.7,
                 colors=(80, 100, 220, 200), labels=names, fill_mode="solid"))
+        if "tracks" in f:   # the predictive filter's, in odom: a disc and its velocity for 1 s
+            t = np.array(f["tracks"], dtype=float).reshape(-1, 6)
+            log("/world/odom/tracks", rr.Cylinders3D(
+                centers=np.c_[t[:, 1:3], np.full(len(t), 0.5)], radii=t[:, 5], lengths=1.0,
+                colors=(220, 60, 60, 160), labels=[str(int(i)) for i in t[:, 0]]))
+            log("/world/odom/tracks/velocity", rr.Arrows3D(
+                origins=np.c_[t[:, 1:3], np.full(len(t), 1.05)],
+                vectors=np.c_[t[:, 3:5], np.zeros(len(t))], colors=(220, 60, 60)))
         if "plan" in f:
             log("/world/odom/plan", rr.LineStrips3D([[[x, y, 0.03] for x, y in f["plan"]]],
                                                     colors=(40, 200, 80), radii=0.02))
@@ -259,9 +275,12 @@ def follow(url):
 
 def show_run(run, url):
     run = Path(run)
-    recording = Recording(run.name, url)
+    robot = (run / "policy.jsonl").is_file()   # HIM's robot run: the container's whole output
+    recording = Recording(run.name, url, wall_clock=robot)
     files = [run / "view.jsonl", run / "events.jsonl"]
-    if not files[1].is_file():
+    if robot:
+        files = [run / "policy.jsonl"]
+    elif not files[1].is_file():
         files = [run / "policy.log"]
     for path in files:
         if path.is_file():

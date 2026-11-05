@@ -80,6 +80,29 @@ class Adapter(unittest.TestCase):
     def event(self, event, **fields):
         self.guard.on_event(String(data=json.dumps(dict(source='goal', event=event, **fields))))
 
+    def test_the_tasks_speed_caps_the_planner(self):
+        self.assertEqual(self.guard.planner.config.speed, .5)
+        node = SimpleNamespace(create_publisher=lambda *a: SimpleNamespace(publish=lambda m: None),
+                               create_subscription=lambda *a: None, create_timer=lambda *a: None,
+                               get_clock=lambda: SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=0)))
+        with patch.dict(os.environ, {"G1_TASK_COMMAND": '{"avoidance":"predictive","speed":0.3}'}):
+            slow = PredictiveAvoidance(node, SimpleNamespace(lookup_transform=None))
+        self.assertEqual(slow.planner.config.speed, .3)
+
+    def test_the_view_feed_reads_the_tracks_the_filter_publishes(self):
+        try:
+            from harp.view_feed import tracks_of
+        except ImportError:
+            self.skipTest("needs MuJoCo")
+        from dataclasses import asdict
+        from harp.obstacle_tracker import STRUCTURE_ID, Track
+        person = Track(7, 1.234, -.5, .8, 0., .27, .1, 9.9, 12)
+        wall = Track(STRUCTURE_ID + 3, 2., 2., 0., 0., .1, .1, 9.9, 40)
+        # As PredictiveAvoidance.on_pending sends them on /harp/obstacle_tracks.
+        text = json.dumps(dict(frame="odom", stamp=10., unresolved=[],
+                               tracks=[dict(asdict(t), credit=None) for t in (person, wall)]))
+        self.assertEqual(tracks_of(text), [[7, 1.23, -.5, .8, 0., .27]])
+
     def test_with_a_map_the_goal_is_planned_for_in_odom(self):
         self.event('goal_sent', x=3., y=1.)
         self.assertEqual(self.guard.goal_in_odom(), (3., 1.))      # no map: as sent

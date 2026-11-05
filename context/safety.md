@@ -3,7 +3,7 @@ name: safety
 description: Read before planning a real-robot session, changing what stops the robot, or adding a safety check
 metadata:
   type: reference
-  updated: 2026-11-04T16:58:53Z
+  updated: 2026-11-05T00:53:38Z
   covers: [submission/entrypoint.sh, submission/harp_node.py, submission/harp/moves.py]
 ---
 
@@ -18,9 +18,9 @@ Planned moves end their plan and request zero on lost valid odometry or excessiv
 
 Normal straight-walk and turn speed ramps ([[planned-moves]]) never delay the target/timeout zero request. The waypoint recorder ([[waypoint-recorder]]) only reads odometry; exiting it does not stop the active movement program.
 
-**Gap:** a lost lidar doesn't stop Nav2 on Foxy. In the sim `harp/approach_stop.py` holds zero until usable lidar, its transform and speed feedback arrive and whenever one is 0.5 s old, and a failed route latches zero ([[approach-stop]]); on the robot nothing does yet.
+**Gap:** a lost lidar doesn't stop Nav2 on Foxy. In the sim `harp/approach_stop.py` holds zero until usable lidar, its transform and speed feedback arrive and whenever one is 0.5 s old, and a failed route latches zero ([[approach-stop]]). On the robot Nav2 runs only for a `"robot": true` route task, and then that filter (or the predictive one) runs with it; untested on hardware.
 
-**Predictive simulation mode:** the optional filter also checks cloud timestamps and observation-time transforms, command freshness and planning deadlines, and disables motion after route completion. In this mode Nav2's controller no longer stops for a blocked trajectory (`follow_when_blocked`), so the filter is the only check against moving objects downstream of Nav2; that is one reason it remains simulator-only; see [[predictive-avoidance]].
+**Predictive simulation mode:** the optional filter also checks cloud timestamps and observation-time transforms, command freshness and planning deadlines, and disables motion after route completion. In this mode Nav2's controller no longer stops for a blocked trajectory (`follow_when_blocked`), so the filter is the only check against moving objects downstream of Nav2. On the robot it starts only for a `"robot": true` route task (Nov 4, at Lam's request for a Thursday dry run; never run on the robot), and `"speed"` lowers the top speed; see [[predictive-avoidance]].
 
 **To check on the robot:** what `wireless_remote` reads with the remote off or out of range (if all zeros, the remote can't stop it then; only the laptop and HIM's deadlines can), and whether anything else reacts to HIM's button gestures.
 

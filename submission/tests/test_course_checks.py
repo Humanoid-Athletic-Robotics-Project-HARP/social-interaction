@@ -1,4 +1,5 @@
 """Course verdict checks, without a simulator or recorded data."""
+import os
 import unittest
 from unittest.mock import Mock, patch
 import course
@@ -59,6 +60,18 @@ class GoalStartup(unittest.TestCase):
             self.assertEqual(course_goal.run(node), 1)
         self.assertEqual(spin.call_args.args[2], course_goal.NAV2_START)
         self.assertIn("CONTROL_NOT_READY", publisher.publish.call_args.args[0].data)
+
+    def test_on_the_robot_the_route_waits_longer_for_the_operators_handoff(self):
+        node, publisher = Mock(), Mock()
+        node.create_publisher.return_value = publisher
+        route = course_goal.route_from_data({"frame": "odom", "waypoints": [[3, 0]]})
+        with patch.dict(os.environ, {"G1_EXECUTION_MODE": "dry-run"}), \
+             patch.object(course_goal, "route_from_env", return_value=route), \
+             patch.object(course_goal, "wait_for_active", return_value=True), \
+             patch.object(course_goal, "spin_until", return_value=False) as spin:
+            self.assertEqual(course_goal.run(node), 1)
+        self.assertEqual(spin.call_args.args[2], course_goal.ROBOT_HANDOFF)
+        self.assertGreater(course_goal.ROBOT_HANDOFF, course_goal.NAV2_START)
 
 
 def _feedback(x, y):

@@ -491,6 +491,23 @@ image. **Double Start damps the robot** at any time, and double F3 switches
 to the recovery policy. Before running again, double-press Start, check it
 damped, and put the robot back in locked standing mode.
 
+**A route with avoidance** runs Nav2 on the robot only when the task says
+`"robot": true`. Its points are in odom, from where the robot starts, and
+`"speed"` (0.1 to 0.5 m/s) lowers the top speed. Two more things must run:
+Unitree's `lidar_driver` service, and the head camera's
+`testground/camera/depth_node.py` on PC2 with the harness's ROS settings
+(domain 98 for dry-run, 97 for real). The route starts at D-pad Left + B:
+
+```bash
+G1_TASK_COMMAND='{"robot": true, "avoidance": "predictive", "speed": 0.3, "route": {"frame": "odom", "waypoints": [[3, 0, 0]]}}' ./setup.sh --mode dry-run --profile ~/harp_joint_profile.json
+```
+
+`python3 submission/lidar_view.py --run FOLDER` replays the run folder the
+harness wrote (`.cache/hardware_runs/...`, with its `policy.jsonl`): the
+lidar, the tracks, Nav2's plan and costmap. In the sim, `course.py WORLD
+--robot --speed 0.3 --waypoint X Y` runs the same task. Nothing of this has
+run on the robot yet.
+
 ## More detail
 
 Measured results, limits and design notes are in `context/` (start with

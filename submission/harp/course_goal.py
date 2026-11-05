@@ -9,7 +9,8 @@ A rejection or timeout ends the route there; so does a failure, once the point's
 Nav2 fails a goal when no path is left, as when people stand in the only doorway (still, they
 are in its map), so a failed goal is sent again after RETRY_WAIT s (a goal_retry event). Everything goes out once
 HIM's sim has handed control to our policy (harp_node's control_ready event),
-Nav2 is active, and SETTLE s have passed.
+Nav2 is active, and SETTLE s have passed. On the robot ("robot": true, harp/avoidance_config.py)
+the handoff is the operator's D-pad Left + B, so that wait is ROBOT_HANDOFF s, not NAV2_START.
 
 Events on /harp/events: goal_sent (x, y, yaw: the last point; and for a route,
 waypoints and laps) and goal_result (status, recoveries, seconds, remaining; and
@@ -49,6 +50,7 @@ from harp.route import Route, route_from_data
 
 WORLD = "/harp/model/lidar_scene.xml"
 NAV2_START = 60.0     # s for Nav2 to be active (it takes about 20 with STVL)
+ROBOT_HANDOFF = 600.0 # s for the operator's handoff on the robot (in the sim, NAV2_START)
 SETTLE = 2.0          # s after the handoff before the goal goes out
 TIMEOUT = 240.0       # s for each point, from sending it to Nav2's result
 ARRIVED = 0.5         # m: a SUCCEEDED this far from the point (by Nav2's own pose) is not trusted
@@ -331,7 +333,10 @@ def run(node):
     if not wait_for_active(node, "bt_navigator", NAV2_START):
         event("goal_result", status="NAV2_NOT_ACTIVE", recoveries=0, seconds=0.0, remaining=None)
         return 1
-    if not spin_until(node, lambda: bool(ready), NAV2_START):
+    on_robot = os.environ.get("G1_EXECUTION_MODE", "sim") != "sim"
+    if on_robot and not ready:
+        print("Route: waiting for the handoff (D-pad Left + B).", flush=True)
+    if not spin_until(node, lambda: bool(ready), ROBOT_HANDOFF if on_robot else NAV2_START):
         event("goal_result", status="CONTROL_NOT_READY", recoveries=0, seconds=0.0, remaining=None)
         return 1
     spin_until(node, lambda: False, SETTLE)

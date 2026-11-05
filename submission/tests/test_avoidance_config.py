@@ -3,7 +3,7 @@ import json
 import unittest
 
 from course import course_task
-from harp.avoidance_config import select
+from harp.avoidance_config import on_robot, select, speed_of
 from harp.route import route_from_data
 
 
@@ -38,6 +38,45 @@ class Selection(unittest.TestCase):
                                   ('{"crowd":"aware"}', "sim", False)):
             with self.assertRaises(ValueError):
                 select(text, mode, world)
+
+    def test_nav2_runs_on_the_robot_only_for_a_robot_route(self):
+        route = '"route":{"frame":"odom","waypoints":[[3,0]]}'
+        for avoidance, chosen in (("predictive", "predictive_avoidance"), ("reactive", "approach_stop")):
+            text = '{"robot":true,"avoidance":"%s",%s}' % (avoidance, route)
+            for mode in ("dry-run", "hardware"):
+                self.assertEqual(select(text, mode, False), chosen)
+                self.assertTrue(on_robot(text, mode))
+            # In the sim "robot" changes nothing: the same task can be rehearsed in a world.
+            self.assertEqual(select(text, "sim", True), chosen)
+            self.assertFalse(on_robot(text, "sim"))
+        for text in ('{"avoidance":"predictive",%s}' % route, '{%s}' % route,
+                     '{"robot":true}', '{"robot":true,"to":[1,0],%s}' % route,
+                     '{"robot":true,"moves":[{"walk":1}],%s}' % route,
+                     '{"robot":true,"behavior":{},%s}' % route,
+                     '{"robot":true,"avoidance":"predictive","mapping":true,%s}' % route,
+                     '{"robot":true,"avoidance":"predictive","map":"x",%s}' % route,
+                     '{"robot":true,"crowd":"aware",%s}' % route, '{"robot":"yes",%s}' % route):
+            with self.assertRaises(ValueError, msg=text):
+                select(text, "dry-run", False)
+        # The robot's other tasks are unchanged: they start no Nav2.
+        for text in ("", "[0,0,0]", '{"to":[1,1,45]}', '{"moves":[{"walk":0.5}]}', "not json"):
+            select(text, "hardware", False)
+            self.assertFalse(on_robot(text, "hardware"))
+
+    def test_speed_only_lowers_nav2s_top_speed(self):
+        self.assertIsNone(speed_of('{"avoidance":"predictive"}'))
+        self.assertIsNone(speed_of("not json"))
+        self.assertEqual(speed_of('{"speed":0.3}'), .3)
+        self.assertEqual(select('{"avoidance":"predictive","speed":0.25}'), "predictive_avoidance")
+        for speed in ("0.6", "0.05", '"0.3"', "true", "NaN", "null"):
+            text = '{"avoidance":"predictive","speed":%s}' % speed
+            if speed == "null":
+                self.assertIsNone(speed_of(text))     # as if not given
+                continue
+            with self.assertRaises(ValueError, msg=speed):
+                select(text)
+        with self.assertRaises(ValueError):
+            select('{"to":[1,0],"speed":0.3}')       # moves have their own speeds
 
     def test_course_adds_the_crowd_and_keeps_the_other_options(self):
         route = route_from_data({"frame":"odom", "waypoints":[[1,2]]})
@@ -109,6 +148,9 @@ class Nav2Overrides(unittest.TestCase):
         for costmap in ("local_costmap", "global_costmap"):
             sources = both[costmap][costmap]["ros__parameters"]["stvl_layer"]["observation_sources"].split()
             self.assertEqual(sources, ["lidar_marking", "lidar_clearing", "camera_clearing"])
+        with open(launch.parameters_for("approach_stop", speed=.3)) as source:
+            slow = yaml.safe_load(source)
+        self.assertEqual(slow["controller_server"]["ros__parameters"]["FollowPath"]["v_linear_max"], .3)
         # Never set in the shared file: on Foxy its controller_server entry beats a
         # launch override (a /** entry), as follow_when_blocked: false there did in HIM.
         with open(launch.PARAMS) as source:

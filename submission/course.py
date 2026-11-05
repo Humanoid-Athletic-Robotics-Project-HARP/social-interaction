@@ -1055,6 +1055,10 @@ def main():
     mapping.add_argument("--map", metavar="RUN", help="walk with the map a --mapping run built")
     parser.add_argument("--time-limit", type=float, metavar="S",
                         help="the world's max_time_s instead (sim length and criterion), e.g. at 0.3 m/s")
+    parser.add_argument("--speed", type=float, metavar="M_S",
+                        help="a lower top speed for Nav2 and the predictive filter (the task's speed)")
+    parser.add_argument("--robot", action="store_true",
+                        help='add "robot": true, as the robot needs it (no change in the sim)')
     parser.add_argument("--odom-drift", nargs=2, type=float, metavar=("SCALE", "DEG_PER_MIN"),
                         help="sim only: leg odometry's scale error and heading drift")
     parser.add_argument("--view", action="store_true",
@@ -1114,6 +1118,10 @@ def main():
         args.extra["map"], args.map_from = built, Path(args.map).name
     if args.odom_drift:
         args.extra["odom_drift"] = list(args.odom_drift)
+    if args.speed is not None:
+        args.extra["speed"] = args.speed
+    if args.robot:
+        args.extra["robot"] = True
     runs = [Path(args.score)] if args.score else range(args.repeat)
     failed = False
     for run in runs:

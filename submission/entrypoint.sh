@@ -2,9 +2,10 @@
 # Our node, plus at most one thing driving /cmd_vel, each its own process (and the lidar
 # relay on the robot):
 #  - moves in G1_TASK_COMMAND ({"moves": [...]} or {"to": ...}): harp/moves.py;
-#  - otherwise, in a world's image in the sim (submission/sim.sh --world): the
-#    simulated lidar, Nav2, the course goal (the world's goal, or the route in
-#    G1_TASK_COMMAND, {"route": ...}: course.py --route), and harp/approach_stop.py
+#  - otherwise, in a world's image in the sim (submission/sim.sh --world), or on the robot
+#    for a "robot": true task with a route (harp/avoidance_config.py): the simulated lidar
+#    (in the sim; on the robot the lidar relay), Nav2, the course goal (the world's goal, or
+#    the route in G1_TASK_COMMAND, {"route": ...}: course.py --route), and harp/approach_stop.py
 #    between Nav2's commands and our node (standing while something comes at the robot),
 #    and harp/view_feed.py (the lidar, pose, people and costmap for submission/lidar_view.py);
 #    with "mapping" or "map" in G1_TASK_COMMAND, harp/mapper.py (a map for Nav2);
@@ -19,7 +20,9 @@ source /opt/ros/foxy/setup.bash
 source /example/install/setup.bash
 source /harp_ws/install/setup.bash
 # Validate before starting any command producer. Select one filter, never two.
-avoidance_filter=$(PYTHONPATH="/harp:$PYTHONPATH" python3 -m harp.avoidance_config)
+# It prints the filter, then "robot" if Nav2 runs on the robot.
+selection=$(PYTHONPATH="/harp:$PYTHONPATH" python3 -m harp.avoidance_config)
+avoidance_filter=${selection%% *}
 export HARP_AVOIDANCE_FILTER="$avoidance_filter"   # nav2.launch.py follows it
 # HIM's sim profile finds only 5 participants; ours lists peers for 32 (harp/fastdds_profile.py).
 if [[ "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" == /fastdds.xml ]]; then
@@ -40,7 +43,7 @@ if [[ -z "${G1_TASK_COMMAND:-}" && ! -f /harp/model/world.xml ]]; then
 fi
 if [[ "${G1_TASK_COMMAND:-}" == *'"to"'* || "${G1_TASK_COMMAND:-}" == *'"moves"'* ]]; then
   PYTHONPATH="/harp:$PYTHONPATH" python3 /harp/harp/moves.py &
-elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
+elif [[ ( -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ) || "$selection" == *" robot" ]]; then
   # Before our node arms, and at lower priority: starting about ten processes beside it
   # (DDS discovery, and about a GB more memory on a full host) made our joint commands
   # answer states over 0.2 s old, and HIM stopped the run (observation_timeout,
@@ -49,7 +52,9 @@ elif [[ -f /harp/model/world.xml && "${G1_EXECUTION_MODE:-sim}" == sim ]]; then
   # ROS's log folder, made before its processes start together: two making it at once
   # can fail one ("Failed to create log directory").
   mkdir -p "${ROS_LOG_DIR:-${ROS_HOME:-$HOME/.ros}/log}"
-  PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
+  if [[ "${G1_EXECUTION_MODE:-sim}" == sim ]]; then   # on the robot the relay (above) is the lidar
+    PYTHONPATH="/harp:$PYTHONPATH" nice -n 10 python3 /harp/harp/lidar.py &
+  fi
   # A map to build or use ("mapping" or "map" in the task): harp/mapper.py, before Nav2,
   # whose costmaps then wait for its map and its map -> odom transform.
   if [[ "${G1_TASK_COMMAND:-}" == *'"mapping"'* || "${G1_TASK_COMMAND:-}" == *'"map"'* ]]; then
