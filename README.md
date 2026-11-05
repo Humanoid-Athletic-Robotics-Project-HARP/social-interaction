@@ -462,9 +462,6 @@ ask either of them to explain anything in this README.
 
 ## Licenses
 
-None of these are stored in this repo except the Graceful Controller. Models
-download into `models/` beside it.
-
 In our image:
 
 | Project | License |
@@ -498,5 +495,3 @@ In `speech/`:
 | [misaki](https://github.com/hexgrad/misaki) word lists | Apache-2.0 |
 | Piper's [`en_US-ljspeech-medium`](https://huggingface.co/rhasspy/piper-voices) voice | Trained on public-domain LJ Speech |
 | sherpa-onnx's `lexicon-en-us.txt` | Unverified |
-
-`speech/lexicon/` is our own.
