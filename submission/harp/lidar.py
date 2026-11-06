@@ -21,9 +21,11 @@ one a scan's points are from 100 ms of motion, smeared while the robot turns (no
 deskewing). Unlike it: every surface reflects, and the rays are uniform over the field
 of view.
 
-The robot's own body is in the cloud, as on the real robot: the shoulders and
-arms show up as points and shadow what is behind them. The head's own geoms (part of
-torso_link) are skipped; lidar_mount.sees stands in for them. Moving obstacles (movers.py) exist
+The robot's own body is cast, as on the real robot: the shoulders and arms shadow what
+is behind them. Their points are then cut out of each slice by harp/self_filter.py, from
+that state's joints, as harp/lidar_relay.py does on the robot, so the published cloud
+holds no body. The head's own geoms (part of torso_link) are skipped; lidar_mount.sees
+stands in for them. Moving obstacles (movers.py) exist
 only here: scripted, or with the task's "crowd": "aware" (course.py
 --crowd aware), giving way to the robot's true pose. The camera casts at its own CAMERA_PERIOD from the same states.
 
@@ -47,6 +49,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header, String
 
 from harp import camera_mount, depth_camera, lidar_mount
+from harp.self_filter import SelfFilter
 from harp.events import Events, latched
 from harp.movers import AwareMovers, Movers, crowd_event, crowd_mode, path_event
 
@@ -82,6 +85,7 @@ class SimLidar:
             print(crowd_event(self.movers.names), flush=True)
         self.torso = self.model.body(lidar_mount.PARENT).id
         self.mount = lidar_mount.rotation()
+        self.self_filter = SelfFilter()
         self.rng = np.random.default_rng()
         self.pub = node.create_publisher(PointCloud2, TOPIC, 10)
         self.rear_pub = node.create_publisher(PointCloud2, REAR_TOPIC, 10)
@@ -124,7 +128,8 @@ class SimLidar:
         self.data.qpos[:len(qpos)] = qpos
         self.movers.apply(self.data, t)
         mujoco.mj_kinematics(self.model, self.data)
-        self.pending.append(self.cast(int(round(RAYS_PER_S * min(dt, PERIOD)))))
+        points = self.cast(int(round(RAYS_PER_S * min(dt, PERIOD))))
+        self.pending.append(points[self.self_filter.keep(points, [state["q"]])])
         if t >= self.next_scan:
             points = np.concatenate(self.pending)
             self.pending = []

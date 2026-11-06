@@ -89,7 +89,8 @@ the robot.
   `harp/lidar.py`, `harp/depth_camera.py`).
 - ✅ Sim: Nav2 walks every course without touching anything, including a
   table, pillars, a thin pole and an archway (`course.py`). The robot's own
-  body is filtered out of the lidar.
+  body is cut out of the lidar's cloud from its joint angles, wherever the
+  arms are (`harp/self_filter.py`; checked on a recording from the robot).
 - ✅ Sim: routes of several points, lap after lap (`course.py --route`,
   `--waypoint`, `--laps`).
 - 🟡 Recording waypoints from `/odom` (`record_waypoints.sh`). Local ROS tests

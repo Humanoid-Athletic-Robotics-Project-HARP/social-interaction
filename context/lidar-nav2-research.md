@@ -3,7 +3,7 @@ name: lidar-nav2-research
 description: Read when bringing up the real G1 lidar, changing lidar_relay, adding mapping/localization, or looking for other G1 Nav2 setups to borrow from
 metadata:
   type: reference
-  updated: 2026-11-02T22:04:05Z
+  updated: 2026-11-06T22:36:21Z
   covers: [submission/harp/lidar_relay.py]
 ---
 
@@ -13,7 +13,7 @@ Research, not yet tried on hardware, and our lidar relay. What we built from it:
 
 **On the G1** (Unitree `lidar_Instructions`, `lidar_services_interface`):
 - Lidar at 192.168.123.120. Unitree's built-in service (PointCloud2 on `rt/utlidar/cloud_livox_mid360`) is `lidar_driver`, off after a reboot (switch it on: [[robot-services]]); with it off the lidar has streamed raw Livox SDK2 UDP to PC2, but not after the 2026-11-02 reboot ([[g1-lidar-measured]]).
-- **`harp/lidar_relay.py`** (in our image, robot only): reads `rt/utlidar/cloud_livox_mid360` through unitree_sdk2py on `ROBOT_DOMAIN`/`ROBOT_INTERFACE` (HIM's launcher sets them), republishes it restamped for Nav2, and the same cloud turned 180° on `/utlidar/cloud_rear` (`livox_rear`) for Nav2's clearing, as the sim does ([[nav2-sim]]). Both at 10 Hz on PC2 against `lidar_driver` (2026-11-01, outside the image; `tests/test_lidar_relay.py` checks the turning). The SDK needs CycloneDDS 0.10.2's C library, built from source in the Dockerfile (no wheel for Python 3.8 on ARM64); it sits beside ROS's Fast DDS in one process without trouble. Not yet run in a session through HARP's harness. With `lidar_driver` off it gets nothing ([[robot-services]]).
+- **`harp/lidar_relay.py`** (in our image, robot only): reads `rt/utlidar/cloud_livox_mid360` through unitree_sdk2py on `ROBOT_DOMAIN`/`ROBOT_INTERFACE` (HIM's launcher sets them), republishes it restamped and without the robot's body ([[self-filter]]) for Nav2, and the same cloud turned 180° on `/utlidar/cloud_rear` (`livox_rear`) for Nav2's clearing, as the sim does ([[nav2-sim]]). Both at 10 Hz on PC2 against `lidar_driver` (2026-11-01, outside the image; `tests/test_lidar_relay.py` checks the turning). The SDK needs CycloneDDS 0.10.2's C library, built from source in the Dockerfile (no wheel for Python 3.8 on ARM64); it sits beside ROS's Fast DDS in one process without trouble. Not yet run in a session through HARP's harness. With `lidar_driver` off it gets nothing ([[robot-services]]).
 - **Reading the UDP stream** (with `lidar_driver` off): `livox_ros_driver2` (Unitree's documented route; `MID360_config.json`: lidar 192.168.123.120, host = the computer running it), which we would have to build into our image, or our own decoder (`testground/lidar/capture.py` decodes the packets with numpy). The driver's stamps are the lidar's own clock (`lddc.cpp`, no host-time option), so they need restamping too. Only one program can receive the lidar's ports.
 - **Mounted upside down,** per Unitree's rev 1.0 URDF, as `harp/lidar_mount.py` and HIM's G1 model use, and as measured ([[g1-lidar-measured]]); the older `g1_29dof.urdf` has no flip and a lower mount. deepglint's driver fork also rotates the lidar's IMU (stock rotates only points).
 - **Blind ring:** the floor and low obstacles within about 0.8–0.9 m are never seen (measured, [[g1-lidar-measured]]), so the costmap must remember them. The head also blinds it ahead: see there.
