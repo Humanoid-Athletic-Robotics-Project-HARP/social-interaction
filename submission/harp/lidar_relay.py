@@ -10,9 +10,10 @@ through Unitree's SDK (its own CycloneDDS beside ROS's Fast DDS) and publishes
 it with two changes. The time: the robot stamps it with its own clock, and Nav2
 needs stamps that match /tf, so each cloud gets its arrival time (at most about
 50-100 ms late). The robot's own body: harp/self_filter.py cuts out the shoulders,
-arms and hands, posed by /joint_states over the cloud's last JOINT_WINDOW s (the
-lidar's 100 ms, smeared over a moving arm); with none for JOINT_TIMEOUT s (harp_node
-isn't running) clouds go out whole. Every other field of a kept point is unchanged. It also publishes the cloud turned 180 deg about the lidar's z
+arms and hands, posed by /joint_states over the cloud's last 0.15 s (the lidar's
+100 ms, smeared over a moving arm: self_filter.scan_poses); with none for
+JOINT_TIMEOUT s (harp_node isn't running) clouds go out whole. Every other field of a
+kept point is unchanged. It also publishes the cloud turned 180 deg about the lidar's z
 (lidar_mount.REAR_FRAME, +x pointing back), which Nav2's clearing reads so that its
 view, which STVL centres on +x, can leave out the blind cone ahead; the sim lidar
 publishes both the same way.
@@ -26,7 +27,6 @@ publishes both the same way.
 import array
 from collections import deque
 from contextlib import ExitStack
-import math
 import os
 import signal
 import sys
@@ -41,14 +41,12 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscri
 from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
 
 from harp import lidar_mount
-from harp.self_filter import NUM_MOTORS, SelfFilter
+from harp.self_filter import NUM_MOTORS, SelfFilter, scan_poses
 
 ROBOT_TOPIC = "rt/utlidar/cloud_livox_mid360"   # Unitree's lidar service
 TOPIC = lidar_mount.TOPIC                       # what Nav2 marks with
 QUIET = 5.0   # s without a cloud before warning
-JOINT_WINDOW = 0.15   # s of /joint_states a cloud is checked against: its 100 ms and its delay
 JOINT_TIMEOUT = 0.5   # s without /joint_states before clouds go out with the body in them
-MAX_POSES = 4         # joint states a cloud is checked against at most, spread over the window
 
 
 def point_rows(data, point_step):
@@ -108,9 +106,7 @@ class LidarRelay(Node):
             joints = list(self.joints)
         if not joints or now - joints[-1][0] > JOINT_TIMEOUT:
             return []
-        recent = [q for t, q in joints if t >= now - JOINT_WINDOW] or [joints[-1][1]]
-        step = math.ceil(len(recent) / MAX_POSES)
-        return recent[::-1][::step]   # the newest first, always included
+        return scan_poses([t for t, _ in joints], [q for _, q in joints], now)
 
     def without_body(self, msg, rows):
         """The rows of points outside the robot's body; all of them without joint states."""

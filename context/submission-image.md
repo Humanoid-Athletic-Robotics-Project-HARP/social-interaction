@@ -3,7 +3,7 @@ name: submission-image
 description: Read before changing submission/ (the image, entrypoint, Dockerfile, worlds) or debugging what runs inside a run
 metadata:
   type: project
-  updated: 2026-11-06T22:36:21Z
+  updated: 2026-11-06T23:41:09Z
   covers: [submission/**]
 ---
 

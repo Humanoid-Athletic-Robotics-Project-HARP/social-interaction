@@ -11,8 +11,8 @@ import unittest
 import numpy as np
 from sensor_msgs.msg import PointField
 
-from harp.lidar_relay import (JOINT_TIMEOUT, JOINT_WINDOW, MAX_POSES, LidarRelay, point_rows,
-                              turned, xyz)
+from harp.lidar_relay import JOINT_TIMEOUT, LidarRelay, point_rows, turned, xyz
+from harp.self_filter import JOINT_WINDOW, MAX_POSES
 
 # Unitree's lidar_driver layout: x y z intensity (float32), ring (uint16), time (float32)
 FIELDS = [PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),

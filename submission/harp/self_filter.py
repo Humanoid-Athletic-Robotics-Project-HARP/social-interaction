@@ -11,8 +11,11 @@ torso_link (harp/lidar_mount.py), and every point inside one is dropped.
 
 The cloud producers call it before publishing: harp/lidar.py in the sim, with each
 slice's joints, and harp/lidar_relay.py on the robot, with /joint_states from the
-scan's 100 ms (a scan is smeared over that time, and so is a moving arm).
+scan's last JOINT_WINDOW (a scan is smeared over 100 ms, and so is a moving arm:
+scan_poses). testground/lidar/self_filter_check.py checks it on a real capture.
 """
+
+import math
 
 import mujoco
 import numpy as np
@@ -25,6 +28,8 @@ NUM_MOTORS = 29
 # m around each geom's box: about 3 sigma of the lidar's range noise (2 cm), which can
 # put a body point in front of the surface it hit, along the ray.
 MARGIN = 0.06
+JOINT_WINDOW = 0.15   # s of joint states a whole scan is checked against: its 100 ms and its delay
+MAX_POSES = 4         # joint states a scan is checked against at most, spread over the window
 
 
 def half_extents(model, g):
@@ -47,6 +52,18 @@ def half_extents(model, g):
     else:
         raise ValueError(f"geom {g}: no box for type {kind}")
     return np.zeros(3), np.asarray(half, dtype=float)
+
+
+def scan_poses(times, poses, arrival):
+    """The joint angles to check a scan that arrived at `arrival` against: those of the
+    joint states (times, rising, same clock) within JOINT_WINDOW before it, at most
+    MAX_POSES of them, the newest first and always included; the newest before it if none."""
+    recent = [q for t, q in zip(times, poses) if arrival - JOINT_WINDOW <= t <= arrival]
+    if not recent:
+        before = [q for t, q in zip(times, poses) if t <= arrival]
+        return before[-1:]
+    step = math.ceil(len(recent) / MAX_POSES)
+    return recent[::-1][::step]
 
 
 class SelfFilter:

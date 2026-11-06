@@ -31,6 +31,7 @@ that it came with.
 | Which way is the robot's front in the lidar's frame | `person-front-2m`: where the person shows up in `view.py` |
 | The blind ring near the feet | report: Floor (`floor-box-*`) |
 | Does it see the robot's body | report: Returns within 0.7 m; `view.py` (`arms-*`) |
+| Does the self-filter remove the body, and is the model's body where the lidar sees it | `self_filter_check.py` (in the submission image; any capture with `lowstate.csv`, best with `arms-*`) |
 | Range accuracy and noise | report: Flat target (`wall-*` with `--box`, `--truth`) |
 | What it misses: dark, shiny, glass, thin | `view.py`, `--box` on each (`targets`) |
 | People, standing and walking | `view.py` (`person-*`) |
@@ -86,13 +87,18 @@ docker run --rm -v "$PWD/../..:/repo" -w /repo/testground/lidar --entrypoint pyt
 ```
 
 ```bash
+docker run --rm -v "$PWD/../..:/repo" -w /repo/testground/lidar --entrypoint python3 harp-submission:local self_filter_check.py captures/standing-60s
+```
+
+```bash
 ../.venv/bin/python view.py captures/standing-60s --accumulate 10
 ```
 
 `--box` is in `torso_link` (x forward, y left, z up, by the assumed mount); find the
 target's box in `view.py` first. The report is also saved as `report.md` in the
-capture's folder; `blind_map.py` and `visor_model.py` save their `.md` and `.svg` there.
-`visor_model.py` needs the submission image (MuJoCo) and Unitree's G1 model, which
+capture's folder; `blind_map.py` and `visor_model.py` save their `.md` and `.svg` there,
+and `self_filter_check.py` its `self_filter.md`. `visor_model.py` and
+`self_filter_check.py` need the submission image (MuJoCo) and Unitree's G1 model, which
 `submission/build.sh` stages in `submission/.build`.
 
 ## A capture

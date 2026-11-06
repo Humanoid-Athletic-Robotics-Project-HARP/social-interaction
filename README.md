@@ -90,7 +90,8 @@ the robot.
 - ✅ Sim: Nav2 walks every course without touching anything, including a
   table, pillars, a thin pole and an archway (`course.py`). The robot's own
   body is cut out of the lidar's cloud from its joint angles, wherever the
-  arms are (`harp/self_filter.py`; checked on a recording from the robot).
+  arms are (`harp/self_filter.py`; checked on two recordings from the robot with
+  `testground/lidar/self_filter_check.py`).
 - ✅ Sim: routes of several points, lap after lap (`course.py --route`,
   `--waypoint`, `--laps`).
 - 🟡 Recording waypoints from `/odom` (`record_waypoints.sh`). Local ROS tests
