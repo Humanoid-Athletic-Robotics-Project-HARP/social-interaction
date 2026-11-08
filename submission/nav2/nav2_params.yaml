@@ -88,8 +88,9 @@ controller_server:
 # 0.2 to about 2.7 m out and up to about 0.8 m high 1 m ahead (context/sim-vs-real.md):
 #  - marking: points 0.08-1.8 m above the floor, up to 3 m away. Past 3 m,
 #    torso tilt makes floor points look like obstacles. STVL has no minimum
-#    range, so the robot's own arms get marked, but they are always inside the
-#    footprint (0.355 m from base_link, robot_radius 0.4), which STVL clears.
+#    range; the lidar's cloud comes without the robot's own body (harp/self_filter.py,
+#    wherever the arms are), and the footprint (robot_radius 0.4), which STVL
+#    clears, holds anything else of it.
 #  - clearing: marks inside the lidar's view (to 3 m) that aren't hit again
 #    fade within about 2 s (decay_acceleration), so a person's trail goes
 #    away. STVL's lidar view is symmetric about the lidar's plane, so +-52 deg

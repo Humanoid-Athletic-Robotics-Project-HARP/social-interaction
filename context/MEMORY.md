@@ -23,7 +23,7 @@
 - [Run logs and views](sim-run-logs.md) — before changing what our image prints, a run's events.jsonl, the Rerun lidar view or replays' people
 - [Sim deadline stops](sim-deadline-stops.md) — when HIM stops a run on a deadline or it ends inconclusive: why, what to check and do
 - [Safety](safety.md) — before a real-robot session, or changing what stops the robot (HIM's harness and its buttons)
-- [Self-filter trial](self-filter-trial.md) — when revisiting how the lidar filters out the robot's body
+- [Self-filter](self-filter.md) — before changing how the robot's own body is cut out of the lidar, or the body radii
 - [Lidar and Nav2 research](lidar-nav2-research.md) — when bringing up the real lidar, changing lidar_relay, adding mapping, or borrowing from other G1 stacks
 - [The robot's lidar, measured](g1-lidar-measured.md) — before using the real lidar: what it is, how it reaches PC2, where it's blind
 - [Face visor](g1-face-visor.md) — why the lidar is blind ahead with the visor on, and what it sees with it off

@@ -89,7 +89,9 @@ the robot.
   `harp/lidar.py`, `harp/depth_camera.py`).
 - ✅ Sim: Nav2 walks every course without touching anything, including a
   table, pillars, a thin pole and an archway (`course.py`). The robot's own
-  body is filtered out of the lidar.
+  body is cut out of the lidar's cloud from its joint angles, wherever the
+  arms are (`harp/self_filter.py`; checked on two recordings from the robot with
+  `testground/lidar/self_filter_check.py`).
 - ✅ Sim: routes of several points, lap after lap (`course.py --route`,
   `--waypoint`, `--laps`).
 - 🟡 Recording waypoints from `/odom` (`record_waypoints.sh`). Local ROS tests
@@ -104,6 +106,8 @@ the robot.
 - 🟡 Robot: the real lidar in ROS 2, then the same walk. The lidar reaches
   ROS 2 on PC2 through Unitree's `lidar_driver` and `harp/lidar_relay.py`;
   next, the head camera's depth in our image, then Nav2 on the robot.
+- ⬜ Robot: the self-filter in `harp/lidar_relay.py` through the harness, and
+  recordings with the arms moving (`testground/lidar/self_filter_check.py`).
 
 ### Find people and walk up to them
 
