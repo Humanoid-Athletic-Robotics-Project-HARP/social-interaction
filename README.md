@@ -106,6 +106,8 @@ the robot.
 - 🟡 Robot: the real lidar in ROS 2, then the same walk. The lidar reaches
   ROS 2 on PC2 through Unitree's `lidar_driver` and `harp/lidar_relay.py`;
   next, the head camera's depth in our image, then Nav2 on the robot.
+- ⬜ Robot: the self-filter in `harp/lidar_relay.py` through the harness, and
+  recordings with the arms moving (`testground/lidar/self_filter_check.py`).
 
 ### Find people and walk up to them
 

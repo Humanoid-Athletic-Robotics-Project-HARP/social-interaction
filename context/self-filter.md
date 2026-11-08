@@ -3,7 +3,7 @@ name: self-filter
 description: Read before changing how the robot's own body is cut out of the lidar (harp/self_filter.py), its margin, or the radii other code still uses to skip the body
 metadata:
   type: project
-  updated: 2026-11-06T23:41:09Z
+  updated: 2026-11-08T22:36:08Z
   covers: [submission/harp/self_filter.py, submission/harp/lidar.py, submission/harp/lidar_relay.py, submission/tests/test_self_filter.py, submission/tests/test_lidar_relay.py, testground/lidar/self_filter_check.py]
 ---
 
@@ -18,8 +18,14 @@ metadata:
 - Sim course (`runs/2026-11-06_22-34-23Z_sim_one_box_self-filter`): passes as before (24.1 s, closest 0.61 m, 0 contacts or recoveries, 2 late states as on main); the published cloud's 10 cm voxels within 0.7 m of the lidar went from 4.2 a frame (`runs/2026-11-02_06-33-17Z_sim_one_box_visor-off`) to 0. No sim run moves the arms with the lidar on yet (the wave task runs `harp_node.py` alone).
 - Cost on a Mac: a 20,000-point scan in about 7–15 ms (more with the arms out, where more points fall near the body).
 
-**Still in place, now only for the camera or as margins:** `approach_stop.BODY` (0.45 m), `predictive_avoidance.SELF_RADIUS` (0.45 m) and Nav2's footprint clearing. Shrinking the two radii would let the robot see things near its sides (a shelf edge, a hand held out) but changes when it stands: compare course runs before and after ([[course-runs]]). The depth camera's cloud isn't filtered.
+**Still in place:** `approach_stop.BODY` (0.45 m) and `predictive_avoidance.SELF_RADIUS` (0.45 m), which now only hide real things near the robot's sides, and Nav2's footprint clearing. The depth camera's cloud isn't filtered (it rarely sees the arms).
+
+**Next** (as of 2026-11-08):
+- Shrink the two radii toward the footprint (0.4 m), comparing `crossing`, `oncoming`, `one_box` and `building` before and after ([[course-runs]]): they change when the robot stands.
+- Move `lidar_mount.POSITION` to the optical centre ([[g1-face-visor]]), rerun `self_filter_check.py`, then consider a 3–4 cm `MARGIN`.
+- A sim run with the arms moving and the lidar on, once the behavior loop triggers the wave.
+- On the robot: the relay through HARP's harness (timing, PC2's CPU); captures with the arms moving and with an object held near the hand, shoulder and hip, checked with `self_filter_check.py` ([[robot-reference-data]]).
 
 **Not modeled:** anything the robot carries or wears beyond HIM's model (a harness strap, cables): it stays in the cloud. Unitree's issue `unitree_ros#135` reports the URDF's arms closer to the torso than the real ones; the shoulder fit above doesn't show it.
 
-**Rejected:** one fixed box around the stand pose (local branch `self-filter-ros2`, on the old ROS 2 stack): it can't follow the arms.
+**Rejected:** one fixed box around the stand pose (commit `93058bd`, on the old ROS 2 stack, kept only as the local branch `self-filter-ros2` on the maintainer's Mac): it can't follow the arms.

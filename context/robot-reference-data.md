@@ -3,7 +3,7 @@ name: robot-reference-data
 description: Read when you need real recordings of the G1's lidar or camera (to check the sim, tune perception offline, or once the robot is out of reach) — what exists, where, and what's still missing
 metadata:
   type: project
-  updated: 2026-11-02T22:04:05Z
+  updated: 2026-11-08T22:36:08Z
   covers: [testground/lidar/record.py, testground/camera/record_camera.py]
 ---
 
@@ -35,6 +35,7 @@ ones (`2026-11-02/lidar/`, `2026-11-02/camera/`); the undated `lidar/` and `came
 **Missing** (needs the robot; the scene list is in `testground/lidar/README.md`):
 tape-measured wall at 1/2/4 m (range and depth noise), a person ahead at 1–3 m and
 walking past (colour and depth for person detection), boxes on the floor (blind ring),
-dark, shiny, glass and thin targets, the camera's own calibration, and anything while
+dark, shiny, glass and thin targets, the camera's own calibration, the arms moving and an
+object held near the hand, shoulder and hip (for the self-filter: [[self-filter]]), and anything while
 GR00T stands or walks (the posture gap in [[sim-vs-real]]). With `lidar_driver` on (as now, [[robot-services]]), record the lidar with
 `record.py --source dds`; the raw stream (`--source udp`) needs it off.
