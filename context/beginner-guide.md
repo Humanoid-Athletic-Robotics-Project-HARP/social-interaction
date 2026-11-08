@@ -3,13 +3,13 @@ name: beginner-guide
 description: Read only when someone is new to the repo (just cloned it, "how do I get started") — the order to walk them through the README
 metadata:
   type: reference
-  updated: 2026-11-08T22:36:08Z
+  updated: 2026-11-08T23:09:43Z
   covers: [README.md]
 ---
 
 Walk the newcomer through one stage at a time, and ask which they need: the sim (laptop) or the robot. The README has the commands; point to its section for each stage instead of retyping it.
 
-**0. Orientation:** the robot and team ([[project-overview]]), the house rule ([[feedback-minimal-setup]]), and that `context/` is shared agent memory indexed in `context/MEMORY.md`.
+**0. Orientation:** the robot and team ([[project-overview]]), the house rule ([[feedback-minimal-setup]]), and that `context/` is shared agent memory indexed in `context/MEMORY.md`. For a tour of every part and how they connect, build the architecture guide ([[architecture-guide]]).
 
 **1. Sim (start here).** Ask their OS first ([[team-context]]).
 1. README "Setup": HIM's checkout next to this repo, its Python environment, the Holosoma checkpoint, Docker Desktop.

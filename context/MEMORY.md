@@ -5,6 +5,7 @@
 - [Project overview](project-overview.md) — the big picture: robot, team, the decisions that shape the code
 - [Watching runs](feedback-watching-runs.md) — before a sim run someone wants to watch: give the viewer link
 - [Minimal setup](feedback-minimal-setup.md) — before adding nodes, packages, messages or tooling
+- [Architecture guide](architecture-guide.md) — when explaining the architecture, making a shareable doc, or changing what connects to what
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
 - [Nav2](nav2-sim.md) — before tuning Nav2 or the Graceful port, changing a course, or comparing course results
 - [Approach stop](approach-stop.md) — before changing what stands the robot while something comes at it, or holds zero on lost input

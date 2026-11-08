@@ -29,3 +29,7 @@ submission/joint_profile.json
 
 # Git worktrees of this repo (context/worktrees.md)
 .claude/worktrees/
+
+# Architecture guide build output (docs/architecture/build.py)
+docs/architecture/architecture.pdf
+docs/architecture/architecture.html

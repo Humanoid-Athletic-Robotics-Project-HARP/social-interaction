@@ -1,0 +1,439 @@
+<!-- The document's text. build.py puts the drawing from diagrams.py's function of the
+     same name in front of each diagram figure's caption (data-diagram attribute). -->
+
+<section>
+<h1>HARP social interaction: architecture guide</h1>
+<p class="sub">How the repository is put together, part by part. Generated from <code>docs/architecture/</code>, {{DATE}}, commit {{COMMIT}}.</p>
+
+<p class="lead">Everything that moves the robot is one ROS 2 Foxy Docker image in <code>submission/</code>. Every process in it steers the robot the same way: it publishes a velocity on <code>/cmd_vel</code>. One node, <code>harp_node.py</code>, turns that velocity into GR00T joint targets, and HARP's safety harness checks each one before it reaches a motor.</p>
+
+<h3>What the robot does today</h3>
+<ul>
+  <li>Walks, turns and curves to a point you give it (sim)</li>
+  <li>Walks to a goal a few meters away, around boxes, pillars and tables, with Nav2 (sim)</li>
+  <li>Stands still while someone walks at it, then carries on (sim)</li>
+  <li>Wanders, notices people standing nearby, walks up to about 1 m away and faces them (sim, with a stand-in detector)</li>
+  <li>Listens to a person and answers out loud with a local LLM and voice (laptop, separate from the image)</li>
+</ul>
+<p>No application code has run on the real robot yet. Sim results come from HIMRobotics' MuJoCo simulator, run through the same harness the robot uses.</p>
+
+<h3>Four ideas that explain most of the code</h3>
+<ol>
+  <li><b>One way in to the motors.</b> Only <code>harp_node.py</code> talks to the harness. Everything else publishes <code>/cmd_vel</code> or reads sensor topics.</li>
+  <li><b>One process per job.</b> <code>entrypoint.sh</code> starts each part as its own process at a lower priority, so a slow planner can never make the walker miss the harness's 0.2 s deadline.</li>
+  <li><b>Exactly one driver at a time.</b> The task command picks one source of <code>/cmd_vel</code> (planned moves, a Nav2 course or the people loop) and one filter between Nav2 and the node.</li>
+  <li><b>Sim first, the same image on the robot.</b> HIM's sim has no lidar, camera or moving people, so the image fakes them in the sim and swaps in relays for the real sensors on the robot.</li>
+</ol>
+
+<h3>Contents</h3>
+<ol class="toc">
+  <li>Words used in this guide</li>
+  <li>Repository map</li>
+  <li>How a command becomes a step</li>
+  <li>Life of one sim run</li>
+  <li>The robot and HIM's harness</li>
+  <li>The policy node and robot state</li>
+  <li>Command producers</li>
+  <li>Nav2</li>
+  <li>Command filters</li>
+  <li>Sensors</li>
+  <li>Shared libraries</li>
+  <li>Events, logs and viewers</li>
+  <li>Host tooling, worlds and tests</li>
+  <li>Speech</li>
+  <li>Testground, third_party and context</li>
+  <li>What is used, separate or duplicated</li>
+  <li>References</li>
+</ol>
+
+<div class="keep">
+<h3>Words used in this guide</h3>
+<table>
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td>G1</td><td>Unitree's G1 EDU humanoid: 29 joints, a Livox MID-360 lidar and a RealSense D435i depth camera in the head</td></tr>
+  <tr><td>PC2</td><td>The robot's onboard NVIDIA Jetson, where our sensor tools run</td></tr>
+  <tr><td>HIM</td><td>HIMRobotics' <code>him-sim2real-management</code>: HARP's safety harness and MuJoCo simulator, kept outside this repo and never edited</td></tr>
+  <tr><td>GR00T</td><td>NVIDIA's whole-body control policy that makes the G1 walk and balance; the harness supplies it</td></tr>
+  <tr><td>ROS 2 Foxy</td><td>The robot middleware version in the image; processes talk over named topics</td></tr>
+  <tr><td>Topic</td><td>A named ROS 2 message stream, such as <code>/cmd_vel</code> (a velocity) or <code>/odom</code> (where the robot thinks it is)</td></tr>
+  <tr><td>Nav2</td><td>The standard ROS 2 navigation stack: plans a path to a goal and follows it around obstacles</td></tr>
+  <tr><td>Costmap</td><td>Nav2's grid of where obstacles are, built from the lidar and camera</td></tr>
+  <tr><td>World, course</td><td>A MuJoCo scene with obstacles, and the pass rules a sim run is scored against</td></tr>
+  <tr><td>Task command</td><td><code>G1_TASK_COMMAND</code>, the JSON the harness passes to our image: what to do this run</td></tr>
+</table>
+</div>
+</section>
+
+<section class="chapter">
+<h2>Repository map</h2>
+<p class="lead"><code>submission/</code> is the only folder the robot runs. The other top-level folders are tools, research and notes that sit beside it.</p>
+<figure data-diagram="repo_map"><figcaption>Folders and the outside pieces they depend on. Teal parts are in the sim/robot path; grey ones are not wired into the image.</figcaption></figure>
+<table>
+  <tr><th>Path</th><th>What is in it</th><th>Runs where</th></tr>
+  <tr><td><code>submission/harp_node.py</code>, <code>harp/</code></td><td>The policy node and 29 modules: moves, the people loop, filters, simulated sensors, the lidar relay, shared geometry</td><td>Inside the image</td></tr>
+  <tr><td><code>submission/entrypoint.sh</code></td><td>Starts the image's processes for the task command</td><td>Inside the image</td></tr>
+  <tr><td><code>submission/nav2/</code>, <code>nav2_graceful_controller/</code></td><td>Nav2 settings and launch file; our ROS 2 Foxy port of Nav2's Graceful Controller (C++)</td><td>Inside the image</td></tr>
+  <tr><td><code>submission/*.sh</code>, <code>*.py</code></td><td>Build, run, score and view: <code>build.sh</code>, <code>sim.sh</code>, <code>course.py</code>, <code>lidar_view.py</code> and helpers</td><td>Your laptop</td></tr>
+  <tr><td><code>submission/worlds/</code>, <code>routes/</code></td><td>19 MuJoCo courses with pass rules (8 of them random held-out worlds), and waypoint routes</td><td>Your laptop, staged into the image</td></tr>
+  <tr><td><code>submission/tests/</code></td><td>23 unit-test files; they need ROS 2, so they run inside the image</td><td>Inside the image</td></tr>
+  <tr><td><code>speech/</code></td><td>Listening and talking, as two programs joined by a pipe</td><td>A laptop (PC2 later)</td></tr>
+  <tr><td><code>testground/</code></td><td>Read-only tests of the real robot's sensors, and tools to analyse their recordings</td><td>PC2 and a laptop</td></tr>
+  <tr><td><code>third_party/</code></td><td>Pinned forks of Ultralytics (YOLO26) and BoT-SORT, for choosing a person detector</td><td>Nowhere yet</td></tr>
+  <tr><td><code>context/</code></td><td>Team memory for Claude and Codex: measured results, limits and design reasons</td><td>Read by agents</td></tr>
+  <tr><td><code>runs/</code> (gitignored)</td><td>One folder per scored sim run, written by <code>course.py</code></td><td>Your laptop</td></tr>
+  <tr><td><code>docs/architecture/</code></td><td>The source of this guide</td><td>Your laptop</td></tr>
+</table>
+</section>
+
+<section class="chapter">
+<h2>How a command becomes a step</h2>
+<p class="lead">The task command picks one driver. Planned moves publish <code>/cmd_vel</code> directly; everything else goes through Nav2 and one command filter first.</p>
+<figure data-diagram="runtime"><figcaption>The processes inside the image and the topics between them. Either sensor process feeds both Nav2's costmaps and the filter.</figcaption></figure>
+
+<h3>Which processes start, by task command</h3>
+<table>
+  <tr><th>Task command</th><th>Example</th><th>Processes beside <code>harp_node.py</code></th></tr>
+  <tr><td>Planned moves</td><td><code>{"to": [1, 1, 45]}</code>, <code>{"moves": [...]}</code></td><td><code>moves.py</code> only</td></tr>
+  <tr><td>A world (course)</td><td>none, or <code>{"route": ...}</code></td><td><code>lidar.py</code>, Nav2, one filter, <code>course_goal.py</code>, <code>view_feed.py</code>, <code>nav2_ready.py</code></td></tr>
+  <tr><td>People loop</td><td><code>{"behavior": {"radius": 2.5}}</code></td><td>As a world, with <code>behavior.py</code> and <code>sim_people.py</code> in place of <code>course_goal.py</code></td></tr>
+  <tr><td>Wave</td><td><code>{"wave": {}}</code></td><td>None: <code>harp_node.py</code> runs the wave itself</td></tr>
+  <tr><td>Velocity</td><td><code>[0.2, 0, 0]</code>; <code>[0,0,0]</code> stands</td><td>None: a fixed velocity, clipped like <code>/cmd_vel</code></td></tr>
+  <tr><td>On the robot (any task)</td><td></td><td>Adds <code>lidar_relay.py</code>; no simulated sensors</td></tr>
+</table>
+
+<h3>Topics</h3>
+<table>
+  <tr><th>Topic</th><th>Published by</th><th>Read by</th></tr>
+  <tr><td><code>/cmd_vel</code></td><td><code>moves.py</code> or the command filter</td><td><code>harp_node.py</code></td></tr>
+  <tr><td><code>/cmd_vel_nav</code></td><td>Nav2's controller</td><td>The command filter</td></tr>
+  <tr><td><code>/odom</code>, <code>/tf</code></td><td><code>state.py</code> (in <code>harp_node.py</code>)</td><td>Nav2, moves, filters, behavior, viewers</td></tr>
+  <tr><td><code>/joint_states</code>, <code>/imu</code></td><td><code>state.py</code></td><td><code>lidar_relay.py</code> (self-filter), tools</td></tr>
+  <tr><td><code>/utlidar/cloud_livox_mid360</code> + rear copy</td><td><code>lidar.py</code> (sim) or <code>lidar_relay.py</code> (robot)</td><td>Nav2's STVL layers, the filter</td></tr>
+  <tr><td><code>/camera/depth/points</code></td><td><code>lidar.py</code> via <code>depth_camera.py</code> (sim)</td><td>Nav2's STVL layers</td></tr>
+  <tr><td><code>/harp/people</code></td><td><code>sim_people.py</code></td><td><code>behavior.py</code></td></tr>
+  <tr><td><code>/harp/events</code></td><td>Every process, through <code>events.py</code></td><td>Other processes (for example <code>control_ready</code>)</td></tr>
+  <tr><td><code>/safety/policy_state</code></td><td>HIM's harness</td><td><code>harp_node.py</code>, sim-only processes</td></tr>
+</table>
+</section>
+
+<section class="chapter">
+<h2>Life of one sim run</h2>
+<p class="lead">A course run goes from <code>course.py one_box</code> to a scored folder in <code>runs/</code>. The order matters: Nav2 starts before our node arms, so its start-up load is over before HIM starts timing our commands.</p>
+<figure data-diagram="lifecycle"><figcaption>The steps of one course run, from building the image to scoring it.</figcaption></figure>
+<ul>
+  <li><b>Build.</b> <code>build.sh</code> runs HIM's own walker preparation and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. It writes <code>submission.tar</code> (about 306 MB) and <code>joint_profile.json</code>.</li>
+  <li><b>Stage.</b> <code>stage_world.py</code> writes the scene HIM loads (the G1 and the fixed obstacles) and the image's copy with the moving people. <code>Dockerfile.world</code> adds that copy as a thin layer per world.</li>
+  <li><b>Start.</b> <code>entrypoint.sh</code> starts the sensors, Nav2, the filter and the goal sender at lower priority, then waits up to 15 s for Nav2 (<code>nav2_ready.py</code>) before starting <code>harp_node.py</code>.</li>
+  <li><b>Hand-over.</b> HIM's GR00T balance holds the robot for about 5 s, then hands control to our node, which emits <code>control_ready</code>. Drivers wait for that event, plus a short settle.</li>
+  <li><b>Score.</b> <code>course.py</code> copies our events out of HIM's log and checks them against the world's <code>NAME.yaml</code>: success, time, clearance, contacts, recoveries, end error.</li>
+</ul>
+<p>On the robot, an operator runs HIM's <code>setup.sh</code> or <code>submit.sh</code> with our image instead, and presses D-pad Left + B to hand control to it.</p>
+</section>
+
+<section class="chapter">
+<h2>The parts, one by one</h2>
+<p class="lead">Each part below lists what starts it, what it reads and writes, how it works and why it is built that way.</p>
+
+<div class="part">
+<h3>The robot and HIM's harness (outside this repo)</h3>
+<table class="facts">
+  <tr><td>What</td><td>Unitree G1 EDU, 29 joints (6 per leg, 3 waist, 7 per arm), head lidar and depth camera, a Jetson (PC2). HIM's <code>him-sim2real-management</code> wraps it.</td></tr>
+  <tr><td>Gives us</td><td>Stand-up, the GR00T walker and its client, a safety checker on every joint command, stop buttons on the remote, and a MuJoCo simulator that runs the same image</td></tr>
+  <tr><td>Where</td><td>Cloned beside this repo; <code>models/</code> beside it holds HIM's Holosoma recovery policy</td></tr>
+</table>
+<ul>
+  <li>The harness owns the motors. Our image never talks to the robot's low-level controller directly.</li>
+  <li>Stopping: double Start damps the robot at any time; double F3 switches to the recovery policy.</li>
+  <li>The harness is used as it is, never copied or edited.</li>
+</ul>
+<div class="why"><b>Why:</b> walking uses NVIDIA's open GR00T policy instead of Unitree's closed sport service, at the mentors' request. Running everything through one harness means a change tested in the sim reaches the robot through the same checks.</div>
+</div>
+
+<div class="part">
+<h3>The policy node: <code>harp_node.py</code>, <code>state.py</code>, <code>wave.py</code></h3>
+<table class="facts">
+  <tr><td>Started by</td><td><code>entrypoint.sh</code>, always, last</td></tr>
+  <tr><td>Reads</td><td><code>/cmd_vel</code>, <code>/safety/policy_state</code> (HIM), the task command</td></tr>
+  <tr><td>Writes</td><td>Joint targets to HIM; <code>/odom</code>, <code>/tf</code>, <code>/joint_states</code>, <code>/imu</code>; <code>control_ready</code> and timing events</td></tr>
+</table>
+<ul>
+  <li>Subclasses HIM's <code>client.PolicyNode</code>, copied into the image at build time, and replaces its fixed velocity with the latest <code>/cmd_vel</code>.</li>
+  <li>Clips the velocity to 0.6 m/s ahead, 0.4 m/s sideways and 1 rad/s, and falls back to zero when no command has come for 0.5 s.</li>
+  <li><code>state.py</code> republishes the harness's state as standard ROS topics. <code>/odom</code> is always our leg odometry, in the sim too, so Nav2 sees the same drifting estimate it will see on the robot. HIM's exact sim pose is logged only as ground truth.</li>
+  <li><code>wave.py</code>: a <code>{"wave": {}}</code> task wraps HIM's walker policy so only the right arm's targets change (joints 22 to 28). Raise, swing, lower, each on a minimum-jerk curve.</li>
+</ul>
+<figure data-diagram="tf_tree"><figcaption>The transform tree <code>state.py</code> publishes. The head sensor frames move with the torso, so the floor stays flat in Nav2's costmaps.</figcaption></figure>
+<div class="why"><b>Why:</b> the lidar and Nav2 run in other processes because publishing the lidar's 190 KB cloud from this process made it miss HIM's 0.2 s deadline.</div>
+</div>
+
+<div class="part">
+<h3>Command producers: <code>moves.py</code>, <code>course_goal.py</code>, <code>behavior.py</code></h3>
+<p>Exactly one runs per task. Each waits for <code>control_ready</code>, then drives.</p>
+<h4><code>moves.py</code>: planned moves</h4>
+<ul>
+  <li>Walk set distances, turn set angles, or curve to a point and heading: <code>{"to": [x, y, heading]}</code> in meters and degrees, relative to where the robot stands.</li>
+  <li>Curves use Park and Kuipers' smooth control law (<code>smooth_control.py</code>), the same law as Nav2's Graceful Controller, so gains carry over.</li>
+  <li>Defaults 0.2 m/s and 20 deg/s, at most 0.4 m/s and 30 deg/s. Each move starts 2 s after the last ends; a move that runs long or turns the wrong way stops the rest.</li>
+  <li>Reads <code>/odom</code>, publishes <code>/cmd_vel</code> straight to the node. No Nav2, no obstacle checks.</li>
+</ul>
+<h4><code>course_goal.py</code>: a world's goal or a route</h4>
+<ul>
+  <li>Sends the world's goal, or each point of a <code>{"route": ...}</code> for some laps (<code>route.py</code>), to Nav2 as an action.</li>
+  <li>Every wait has a timeout, and the result goes out as <code>goal_result</code> and <code>waypoint_result</code> events for scoring.</li>
+</ul>
+<h4><code>behavior.py</code> + <code>sim_people.py</code>: the people loop</h4>
+<figure data-diagram="behavior_loop"><figcaption>The loop <code>behavior.py</code> runs until the container stops.</figcaption></figure>
+<ul>
+  <li><b>Wander:</b> Nav2 goals to random points ahead, kept within a radius of the start (there is no map, and odometry drifts).</li>
+  <li><b>Notice and approach:</b> the nearest still person on <code>/harp/people</code> cancels the wander. A lidar candidate gets a first goal where the camera can see its legs; once confirmed, the goal is swapped for one about 1 m away, reached in one curve.</li>
+  <li><b>Talk:</b> a placeholder. It logs the line it would say and stands until the person leaves or 30 s pass.</li>
+  <li><code>sim_people.py</code> stands in for a real detector: it reports what the real lidar and camera could see, using the head's blind zones, so pillars fool the lidar but not the camera.</li>
+</ul>
+<div class="why"><b>Why:</b> one driver at a time keeps <code>/cmd_vel</code> unambiguous. The behavior loop only sends Nav2 goals, so the same filter protects it as a course run.</div>
+</div>
+
+<div class="part">
+<h3>Nav2: <code>nav2/</code> and <code>nav2_graceful_controller/</code></h3>
+<table class="facts">
+  <tr><td>Started by</td><td><code>entrypoint.sh</code> in a world's image (<code>nav2.launch.py</code>)</td></tr>
+  <tr><td>Reads</td><td>Goals (action), <code>/odom</code>, <code>/tf</code>, the lidar and depth clouds</td></tr>
+  <tr><td>Writes</td><td><code>/cmd_vel_nav</code>, <code>/plan</code>, costmaps</td></tr>
+</table>
+<table>
+  <tr><th>Piece</th><th>Plugin</th><th>Job</th></tr>
+  <tr><td>Planner</td><td>NavFn</td><td>Path to the goal on the global costmap</td></tr>
+  <tr><td>Controller</td><td>Graceful Controller (our Foxy port)</td><td>Follows the path in smooth curves</td></tr>
+  <tr><td>Costmap layers</td><td>Spatio-Temporal Voxel Layer (STVL), Inflation</td><td>3D voxels from the clouds that decay, so people who moved on are forgotten</td></tr>
+  <tr><td>Checks, recovery</td><td>SimpleGoalChecker, SimpleProgressChecker, Wait</td><td>When a goal is reached or stuck</td></tr>
+</table>
+<ul>
+  <li>Foxy (Nav2 0.4.7) has no Graceful Controller, so <code>nav2_graceful_controller/</code> ports the upstream one. Every change is listed in its <code>HARP_PATCHES.md</code>, for example <code>failure_tolerance</code> and <code>follow_when_blocked</code>.</li>
+  <li>The rear copy of the cloud lets STVL's clearing leave out the blind cone in front of the head.</li>
+  <li><code>fastdds_profile.py</code> widens HIM's sim DDS profile from 5 participants to 32, since Nav2 alone runs about ten.</li>
+</ul>
+</div>
+
+<div class="part">
+<h3>Command filters: <code>approach_stop.py</code> or <code>predictive_avoidance.py</code></h3>
+<p>One filter always sits between Nav2 and the node. <code>avoidance_config.py</code> picks it from the task command before anything starts, so the two never run together.</p>
+<figure data-diagram="filters"><figcaption>The default reactive filter (top) and the opt-in predictive one (bottom).</figcaption></figure>
+<h4><code>approach_stop.py</code> (default)</h4>
+<ul>
+  <li>Watches the nearest lidar point in a strip ahead. If its range shrinks faster than the robot walks over several scans, something is coming, and the robot stands until it has passed.</li>
+  <li>Also stands when the lidar, speed feedback or the lidar's transform goes quiet.</li>
+  <li>Still obstacles, people standing included, stay Nav2's to plan around.</li>
+</ul>
+<h4><code>predictive_avoidance.py</code> (opt-in, <code>--avoidance predictive</code>)</h4>
+<ul>
+  <li><code>obstacle_tracker.py</code> groups points into voxel tracks in <code>odom</code> and estimates their velocities.</li>
+  <li><code>predictive_mpc.py</code> (830 lines) scores candidate velocities over 4 s in three blocks, against the tracks' predicted paths, and picks the safest one close to Nav2's plan.</li>
+  <li><code>detour.py</code> waits out a blocked short way instead of taking Nav2's long detour; <code>make_way.py</code> steps aside when the robot is stuck among others.</li>
+  <li>Republishes the scan without moving objects, so Nav2 plans around fixed things only.</li>
+  <li>The MPC is our own code, informed by the published design of PIC4SeR's <code>sfm-nmpc</code> (<code>harp/SFM_NMPC_REFERENCE.md</code>).</li>
+</ul>
+<div class="why"><b>Why:</b> people step around a robot that stands still, while a swerving biped is hard to read and may stumble. So the default stands still. The predictive filter is being tested for crowds, where standing still blocks everyone.</div>
+</div>
+
+<div class="part">
+<h3>Sensors: <code>lidar.py</code>, <code>depth_camera.py</code>, <code>lidar_relay.py</code>, <code>self_filter.py</code>, <code>movers.py</code></h3>
+<figure data-diagram="sensors"><figcaption>The sim and the robot produce the same topics, so Nav2 and the filters do not know which one they are on.</figcaption></figure>
+<ul>
+  <li><b><code>lidar.py</code> (sim):</b> casts rays with MuJoCo's <code>mj_multiRay</code> through its own copy of the world, posed from the sim's true state. Like the real MID-360: mounted upside down, 10 Hz, 0.1 to 40 m, about 2 cm of noise, about 15% of points lost, and the head's shadow with the face visor on or off.</li>
+  <li><b><code>depth_camera.py</code> (sim):</b> the D435i from the same state: 87 by 58 degrees, pitched 47.6 degrees down, so it sees the floor from about 0.2 to 2.7 m ahead.</li>
+  <li><b><code>movers.py</code> (sim):</b> people and carts that walk scripted routes. HIM's sim cannot move them, so they exist only in the lidar's copy: the robot sees them but cannot touch them. With <code>--crowd aware</code>, they give way to the robot.</li>
+  <li><b><code>lidar_relay.py</code> (robot):</b> reads Unitree's lidar topic through its SDK and its own CycloneDDS, restamps each cloud with its arrival time so it matches <code>/tf</code>, and republishes it on our ROS 2 graph.</li>
+  <li><b><code>self_filter.py</code> (both):</b> boxes around every part of the robot's body, posed from the joint angles, so the arms (as near as 0.09 m on the robot) and a waving hand are never obstacles.</li>
+</ul>
+</div>
+
+<div class="part">
+<h3>Shared libraries</h3>
+<p>Small modules with no process of their own. Almost everything imports them, and <code>testground/</code> imports some of them too.</p>
+<table>
+  <tr><th>Module</th><th>What it holds</th><th>Used by</th></tr>
+  <tr><td><code>lidar_mount.py</code></td><td>Where the lidar sits on the torso (from Unitree's rev 1.0 URDF), its frames and blind zones</td><td>Nearly every sensor part, Nav2 launch, testground</td></tr>
+  <tr><td><code>camera_mount.py</code></td><td>Where the depth camera sits, its pitch and frame</td><td>Sensors, filters, state, testground</td></tr>
+  <tr><td><code>leg_odometry.py</code></td><td>Heading from the IMU; position from the planted foot through forward kinematics in MuJoCo</td><td><code>state.py</code>, <code>behavior.py</code>, <code>sim_people.py</code>, <code>course.py</code></td></tr>
+  <tr><td><code>route.py</code></td><td>A waypoint route and its pass rules; plain Python that runs on the host and in the image's Python 3.8</td><td><code>course_goal.py</code>, <code>course.py</code>, <code>record_waypoints.py</code></td></tr>
+  <tr><td><code>events.py</code></td><td>One JSON line per event on the output and on <code>/harp/events</code></td><td>Every process</td></tr>
+  <tr><td><code>smooth_control.py</code></td><td>Park and Kuipers' smooth control law in Python</td><td><code>moves.py</code></td></tr>
+</table>
+</div>
+
+<div class="part">
+<h3>Events, logs and viewers: <code>events.py</code>, <code>view_feed.py</code>, <code>lidar_view.py</code></h3>
+<figure data-diagram="observability"><figcaption>HIM's sim gives the container no network, so its printed output is the only way data leaves it.</figcaption></figure>
+<ul>
+  <li>Every record starts the same: source, event name, wall time, and sim time where known.</li>
+  <li><code>view_feed.py</code> prints what the robot sees a few times a second, compressed: the cloud, the pose, Nav2's plan and local costmap, the people.</li>
+  <li><code>lidar_view.py</code> shows a live or finished run in Rerun. It draws the sim's truth beside our odometry, so the gap between the two robots is the drift.</li>
+</ul>
+</div>
+</section>
+
+<section class="chapter">
+<h2>Host tooling, worlds and tests</h2>
+<p class="lead">These run on a laptop with Docker and HIM's checkout beside the repo. They build, run, score and replay; none of them ships in the image.</p>
+<table>
+  <tr><th>Script</th><th>What it does</th></tr>
+  <tr><td><code>build.sh</code></td><td>Builds the image on HIM's walker example; writes <code>submission.tar</code> and <code>joint_profile.json</code></td></tr>
+  <tr><td><code>sim.sh</code></td><td>Runs the image once in HIM's sim, with a world, a task command and a live viewer</td></tr>
+  <tr><td><code>course.py</code></td><td>Runs a course (repeats, routes, laps), scores it, compares, replays, lists events and prunes old runs. The biggest host tool, 1,087 lines</td></tr>
+  <tr><td><code>stage_world.py</code></td><td>Writes the four scenes a world needs: HIM's, the fixed part, one with movers for scoring, one for replays</td></tr>
+  <tr><td><code>generate_world.py</code></td><td>Draws a random held-out world from a seed, kept only if the goal is reachable</td></tr>
+  <tr><td><code>lidar_view.py</code></td><td>Rerun view of a live or finished run</td></tr>
+  <tr><td><code>wave_check.py</code></td><td>Scores wave runs against the wave's pass rules</td></tr>
+  <tr><td><code>record_waypoints.sh</code></td><td>Records <code>/odom</code> poses as a route, by key press</td></tr>
+  <tr><td><code>checkout.py</code></td><td>Finds HIM, <code>models/</code> and <code>runs/</code> from any git worktree, and locks the sim</td></tr>
+</table>
+
+<h3>Worlds</h3>
+<ul>
+  <li>Each world is <code>NAME.xml</code> (MuJoCo) and <code>NAME.yaml</code> (pass rules). A body with <code>mocap="true"</code> is a mover.</li>
+  <li>Hand-made: <code>one_box</code>, <code>slalom</code>, <code>obstacle_course</code>, <code>open_floor</code>, <code>crossing</code>, <code>oncoming</code>, <code>people</code>, <code>people_ahead</code>, <code>decoys</code>, <code>office</code>, <code>building</code>, <code>atrium</code>. Held out: eight <code>heldout_*</code> from <code>generate_world.py</code>.</li>
+  <li>Example rules (<code>one_box.yaml</code>): must succeed, under 40 s, at least 0.35 m clearance, no contacts, at most one recovery, end within 0.35 m.</li>
+</ul>
+
+<h3>Tests</h3>
+<table>
+  <tr><th>Area</th><th>Test files</th></tr>
+  <tr><td>Policy node, wave</td><td><code>test_policy_node</code>, <code>test_wave</code>, <code>test_wave_check</code></td></tr>
+  <tr><td>Moves</td><td><code>test_moves</code></td></tr>
+  <tr><td>Behavior, courses</td><td><code>test_behavior</code>, <code>test_course_checks</code>, <code>test_generate_world</code>, <code>test_record_waypoints</code>, <code>test_record_waypoints_ros</code></td></tr>
+  <tr><td>Filters</td><td><code>test_approach_stop</code>, <code>test_avoidance_config</code>, <code>test_predictive_avoidance</code>, <code>test_predictive_mpc</code>, <code>test_obstacle_tracker</code>, <code>test_detour</code>, <code>test_make_way</code>, <code>test_crowd_navigation</code>, <code>test_aware_crowd</code></td></tr>
+  <tr><td>Sensors, Nav2</td><td><code>test_lidar_mount</code>, <code>test_lidar_relay</code>, <code>test_self_filter</code>, <code>test_controller_bounds</code></td></tr>
+</table>
+</section>
+
+<section class="chapter">
+<h2>Speech: <code>speech/</code></h2>
+<p class="lead">Two programs joined by a pipe: <code>listen.py</code> turns speech into one transcript per turn, and <code>talk.py</code> owns the conversation and answers out loud. They run on a laptop, outside the image, with local models from <code>models/</code>.</p>
+<figure data-diagram="speech"><figcaption><code>python3 listen.py --mic | python3 talk.py --heard</code>. All models run locally.</figcaption></figure>
+<table>
+  <tr><th>Stage</th><th>Model or tool</th><th>Job</th></tr>
+  <tr><td>Voice</td><td>Silero VAD v6.2.3 (onnxruntime)</td><td>Is this 32 ms frame speech?</td></tr>
+  <tr><td>Turn end</td><td>Smart Turn v3.2</td><td>From the sound, has the person finished, or only paused?</td></tr>
+  <tr><td>Speech to text</td><td>Parakeet TDT 0.6B v2, int8, through sherpa-onnx</td><td>The whole turn to text</td></tr>
+  <tr><td>Reply</td><td>Qwen3-4B-Instruct-2507 (Q4_K_M, 2.5 GB) on llama.cpp's <code>llama-server</code></td><td>Streams the reply</td></tr>
+  <tr><td>Voice out</td><td>Kokoro-82M v1.0 through sherpa-onnx (Piper's ljspeech voice as an option)</td><td>Each sentence spoken as soon as it is ready</td></tr>
+</table>
+<ul>
+  <li><code>talk.py</code> tells <code>listen.py</code> to stop listening while it speaks (UDP), and drops transcripts that echo what it just said.</li>
+  <li>It plays a filler if the LLM is slow, gives a fixed line on errors, and ends on a goodbye, a turn limit or silence.</li>
+  <li><code>listen.py --robot</code> reads the G1's microphone stream; tested with a stand-in sender, not yet on the robot.</li>
+  <li><code>speech/bench/</code> scores listening and talking on recorded clips; <code>speech/tests/</code> unit-tests turn rules and replies.</li>
+</ul>
+<div class="why"><b>Not connected yet:</b> the planned hand-off is <code>behavior.py</code> sending <code>{"start": person}</code> on <code>/harp/talk</code> and waiting for <code>talk_done</code>. Until it exists, the behavior loop's talk is a fixed 30 s placeholder.</div>
+</section>
+
+<section class="chapter">
+<h2>Testground, third_party and context</h2>
+
+<div class="part">
+<h3><code>testground/</code>: read-only tests on the real robot</h3>
+<p>Copied to PC2 with <code>sync.sh</code>; recordings come back over SSH and are analysed on a laptop. Scripts only listen to the robot, unless the team agrees otherwise.</p>
+<table>
+  <tr><th>Folder</th><th>Tools</th><th>What for</th></tr>
+  <tr><td><code>pc2/</code></td><td><code>probe.sh</code>, <code>topics.py</code>, <code>v4l2_survey.py</code></td><td>Survey PC2: system, SDK, network, every DDS topic, camera modes</td></tr>
+  <tr><td><code>lidar/</code></td><td><code>record.py</code>, <code>capture.py</code>, <code>report.py</code>, <code>blind_map.py</code>, <code>visor_model.py</code>, <code>self_filter_check.py</code>, <code>lidar_viewer.py</code>, <code>view.py</code></td><td>Record the MID-360, measure where it is blind, check the self-filter on real captures, view live or in Rerun</td></tr>
+  <tr><td><code>camera/</code></td><td><code>camera_viewer.py</code>, <code>record_camera.py</code>, <code>depth_node.py</code></td><td>The D435i live in a browser, recordings, and its depth as ROS 2 topics on PC2</td></tr>
+  <tr><td><code>hybrid/</code></td><td><code>hybrid_viewer.py</code></td><td>Lidar and camera depth in one view, the camera filling the lidar's blind cone</td></tr>
+  <tr><td><code>speech/</code></td><td><code>bench.py</code></td><td>How fast the speech models run on PC2</td></tr>
+</table>
+<p><code>capture.py</code>, <code>self_filter_check.py</code> and <code>visor_model.py</code> import <code>lidar_mount</code>, <code>camera_mount</code> and <code>self_filter</code> from <code>submission/harp</code>, so the sim and the real-robot analysis share one definition of the sensor mounts.</p>
+</div>
+
+<div class="part">
+<h3><code>third_party/</code>: candidate person detectors</h3>
+<ul>
+  <li>Git submodules pinned to HARP's forks of Ultralytics (YOLO26, AGPL-3.0) and BoT-SORT (MIT).</li>
+  <li>For evaluation only: nothing imports them and they are not in the image.</li>
+</ul>
+</div>
+
+<div class="part">
+<h3><code>context/</code>: team memory</h3>
+<ul>
+  <li>One Markdown file per topic, indexed by <code>context/MEMORY.md</code>, read by Claude and Codex before working here.</li>
+  <li>Each memory lists the repo paths it covers; <code>check_memory.py</code> lists memories whose files changed since they were last checked.</li>
+</ul>
+</div>
+</section>
+
+<section class="chapter">
+<h2>What is used, separate or duplicated</h2>
+<p class="lead">The image's default path is lean and every module in it is used. The gaps are between folders: speech, the person detectors and the robot's camera are not wired into the image yet.</p>
+<table>
+  <tr><th style="width:30%">Part</th><th style="width:14%">Status</th><th>Notes</th></tr>
+  <tr><td><code>harp_node</code>, <code>state</code>, <code>leg_odometry</code>, <code>events</code>, mounts</td><td><span class="tag t-always">every run</span></td><td>The core every task uses</td></tr>
+  <tr><td>Nav2, Graceful port, <code>approach_stop</code>, <code>course_goal</code>, <code>lidar</code>, <code>depth_camera</code>, <code>movers</code>, <code>self_filter</code>, <code>view_feed</code>, <code>nav2_ready</code>, <code>fastdds_profile</code></td><td><span class="tag t-always">every world run</span></td><td>The default course stack in the sim</td></tr>
+  <tr><td><code>moves</code>, <code>smooth_control</code></td><td><span class="tag t-opt">by task</span></td><td>Only for <code>"to"</code> or <code>"moves"</code> tasks</td></tr>
+  <tr><td><code>behavior</code>, <code>sim_people</code></td><td><span class="tag t-opt">by task</span></td><td>Only for <code>"behavior"</code> tasks, sim only</td></tr>
+  <tr><td><code>predictive_avoidance</code>, <code>predictive_mpc</code>, <code>obstacle_tracker</code>, <code>detour</code>, <code>make_way</code></td><td><span class="tag t-opt">opt-in</span></td><td>About 2,000 lines, used only with <code>--avoidance predictive</code></td></tr>
+  <tr><td><code>lidar_relay</code></td><td><span class="tag t-robot">robot only</span></td><td>Works on PC2; not yet run through the harness</td></tr>
+  <tr><td><code>local_route.py</code></td><td><span class="tag t-dead">unused</span></td><td>Its docstring names a "native test driver" that does not exist; only <code>test_crowd_navigation.py</code> imports it</td></tr>
+  <tr><td><code>speech/</code></td><td><span class="tag t-apart">separate</span></td><td>No code or topics shared with the image; the <code>/harp/talk</code> hand-off is planned, not built</td></tr>
+  <tr><td><code>third_party/</code></td><td><span class="tag t-apart">separate</span></td><td>Pinned for evaluation; imported nowhere</td></tr>
+  <tr><td><code>testground/camera/depth_node.py</code></td><td><span class="tag t-apart">separate</span></td><td>Publishes the real camera's depth on PC2; nothing in the image reads it yet</td></tr>
+  <tr><td>Lidar viewers: <code>testground/lidar/lidar_viewer.py</code>, <code>testground/lidar/view.py</code>, <code>submission/lidar_view.py</code></td><td><span class="tag t-dup">overlap</span></td><td>Three viewers for three sources (live PC2, recordings, sim runs); the two Rerun viewers cover similar ground</td></tr>
+  <tr><td>Speech benchmarks: <code>testground/speech/bench.py</code>, <code>speech/bench/</code></td><td><span class="tag t-dup">overlap</span></td><td>One times the models on PC2, one scores quality; both load the same models without sharing <code>listen.py</code>'s or <code>talk.py</code>'s code</td></tr>
+  <tr><td>Smooth control law: <code>smooth_control.py</code>, Graceful port</td><td><span class="tag t-dup">by design</span></td><td>Same law in Python (moves) and C++ (Nav2), so gains carry over; a change to one should go to both</td></tr>
+  <tr><td>Sim lidar and relay</td><td><span class="tag t-dup">by design</span></td><td>Parallel stand-ins that share the mounts and the self-filter</td></tr>
+</table>
+
+<h3>Gaps between parts</h3>
+<ul>
+  <li>A real person detector for the camera, to replace <code>sim_people.py</code> (candidates in <code>third_party/</code>).</li>
+  <li>The robot camera's depth (<code>depth_node.py</code> on PC2) read by the image and fed to Nav2.</li>
+  <li>The <code>/harp/talk</code> hand-off between <code>behavior.py</code> and <code>talk.py</code>.</li>
+  <li>A first robot run of the planned move through the harness.</li>
+</ul>
+</section>
+
+<section class="chapter">
+<h2>References</h2>
+<p class="lead">Upstream projects and documentation for each part. Links checked {{DATE}}.</p>
+<h4>The robot and the harness</h4>
+<ul class="refs">
+  <li><a href="https://github.com/HIMRobotics/him-sim2real-management">HIMRobotics/him-sim2real-management</a>: HARP's safety harness and simulator (HARP access needed)</li>
+  <li><a href="https://github.com/NVlabs/GR00T-WholeBodyControl">NVlabs/GR00T-WholeBodyControl</a>: NVIDIA's whole-body control for the G1, source of the walker</li>
+  <li><a href="https://github.com/amazon-far/holosoma">amazon-far/holosoma</a>: the recovery policy the harness switches to</li>
+  <li><a href="https://support.unitree.com/home/en/G1_developer">Unitree G1 developer documentation</a></li>
+  <li><a href="https://github.com/unitreerobotics/unitree_sdk2_python">unitreerobotics/unitree_sdk2_python</a>: Unitree's Python SDK over DDS, used by <code>lidar_relay.py</code></li>
+  <li><a href="https://github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_g1">MuJoCo Menagerie, Unitree G1 model</a></li>
+</ul>
+<h4>Sensors and simulation</h4>
+<ul class="refs">
+  <li><a href="https://www.livoxtech.com/mid-360">Livox Mid-360</a>: the head lidar (360 by 59 degree view, 0.1 m minimum range)</li>
+  <li><a href="https://github.com/IntelRealSense/librealsense">IntelRealSense/librealsense</a>: the D435i depth camera's SDK and documentation</li>
+  <li><a href="https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html#mj-multiray">MuJoCo API: mj_multiRay</a>: the ray casting behind the simulated lidar and camera</li>
+  <li><a href="https://rerun.io/">Rerun</a>: the viewer behind <code>lidar_view.py</code> and <code>testground/lidar/view.py</code></li>
+</ul>
+<h4>ROS 2 and navigation</h4>
+<ul class="refs">
+  <li><a href="https://docs.ros.org/en/foxy/index.html">ROS 2 Foxy documentation</a></li>
+  <li><a href="https://www.ros.org/reps/rep-0105.html">REP 105: coordinate frames for mobile platforms</a> (<code>odom</code>, <code>base_link</code>)</li>
+  <li><a href="https://docs.nav2.org/">Nav2 documentation</a></li>
+  <li><a href="https://github.com/ros-navigation/navigation2">ros-navigation/navigation2</a>: upstream of the Graceful Controller we ported (<code>nav2_graceful_controller/</code>)</li>
+  <li><a href="https://github.com/SteveMacenski/spatio_temporal_voxel_layer">Spatio-Temporal Voxel Layer</a>: the costmap layer that forgets people who moved on</li>
+  <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds">Eclipse Cyclone DDS</a>: the DDS Unitree's SDK uses</li>
+  <li>J. J. Park and B. Kuipers, "A Smooth Control Law for Graceful Motion of Differential Wheeled Mobile Robots in 2D Environments", ICRA 2011: the law in <code>smooth_control.py</code> and the Graceful Controller</li>
+  <li><a href="https://github.com/PIC4SeR/sfm-nmpc">PIC4SeR/sfm-nmpc</a>: the NMPC design <code>predictive_mpc.py</code> is informed by (no code copied)</li>
+</ul>
+<h4>Speech</h4>
+<ul class="refs">
+  <li><a href="https://github.com/k2-fsa/sherpa-onnx">k2-fsa/sherpa-onnx</a>: runs speech-to-text and the voices locally</li>
+  <li><a href="https://github.com/snakers4/silero-vad">snakers4/silero-vad</a>: voice activity detection</li>
+  <li><a href="https://github.com/pipecat-ai/smart-turn">pipecat-ai/smart-turn</a>: turn-end detection from audio</li>
+  <li><a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2">nvidia/parakeet-tdt-0.6b-v2</a>: speech-to-text model</li>
+  <li><a href="https://github.com/ggml-org/llama.cpp">ggml-org/llama.cpp</a>: <code>llama-server</code>, the local LLM server</li>
+  <li><a href="https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507">Qwen/Qwen3-4B-Instruct-2507</a>: the reply model</li>
+  <li><a href="https://huggingface.co/hexgrad/Kokoro-82M">hexgrad/Kokoro-82M</a>: the voice</li>
+</ul>
+<h4>Person detection candidates</h4>
+<ul class="refs">
+  <li><a href="https://github.com/ultralytics/ultralytics">ultralytics/ultralytics</a>: YOLO26 detection and tracking</li>
+  <li><a href="https://github.com/NirAharon/BoT-SORT">NirAharon/BoT-SORT</a>: multi-object tracker</li>
+</ul>
+<p class="small">Inside the repo: <code>README.md</code> for setup and commands, <code>context/MEMORY.md</code> for measured results and design reasons.</p>
+</section>

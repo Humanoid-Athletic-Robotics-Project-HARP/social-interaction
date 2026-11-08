@@ -3,7 +3,7 @@ name: worktrees
 description: Read before making, using or removing a git worktree of this repo, or when two sessions build or run the sim on one computer — how we set them up, what is shared, the sim lock, cleaning up
 metadata:
   type: reference
-  updated: 2026-11-04T22:17:26Z
+  updated: 2026-11-08T23:09:43Z
   covers: [submission/checkout.py, submission/build.sh, submission/sim.sh, .gitignore]
 ---
 
@@ -28,7 +28,7 @@ Then run `submission/build.sh` once in it before its first sim run (it builds `h
 - Tested 2026-10-30 (`runs/2026-10-30_21-4*_open_floor_lock-test*`): a worktree's `build.sh` waited about 3 minutes for an `open_floor` run from the main checkout, then the worktree's own run passed on its own image and staging, both runs listed by `--compare`.
 
 **When its branch is merged** (never lose files: [[feedback-untracked-files]])
-1. `git -C .claude/worktrees/NAME status --short --ignored`: nothing untracked or modified, and nothing ignored but build output (`submission/.build/`, `submission.tar`, `joint_profile.json`, `__pycache__/`) and the workspace memory's link (removing it leaves the main checkout's file). Move anything else (`.env`, notes, a workspace memory that is a real file rather than the link) out first, or ask.
+1. `git -C .claude/worktrees/NAME status --short --ignored`: nothing untracked or modified, and nothing ignored but build output (`submission/.build/`, `submission.tar`, `joint_profile.json`, `__pycache__/`, `docs/architecture/architecture.pdf` and `.html`) and the workspace memory's link (removing it leaves the main checkout's file). Move anything else (`.env`, notes, a workspace memory that is a real file rather than the link) out first, or ask.
 2. `git worktree remove .claude/worktrees/NAME`, never `--force`: it refuses when untracked or modified files are left.
 3. `git branch -d NAME` (lowercase `-d`: refuses an unmerged branch).
 4. `docker image rm` its `harp-submission-NAME` images (`docker images harp-submission-NAME`; about 1 GB in Docker's VM), and HIM's `.cache/harp/worktrees/NAME/`. Its runs stay in the main checkout's `runs/`. If it says a container uses the image: HIM's `compose down` leaves the last run's stopped `g1-desktop-sim-submission-1` (a Compose profile service; its output is already in that run's `policy.log`), so with the lock free, `docker rm g1-desktop-sim-submission-1` (no `-f`) first.

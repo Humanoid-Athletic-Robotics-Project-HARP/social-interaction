@@ -50,6 +50,7 @@ the robot.
 | `testground/` | Read-only tests on the real robot, and tools to analyse their recordings ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned forks of Ultralytics (YOLO26) and BoT-SORT, for choosing a person detector ([third_party/README.md](third_party/README.md)). |
 | `context/` | Notes for Claude and Codex: measured results, limits and the reasons behind our design. |
+| `docs/architecture/` | The architecture guide: every part and how they connect, with diagrams. `python3 docs/architecture/build.py` builds the PDF. |
 
 ## Goals and progress
 
