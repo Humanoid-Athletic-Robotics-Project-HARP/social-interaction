@@ -198,6 +198,20 @@ Tests of the turn rules and the text handling (no models needed):
 .venv/bin/python -m unittest discover -s tests
 ```
 
+## Web page
+
+A page to run and watch a conversation: listening's state and loudness live, what was
+heard and said with each turn's times, both programs' logs, and a box to type a line
+instead of speaking. It starts `listen.py` and `talk.py` itself, so don't run them in a
+terminal at the same time. The mic and speakers are this computer's, not the browser's.
+
+```bash
+.venv/bin/python web.py
+```
+
+Then open http://127.0.0.1:28733. The page can start the LLM server too. `--host 0.0.0.0`
+opens it to other computers (on PC2, to watch from a laptop on the robot network).
+
 ## Bench
 
 Tests on made-up audio and scripted conversations, for tuning without a mic, speakers or

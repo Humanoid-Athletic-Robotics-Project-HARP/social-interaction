@@ -35,7 +35,8 @@ the robot.
   by publishing `/cmd_vel`, and reads `/odom`, `/tf`, `/joint_states` and
   `/imu`. Nav2 plans the walks around obstacles.
 - Speech runs beside the image as two programs: `listen.py` turns speech into
-  text, and `talk.py` answers out loud.
+  text, and `talk.py` answers out loud. `web.py` serves a page to run and
+  watch both.
 
 ## Repository layout
 
