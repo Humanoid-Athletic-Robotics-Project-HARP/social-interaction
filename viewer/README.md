@@ -12,7 +12,16 @@ python3 viewer/server.py
 ```
 
 Open http://127.0.0.1:28734. The default follows our local simulation container and
-connects to local speech on port 28733.
+connects to local speech on port 28733. It also registers Jetson sensor and speech
+sources using `G1_HOST` from the main checkout's gitignored `.env`. The value can
+be `user@address` or a hostname; only the host is used for HTTP connections.
+The address stays on the server and is redacted from browser-visible status,
+errors and speech events. It is never copied into source configuration.
+
+Jetson sources stay visible as offline until their services are reachable and
+send data. Sensors use the existing hybrid service on port 8082. Jetson speech
+uses port 28733 and is observation only by default. Missing `G1_HOST` shows a setup
+message on those sources. Restart the dashboard after editing `.env`.
 Start speech separately with `speech/.venv/bin/python speech/web.py`; its setup is
 in [speech/README.md](../speech/README.md). Microphones and speakers belong to the
 machine running speech.
@@ -29,8 +38,8 @@ Sensor views then work without internet.
 
 ## Sources
 
-Copy `viewer/config.example.json` to `viewer/config.local.json`, replace
-`PC2-WIFI-ADDRESS` with PC2's reachable address, then run:
+To customize the default sources, copy `viewer/config.example.json` to
+`viewer/config.local.json`, edit the service settings, then run:
 
 ```bash
 python3 viewer/server.py --config viewer/config.local.json
@@ -44,6 +53,7 @@ The JSON `sources` list has an independent entry for each running service:
 | `kind` | `simulation`, `speech`, `sensors` or `recording` |
 | `label`, `machine` | Names displayed beside data and offline placeholders |
 | `url` | Service address reachable from the dashboard server |
+| `host_env`, `port` | Use `"host_env": "G1_HOST"` and a service port to resolve the private Jetson address from `.env`, instead of `url` |
 | `layout` | For sensors: `hybrid` (default), `lidar` or `camera` |
 | `controls` | For speech: `true` explicitly enables its Start/Stop/type controls |
 | `container` | For simulation: Docker container name, default `g1-desktop-sim-submission-1` |
@@ -64,7 +74,7 @@ only connects to the service; opening it does not claim sensor devices.
 For separate existing lidar/camera services, use distinct source entries with
 `layout` set to `lidar` or `camera` and the matching service URL.
 
-Add a second `speech` source pointing to PC2 when speech is deployed there. Each
+The default PC2 speech source connects when speech is deployed there. Each
 speech service keeps a separate conversation. To reach a service from another
 machine, start that service with its appropriate network binding, such as
 `speech/web.py --host 0.0.0.0`. To reach the dashboard itself over the local network:

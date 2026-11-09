@@ -60,11 +60,14 @@ function render() {
   $('summary').replaceChildren(...state.sources.map(s => {
     const [cls,label] = health(s), p = node('span','pill'); p.append(node('span','dot '+cls),document.createTextNode(`${s.label}: ${label}`)); return p;
   }));
-  const key = active + ':' + selection + ':' + visible.map(s => s.id).join('|');
+  const key = active + ':' + selection + ':' + Boolean(lastState) + ':' + visible.map(s => s.id).join('|');
   if (key !== signature) {
     signature = key; cards.clear(); $('content').replaceChildren();
     if (!visible.length) {
-      const empty = node('div','empty'); empty.append(node('h3','','No source configured'),node('p','','Add this source to the dashboard JSON configuration. Other sources continue streaming independently.')); $('content').append(empty);
+      const empty = node('div','empty');
+      const title = !lastState ? 'Connecting to dashboard' : active === 'recordings' ? 'No recordings added' : 'No source configured for this view';
+      const detail = !lastState ? 'Waiting for source status.' : active === 'recordings' ? 'Add a saved run or .rrd capture to the source configuration to replay it here.' : 'Add a source for this view to the dashboard configuration. Other sources connect independently.';
+      empty.append(node('h3','',title),node('p','',detail)); $('content').append(empty);
     } else {
       const grid = node('div', active === 'overview' ? 'grid' : 'views' + (visible.length > 1 ? ' multi' : ''));
       for (const s of visible) {

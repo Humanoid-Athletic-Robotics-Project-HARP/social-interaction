@@ -1,7 +1,36 @@
 {
   "sources": [
-    {"id": "mac-sim", "kind": "simulation", "label": "MacBook simulation", "machine": "MacBook"},
-    {"id": "mac-speech", "kind": "speech", "label": "MacBook speech", "machine": "MacBook", "url": "http://127.0.0.1:28733", "controls": true},
-    {"id": "pc2-sensors", "kind": "sensors", "label": "Robot sensors", "machine": "Jetson PC2", "url": "http://PC2-WIFI-ADDRESS:8082", "layout": "hybrid"}
+    {
+      "id": "mac-sim",
+      "kind": "simulation",
+      "label": "MacBook simulation",
+      "machine": "MacBook"
+    },
+    {
+      "id": "mac-speech",
+      "kind": "speech",
+      "label": "MacBook speech",
+      "machine": "MacBook",
+      "url": "http://127.0.0.1:28733",
+      "controls": true
+    },
+    {
+      "id": "pc2-sensors",
+      "kind": "sensors",
+      "label": "Jetson sensors",
+      "machine": "Jetson PC2",
+      "layout": "hybrid",
+      "host_env": "G1_HOST",
+      "port": 8082
+    },
+    {
+      "id": "pc2-speech",
+      "kind": "speech",
+      "label": "Jetson speech",
+      "machine": "Jetson PC2",
+      "host_env": "G1_HOST",
+      "port": 28733,
+      "controls": false
+    }
   ]
 }

@@ -334,6 +334,7 @@
 <div class="part">
 <h3><code>testground/</code>: read-only tests on the real robot</h3>
 <p><code>viewer/server.py</code> collects the sensor services and <code>speech/web.py</code> concurrently. Its tabs reuse their presentations through one origin. Each feed reports its own offline state. The dashboard starts no hardware or speech processes; explicitly enabled speech controls reach the service that owns them. The server needs only Python's standard library.</p>
+<p>The default Jetson sources resolve <code>G1_HOST</code> from the main checkout's gitignored <code>.env</code>. The server keeps the resolved address private and redacts it from status, errors and speech events sent to the browser. Jetson sources remain registered while offline.</p>
 <p>Copied to PC2 with <code>sync.sh</code>; recordings come back over SSH and are analysed on a laptop. Scripts only listen to the robot, unless the team agrees otherwise.</p>
 <table>
   <tr><th>Folder</th><th>Tools</th><th>What for</th></tr>

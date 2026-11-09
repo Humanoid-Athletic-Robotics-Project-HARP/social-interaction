@@ -61,6 +61,8 @@ def validate(config):
         if item.get("kind") not in ("sensors", "speech", "simulation", "recording"):
             raise ValueError("unknown source kind for " + key)
         if item["kind"] in ("sensors", "speech"):
+            if item.get("_configuration_error") and item.get("host_env") == "G1_HOST":
+                continue
             if not isinstance(item.get("url"), str):
                 raise ValueError("source URL must be a string")
             url = urllib.parse.urlsplit(item.get("url", ""))
@@ -82,8 +84,10 @@ class Source:
         self.stop = threading.Event()
         self.threads = []
         self.updated = None
-        self.error = "waiting for source"
-        self.feeds = {}
+        self.error = config.get("_configuration_error", "waiting for source")
+        names = ("speech",) if self.kind == "speech" else (("lidar",) if config.get("layout") == "lidar" else
+                ("depth", "colour") if config.get("layout") == "camera" else ("lidar", "depth", "colour"))
+        self.feeds = {name: {"online": False, "reason": self.error} for name in names}
         self.detail = {}
         self.session = None
         self.events = collections.deque(maxlen=HISTORY)
@@ -101,6 +105,8 @@ class Source:
         thread.start()
 
     def start(self):
+        if self.config.get("_configuration_error"):
+            return
         self.start_thread(self.poll)
         if self.kind == "speech":
             self.start_thread(self.listen)

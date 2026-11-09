@@ -10,13 +10,10 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from feeds import MAX_BODY, Source, validate
+from configuration import resolve
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-DEFAULT = {"sources": [
-    {"id": "mac-sim", "kind": "simulation", "label": "Laptop simulation", "machine": "MacBook"},
-    {"id": "mac-speech", "kind": "speech", "label": "Laptop speech", "machine": "MacBook", "url": "http://127.0.0.1:28733", "controls": True},
-]}
 
 
 def page(source, view):
@@ -50,8 +47,11 @@ def page(source, view):
 
 
 class Dashboard:
-    def __init__(self, config):
+    def __init__(self, config=None, root=ROOT):
         from simulation import Simulation
+        config = resolve(config, root)
+        self.private = sorted({value for source in config["sources"] if isinstance(source, dict)
+                               for value in source.get("_private", []) if value}, key=len, reverse=True)
         self.sources = {item["id"]: (Simulation(item) if item["kind"] in ("simulation", "recording") else Source(item))
                         for item in validate(config)}
         self.stop = threading.Event()
@@ -61,7 +61,15 @@ class Dashboard:
             source.start()
 
     def state(self):
-        return {"sources": [s.status() for s in self.sources.values()]}
+        return json.loads(self.encode({"sources": [s.status() for s in self.sources.values()]}))
+
+    def encode(self, value):
+        return self.redact(json.dumps(value))
+
+    def redact(self, text):
+        for value in self.private:
+            text = text.replace(value, "[Jetson address]")
+        return text
 
     def close(self):
         self.stop.set()
@@ -78,7 +86,9 @@ def handler(dashboard):
 
         def reply(self, code, body, kind="application/json"):
             if not isinstance(body, bytes):
-                body = json.dumps(body).encode()
+                body = dashboard.encode(body).encode()
+            elif "application/json" in kind:
+                body = dashboard.redact(body.decode("utf-8", errors="replace")).encode()
             self.send_response(code)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
@@ -104,7 +114,7 @@ def handler(dashboard):
                         self.wfile.write(b'event: reset\ndata: {}\n\n')
                         session = source.session
                     for n, event in events:
-                        self.wfile.write(("id: %s\ndata: %s\n\n" % (n, json.dumps(event))).encode())
+                        self.wfile.write(("id: %s\ndata: %s\n\n" % (n, dashboard.encode(event))).encode())
                         cursor = n
                     self.wfile.write(b": heartbeat\n\n")
                 else:
@@ -202,7 +212,7 @@ def main():
     parser.add_argument("--port", type=int, default=28734)
     args = parser.parse_args()
     try:
-        config = json.loads(args.config.read_text()) if args.config else DEFAULT
+        config = json.loads(args.config.read_text()) if args.config else None
         dashboard = Dashboard(config)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))

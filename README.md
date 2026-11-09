@@ -220,9 +220,10 @@ Start the dashboard on the laptop or PC2, then open http://127.0.0.1:28734:
 python3 viewer/server.py
 ```
 
-It follows our simulation container and connects to local speech by default. Configure PC2 sensors and more
-speech services in a JSON file; all connect independently. Tabs show offline when
-their feeds stop. Setup and source configuration: [viewer/README.md](viewer/README.md).
+It follows our simulation container and connects to local speech. Jetson sensor
+and speech sources use `G1_HOST` from the main checkout's gitignored `.env`.
+All connect independently and show offline when their feeds stop. Setup and
+source configuration: [viewer/README.md](viewer/README.md).
 
 ## Run it in the sim
 
