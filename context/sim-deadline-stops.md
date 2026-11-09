@@ -3,7 +3,7 @@ name: sim-deadline-stops
 description: Read when HIM stops a sim run on a deadline or a run ends inconclusive — why it happens (the computer short of memory), what to check and do, and before changing how runs are watched or timed
 metadata:
   type: feedback
-  updated: 2026-11-09T07:01:23Z
+  updated: 2026-11-09T08:51:48Z
   covers: [submission/harp_node.py, submission/course.py, submission/sim.sh, submission/host_health.py]
 ---
 

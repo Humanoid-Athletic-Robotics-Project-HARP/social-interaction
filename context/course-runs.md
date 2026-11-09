@@ -3,7 +3,7 @@ name: course-runs
 description: Read before running or scoring sim courses (course.py, sim.sh), watching or replaying runs, walking routes, or changing run folders and pruning
 metadata:
   type: reference
-  updated: 2026-11-09T06:53:45Z
+  updated: 2026-11-09T08:51:48Z
   covers: [submission/course.py, submission/generate_world.py, submission/sim.sh, submission/harp/route.py, submission/harp/course_goal.py, submission/routes/*]
 ---
 

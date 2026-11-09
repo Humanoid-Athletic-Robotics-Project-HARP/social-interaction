@@ -3,7 +3,7 @@ name: approach-stop
 description: Read before changing what stands the robot while something comes at it (harp/approach_stop.py, between Nav2 and our node), or what holds zero on lost input
 metadata:
   type: project
-  updated: 2026-11-03T17:33:36Z
+  updated: 2026-11-09T08:51:48Z
   covers: [submission/harp/approach_stop.py, submission/tests/test_approach_stop.py]
 ---
 
