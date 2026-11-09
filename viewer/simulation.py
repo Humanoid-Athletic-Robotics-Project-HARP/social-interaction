@@ -1,5 +1,6 @@
 """Collect our simulation logs and render them through the existing Rerun presentation."""
 import collections
+import heapq
 import json
 import os
 from pathlib import Path
@@ -179,25 +180,28 @@ class Simulation(Source):
                 if not any(p.is_file() for p in paths):
                     raise ValueError("run has no view.jsonl or policy.log")
                 self.new_session(str(path))
-                for file in paths:
-                    if not file.is_file():
-                        continue
-                    with file.open(errors="replace") as lines:
-                        for line in lines:
-                            if self.stop.is_set():
-                                return
-                            value = record(line)
-                            if value:
-                                # Replay is lossless; backpressure here cannot delay a robot.
-                                with self.lock:
-                                    self.recent.append(value) if value.get("source") != "view" else None
-                                while not self.stop.is_set():
-                                    try:
-                                        self.render_queue.put(value, timeout=.2)
-                                        break
-                                    except queue.Full:
-                                        if self.worker_error:
-                                            raise ValueError(self.worker_error)
+                files = [file.open(errors="replace") for file in paths if file.is_file()]
+                try:
+                    # Frames and events interleaved by wall time, as they happened, so the
+                    # status that events set follows the frames.
+                    merged = heapq.merge(*((v for v in map(record, f) if v) for f in files),
+                                         key=lambda v: v.get("wall", 0))
+                    for value in merged:
+                        if self.stop.is_set():
+                            return
+                        # Replay is lossless; backpressure here cannot delay a robot.
+                        with self.lock:
+                            self.recent.append(value) if value.get("source") != "view" else None
+                        while not self.stop.is_set():
+                            try:
+                                self.render_queue.put(value, timeout=.2)
+                                break
+                            except queue.Full:
+                                if self.worker_error:
+                                    raise ValueError(self.worker_error)
+                finally:
+                    for f in files:
+                        f.close()
                 self.offer({"_flush": True})
             with self.lock:
                 self.error = None

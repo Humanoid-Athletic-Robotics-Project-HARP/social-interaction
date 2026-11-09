@@ -71,6 +71,19 @@ class SimulationTests(unittest.TestCase):
         self.assertTrue(state['feeds']['diagnostics']['online'])
         self.assertEqual(state['mode'],'replay')
 
+    def test_saved_run_replays_frames_and_events_in_wall_order(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            frames = [{'source': 'view', 'event': 'frame', 'wall': w, 'sim_time': w} for w in (1, 3)]
+            events = [{'source': 'predictive', 'event': 'started', 'wall': 0},
+                      {'source': 'predictive', 'event': 'avoidance', 'wall': 2, 'mode': 'yield'}]
+            (run / 'view.jsonl').write_text(''.join(json.dumps(f) + '\n' for f in frames))
+            (run / 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in events))
+            source = Simulation({'id': 'saved', 'kind': 'recording', 'path': folder})
+            source.replay()
+            sent = [source.render_queue.get_nowait() for _ in range(source.render_queue.qsize())]
+            self.assertEqual([v.get('wall') for v in sent if 'wall' in v], [0, 1, 2, 3])
+
     def test_rerun_request_scoping_keeps_sources_separate(self):
         html = '<html><head><script src="./re_viewer.js"></script></head></html>'
         first, second = scope_requests(html, 'one'), scope_requests(html, 'two')

@@ -3,7 +3,7 @@ name: viewer-implementation
 description: Read before changing dashboard collectors, source configuration, embedded pages, Rerun routing or process cleanup
 metadata:
   type: reference
-  updated: 2026-11-09T05:26:28Z
+  updated: 2026-11-09T06:24:21Z
   covers: [viewer/**]
 ---
 
@@ -13,7 +13,7 @@ Viewing policy and links: [[unified-viewer]]. Implementation is in `viewer/`; us
 - `feeds.py` collects services independently. Speech uses status plus a heartbeat-bearing SSE stream, bounded history, reconnect deduplication and reset on service instance changes. Quiet speech is Idle, not Offline. Sensors use actual device health; clear stale cloud layers independently. Binary samples share short caches; measurements are never cached.
 - Sensor pages are extracted as literals from our existing scripts, without importing their hardware dependencies. Three.js is an external pinned/hash-checked dependency installed locally by `setup_assets.py`, not copied into tracked source. Preserve single ownership of sensor devices; use shared topic readers when another node owns them.
 - `simulation.py` reads our Docker JSON stdout because HIM's sim container has no network. Fresh view frames determine live status. Container ID and start time distinguish runs; a bounded nonblocking queue keeps rendering out of the control path. Log/data formats: [[sim-run-logs]].
-- `rerun_worker.py` runs in the testground environment and reuses `submission/lidar_view.py`'s `Recording`, with bounded trails and a 200 MB server buffer. It starts on data arrival, uses dynamic loopback ports and stops with the hub. `recording` sources read saved run JSON lines or `.rrd` exports and stay Replay when paused or complete.
+- `rerun_worker.py` runs in the testground environment and reuses `submission/lidar_view.py`'s `Recording`, with bounded trails and a 200 MB server buffer. It starts on data arrival, uses dynamic loopback ports and stops with the hub. `recording` sources read saved run JSON lines (frames and events interleaved by wall time) or `.rrd` exports and stay Replay when paused or complete.
 - `diagnostics.py` proxies Rerun assets and gRPC-web through the hub. Rerun 0.41 accepts only the root `/proxy` URI, so the embedded page scopes fetches to its source route. Buffer rewritten POST bodies into ArrayBuffers: a Request body stream makes Chrome require HTTP/2 and fail on this HTTP/1 server. Quiet streams have no data timeout; cancel them on client disconnect/shutdown and handle incomplete HTTP reads normally.
 - `him` checks the existing local viewer's HTML, not frame activity; paused pages stay Ready. The iframe talks directly to HIM's loopback server. Discovery sends no Start request, and hub shutdown does not stop HIM. This source has no remote proxy.
 - `app.js` owns hash routes and availability ordering. Reorder existing Home rows without losing keyboard focus. Closed views stop browser image polling, not collectors. Full-window views retain Home navigation and offline covers; one dead source must not disable other sources.
