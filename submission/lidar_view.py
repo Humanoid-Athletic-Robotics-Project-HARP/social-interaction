@@ -111,14 +111,27 @@ APPROACH = {"approach_stop": "standing: something coming", "approach_go": "drivi
             "lidar_lost": "standing: lidar lost", "lidar_back": "driving"}
 
 
-def blueprint():
+def framing(x, y):
+    """An orbit camera that follows the robot (the sim's truth pelvis), so it stays in the
+    middle of the view all run: it starts behind and above the robot's start (it faces +x),
+    close enough to see the robot and what is near it. Rerun would otherwise fit everything
+    logged, the lidar's far returns and the costmap included, and start far out."""
+    return rrb.EyeControls3D(kind=rrb.Eye3DKind.Orbital, look_target=[x, y, 0.5],
+                             position=[x - 4.5, y - 1.5, 3.5], eye_up=[0, 0, 1],
+                             tracking_entity="/world/truth/robot/frame")
+
+
+def blueprint(eye=None):
     return rrb.Blueprint(rrb.Horizontal(
-        rrb.Spatial3DView(origin="/world", name="world"),
+        rrb.Spatial3DView(origin="/world", name="world", eye_controls=eye),
         rrb.Vertical(rrb.TextDocumentView(origin="/status", name="status"),
                      rrb.TextLogView(origin="/events", name="events"),
                      rrb.TimeSeriesView(origin="/timing", name="HIM state timing (s)"),
                      row_shares=[4, 3, 2]),
-        column_shares=[3, 2]))
+        column_shares=[3, 2]),
+        # The views get the room: Rerun's side panels start closed, the timeline as its bar.
+        rrb.BlueprintPanel(state="collapsed"), rrb.SelectionPanel(state="collapsed"),
+        rrb.TimePanel(state="collapsed"))
 
 
 def settings(record):
@@ -144,7 +157,12 @@ class Recording:
         # doing (its latest event), and the sim time its data last came (frames).
         self.pieces, self.doing, self.data_at, self.status_text = {}, {}, {}, None
         self.now = None
+        self.framed = False      # the 3D view's camera is on the robot
         self.rec.log("/world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+        # An invisible box around the robot for the 3D view to follow: Rerun frames the
+        # entity it tracks, and the robot's body alone would put the camera inside it.
+        self.rec.log("/world/truth/robot/frame", rr.Boxes3D(half_sizes=[3.0, 3.0, 1.0],
+                                                            colors=[0, 0, 0, 0]), static=True)
 
     def at(self, record):
         """Set the time to the record's sim time (estimated from wall time if it has none)."""
@@ -263,6 +281,10 @@ class Recording:
 
     def frame(self, f):
         log = self.rec.log
+        if not self.framed and "truth" in f:
+            # The first frame places the robot: start the camera on it.
+            self.rec.send_blueprint(blueprint(framing(*f["truth"][:2])))
+            self.framed = True
         if "truth" in f:
             x, y, z, *q = f["truth"]
             log("/world/truth/robot", rr.Transform3D(translation=[x, y, z],

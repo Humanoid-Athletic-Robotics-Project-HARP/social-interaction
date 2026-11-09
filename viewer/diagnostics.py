@@ -9,8 +9,8 @@ import threading
 
 
 PAGE = '''<!doctype html><html><head><meta charset="utf-8"><title>HARP diagnostics</title>
-<style>body{margin:0;background:#10151b;color:#dce5ee;font:13px system-ui}header{padding:10px 16px;display:flex;justify-content:space-between;gap:20px}iframe{width:100%;height:calc(100vh - 42px);border:0}#waiting{padding:30px}</style></head><body>
-<header><span id="status">Connecting to our diagnostics feed</span><span>Rerun · our data only</span></header>
+<style>body{margin:0;height:100vh;display:flex;flex-direction:column;background:#10151b;color:#dce5ee;font:13px system-ui}header{padding:10px 16px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 20px}.hint{color:#91a0b0}.hint b{color:#dce5ee;font-weight:500}iframe{flex:1;min-height:0;width:100%;border:0}#waiting{padding:30px}</style></head><body>
+<header><span id="status">Connecting to our diagnostics feed</span><span class="hint">3D view follows the robot · <b>drag</b> to turn · <b>right-drag</b> to pan · <b>scroll</b> to zoom · <b>double-click</b> empty space to reset</span></header>
 <div id="waiting">Waiting for diagnostics.</div><script>
 const id=SOURCE_ID, prefix=PREFIX;
 async function poll(){try{const state=await(await fetch('/api/state')).json(),s=state.sources.find(s=>s.id===id);
