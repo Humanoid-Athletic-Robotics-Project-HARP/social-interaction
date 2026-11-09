@@ -102,9 +102,10 @@ function showView(selected) {
 }
 function render() {
   const selected=route(),view=Boolean(selected);document.body.classList.toggle('view-page',view);
-  $('home').hidden=!view;$('eyebrow').hidden=view;$('source-name').hidden=!view;$('view-status').hidden=!view;$('intro').hidden=view;$('footer').hidden=view;
+  if(view)$('home').removeAttribute('aria-current');else $('home').setAttribute('aria-current','page');
+  $('view-status').hidden=!view;$('footer').hidden=view;
   if(selected){showView(selected);document.title=names[selected.view]+' · HARP viewer';}
-  else{$('title').textContent='HARP viewer';document.title='HARP viewer';showHome();}
+  else{$('title').textContent='HARP viewer';$('source-name').textContent='Home';document.title='HARP viewer';showHome();}
 }
 window.addEventListener('hashchange',render);
 const events=new EventSource('/events');

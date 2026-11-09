@@ -3,13 +3,13 @@ name: unified-viewer
 description: Read before planning or implementing the unified web viewer and its feed adapters
 metadata:
   type: reference
-  updated: 2026-11-09T05:12:17Z
+  updated: 2026-11-09T05:16:19Z
   covers: [viewer/**]
 ---
 
 The agreed scope, research and implementation sequence are in [[unified-viewer-plan]]. Keep plans in project memory, not `docs/`.
 
-Home lists every configured source/view as a full-width rectangular row, with larger names and a right-aligned Open view action. Rows share spare vertical space on laptop screens and stack their details on narrow screens. Available viewers sort first as status changes; unreachable services have disabled gray Open view actions. Errors are a muted single line with the full reason on hover. DOM reordering preserves keyboard focus. Each opens one full-window view under a compact Home toolbar, with no tabs or surrounding cards. Hash routes `#view/SOURCE/VIEW` support direct links and browser history. Returning Home removes the iframe, not the producer or collector.
+Home and individual views share the same compact Home toolbar; Home has no introductory heading or banner. Home lists every configured source/view as a full-width rectangular row, with larger names and a right-aligned Open view action. Rows share spare vertical space on laptop screens and stack their details on narrow screens. Available viewers sort first as status changes; unreachable services have disabled gray Open view actions. Errors are a muted single line with the full reason on hover. DOM reordering preserves keyboard focus. Each opens one full-window view under a compact Home toolbar, with no tabs or surrounding cards. Hash routes `#view/SOURCE/VIEW` support direct links and browser history. Returning Home removes the iframe, not the producer or collector.
 
 The requested scope combines our existing sensor, speech and diagnostic views through independent feeds from the robot or laptop. Missing feeds show offline. HIM stays an external system; its own locally hosted viewer can also be embedded without changing it.
 
