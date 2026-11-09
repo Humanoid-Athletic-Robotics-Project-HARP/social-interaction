@@ -400,11 +400,15 @@ let S = {};   // the page's view of the session, rebuilt from the events
 function fresh() {
   return { running: false, config: null, talkReady: false, listen: "off", pending: 0, replyStart: null,
     speaking: null, lastSpeech: 0, lastQuiet: 0, judged: null, live: null, harpLive: null, levels: [],
-    stats: { heard: [], llm: [], sound: [] }, turns: 0, began: null, done: null, warnings: {}, lastHeard: null };
+    stats: { heard: [], llm: [], sound: [] }, turns: 0, started: null, began: null, over: null, done: null, warnings: {}, lastHeard: null };
 }
 S = fresh();
 let mode = "both", llm = "unknown", llmHere = false, llmUrl = "", serverHost = "", otherListen = false, mutePort = 28732;
 let devicesInfo = { inputs: [], outputs: [] }, logCount = 0, logErrors = 0, connected = false;
+// This browser's clock less web.py's: the smallest gap seen between an event's time and its
+// arrival (history replayed to a new page arrives late, live events at once).
+let skew = Infinity;
+function serverNow() { return Date.now() - (isFinite(skew) ? skew : 0); }
 
 function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function store(key, value) { try { localStorage.setItem("harp-speech-" + key, JSON.stringify(value)); } catch (e) {} }
@@ -569,8 +573,9 @@ function render() {
   $("reply-track").hidden = !(running && c.talk && S.pending > 0 && S.replyStart !== null);
   $("limits").hidden = !(running && c.talk);
   $("turns").textContent = S.turns; $("turns-max").textContent = " of " + L.max_turns;
-  $("turns-max").title = "HARP says goodbye itself after " + L.max_turns + " turns or " + L.max_s + " s";
+  $("turns-max").title = "HARP says goodbye itself after " + L.max_turns + " turns, or after the first reply past " + L.max_s + " s";
   $("elapsed-max").textContent = " of " + L.max_s + " s";
+  $("elapsed-max").title = "From HARP's greeting, as talk.py counts it (not while it loads). It says goodbye after the first reply past " + L.max_s + " s.";
   updateTurnTrack();
 
   // composer
@@ -613,8 +618,12 @@ function updateTurnTrack() {
 }
 function tick() {   // timers that run between events
   if (S.running && S.began) {
-    $("elapsed").textContent = Math.round((Date.now() - S.began) / 1000) + " s";
-    $("now-clock").textContent = "running " + fmtClock((Date.now() - S.began) / 1000);
+    const t = S.over !== null ? S.over : (serverNow() - S.began) / 1000;
+    $("elapsed").textContent = Math.round(t) + " s";
+    $("now-clock").textContent = (S.over !== null ? "talked " : "talking ") + fmtClock(t);
+  } else if (S.running && S.started) {
+    $("elapsed").textContent = "0 s";
+    $("now-clock").textContent = "loading " + fmtClock((serverNow() - S.started) / 1000);
   } else $("now-clock").textContent = "";
   if (S.pending > 0 && S.replyStart !== null) {
     const t = (Date.now() - S.replyStart) / 1000, max = L.give_up + 0.5;
@@ -806,6 +815,7 @@ function personLive(on) {
 
 function handle(m) {
   const { source, event } = m;
+  if (m.time) skew = Math.min(skew, Date.now() - m.time * 1000);
   if (event === "hello") { reset(); return; }
   if (event === "log") {
     const bad = /error|failed|missing|Traceback|only zeros|no mic packets/i.test(m.text);
@@ -836,7 +846,7 @@ function handle(m) {
     if (m.state === "started") {
       const keepWarnings = {};
       Object.assign(S, fresh(), { warnings: keepWarnings });
-      S.running = true; S.config = m.config; S.began = m.time * 1000;
+      S.running = true; S.config = m.config; S.started = m.time * 1000;
       ["heard", "llm", "sound"].forEach(k => stat(k));
       const parts = [];
       if (m.config.listen) parts.push("listening to " + ({ mic: deviceName("inputs", m.config.device), robot: "the robot's mic", wav: "a recording" })[m.config.source]);
@@ -851,7 +861,8 @@ function handle(m) {
     applyMode(); render(); return;
   }
   if (source === "web" && event === "listen_held") { S.listen = "held"; render(); return; }
-  if (source === "web" && event === "talk_ready") { S.talkReady = true; render(); return; }
+  // talk.py's own clock for its time limit starts as it says its greeting, after loading
+  if (source === "web" && event === "talk_ready") { S.talkReady = true; S.began = m.time * 1000; render(); return; }
   if (source === "web" && event === "typed") {
     message("person", m.text, [], ["typed"]);
     if (m.forwarded) expectReply(); return;
@@ -919,7 +930,7 @@ function handle(m) {
     }
     if (event === "ignored_bye") { logLine("talk", "ignored a <bye> on a reply that isn't a goodbye", m.time); return; }
     if (event === "done") {
-      S.done = DONE[m.reason] || m.reason;
+      S.done = DONE[m.reason] || m.reason; S.over = m.seconds;
       divider("Conversation over: " + S.done + ", " + m.turns + (m.turns === 1 ? " turn, " : " turns, ") + m.seconds + " s");
       render(); return;
     }

@@ -226,6 +226,9 @@ terminal at the same time. The mic and speakers are this computer's, not the bro
 Then open http://127.0.0.1:28733. The page can start the LLM server too. `--host 0.0.0.0`
 opens it to other computers (on PC2, to watch from a laptop on the robot network).
 
+On the Now card, Turns and Time count from HARP's greeting, as `talk.py` does, not while
+the models load.
+
 ## Bench
 
 Tests on made-up audio and scripted conversations, for tuning without a mic, speakers or
