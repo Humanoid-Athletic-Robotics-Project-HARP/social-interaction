@@ -520,5 +520,6 @@ In `speech/`:
 | [Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) by the Qwen team, Q4_K_M GGUF by [lmstudio-community](https://huggingface.co/lmstudio-community/Qwen3-4B-Instruct-2507-GGUF) | Apache-2.0 |
 | [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) v1.0 by hexgrad | Apache-2.0 |
 | [misaki](https://github.com/hexgrad/misaki) word lists | Apache-2.0 |
+| misaki's US English G2P: [the model](https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us) by PeterReid, converted to ONNX with misaki's tables by [nekwo](https://huggingface.co/nekwo/misaki-en-us-g2p-onnx) | Apache-2.0 |
 | Piper's [`en_US-ljspeech-medium`](https://huggingface.co/rhasspy/piper-voices) voice | Trained on public-domain LJ Speech |
 | sherpa-onnx's `lexicon-en-us.txt` | Unverified |

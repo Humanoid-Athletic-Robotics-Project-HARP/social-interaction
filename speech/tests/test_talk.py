@@ -127,6 +127,38 @@ class TestEnding(unittest.TestCase):
                                       "I said goodbye to my parents."))
 
 
+class TestSounds(unittest.TestCase):
+    """Words to sounds, with a made-up lexicon and a stand-in for the G2P model."""
+    LEXICON = {"i": "ˈI", "said": "sˈɛd", "chat": "ʧˈæt", "torch": "tˈɔɹʧ", "harp": "hˈɑɹp",
+               "g": "ʤˈi", "p": "pˈi", "t": "tˈi", "it's": "ɪts"}
+
+    def guess(self, word):
+        return "<" + word + ">"
+
+    def test_known_and_guessed(self):
+        sounds, guessed, unknown = talk.text_sounds("I said bijective.", self.LEXICON, self.guess)
+        self.assertEqual(sounds, "ˈI sˈɛd <bijective>.")
+        self.assertEqual((guessed, unknown), ({"bijective": "<bijective>"}, []))
+
+    def test_capitals_and_joined_names(self):
+        self.assertEqual(talk.word_sounds("HARP", self.LEXICON, self.guess), ("hˈɑɹp", "known"))
+        self.assertEqual(talk.word_sounds("GPT", self.LEXICON, self.guess), ("ʤˈi pˈi tˈi", "spelled"))
+        self.assertEqual(talk.word_sounds("ChatGPT", self.LEXICON, self.guess)[0], "ʧˈæt ʤˈi pˈi tˈi")
+        self.assertEqual(talk.word_sounds("PyTorch", self.LEXICON, self.guess), ("<py> tˈɔɹʧ", "guessed"))
+        self.assertEqual(talk.word_sounds("GPA", {"a": "ə"}, None, {"g": "ʤˈi", "p": "pˈi", "a": "ˈA"}),
+                         ("ʤˈi pˈi ˈA", "spelled"))   # letters keep their names
+        self.assertEqual(talk.parts("TikTok"), ["Tik", "Tok"])
+        self.assertEqual(talk.parts("Qwen's"), ["Qwen's"])
+
+    def test_without_a_model(self):
+        sounds, guessed, unknown = talk.text_sounds("It's Kubernetes, café!", self.LEXICON, None)
+        self.assertEqual((sounds, guessed, unknown), ("ɪts!", {}, ["Kubernetes", "cafe"]))
+
+    def test_piper_symbols(self):
+        self.assertEqual(talk.piper_sounds("bIʤˈɛktɪv"), "baɪdʒˈɛktɪv")
+        self.assertEqual(talk.piper_sounds("bˈɜɹd wˈɔɾəɹ"), "bˈɜːd wˈɔːɾɚ")
+
+
 class TestGoodbye(unittest.TestCase):
     def test_goodbyes(self):
         for said in ("Okay, bye!", "I gotta go", "See you later", "I have to run now"):

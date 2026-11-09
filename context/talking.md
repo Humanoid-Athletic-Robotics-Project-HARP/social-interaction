@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-09T00:46:19Z
+  updated: 2026-11-09T01:16:05Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -73,7 +73,8 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Its prompt rules out offering help or going places; without that, it offered to help find food.
   - Events are JSON lines on stdout when it is piped (`talk_bench.py` reads them) or with `--json`. A `speaking` event gives each reply piece as its sound starts (the page shows replies live, [[speech-web]]); `said` comes once the whole line has played. In a terminal it prints the conversation instead: `you:` with each transcript, each reply piece as its sound starts, and the reply's times.
   - Text tests in `speech/tests/test_talk.py`.
-- Words: sherpa-onnx skips any word missing from a voice's lexicon. So `talk.py` writes one combined lexicon at start:
+- Words: `talk.py` gives the voice sounds, not text (sherpa-onnx's `phoneme_codepoints`), so no word is skipped. Each word comes from our `speech/lexicon/`, then the voice's list, then misaki's G2P model (`Guess`, findings: [[talking-research]]), reported as `guessed_words`. Joined-up names are split first (ChatGPT, PyTorch), and words in capitals of up to five letters in no list are spelled with the voice's letter names. Our lexicon says "a" as "ə" (both voices' lists have only the letter). Without the G2P files, words in no list are skipped as `unknown_words`.
+- The lexicon `talk.py` builds at start:
   - our `speech/lexicon/` entries first, then the voice's own list
   - plus each word's -s and -'s forms where missing (Kokoro's list lacks "students", "robots", "what's", "how's")
   - Piper's list lacked "or" and "her" (added). Of 210 very common words, both lists now have all.
