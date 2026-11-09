@@ -204,6 +204,27 @@ class TestClean(unittest.TestCase):
         self.assertEqual(talk.clean("Bye! <bye>"), "Bye! <bye>")
 
 
+class TestFillers(unittest.TestCase):
+    def test_kind_fits_what_they_said(self):
+        for heard, kind in (("What do you think about AI?", "think"), ("What's your favourite food?", "think"),
+                            ("Why are you here", "think"), ("Who built you?", "question"),
+                            ("are you a real robot", "question"), ("I just got out of class.", "news"),
+                            ("Fine.", "news"), ("Hi, I'm Jordan.", None), ("Hello!", None),
+                            ("Okay, bye!", None), ("What?", None), ("Huh?", None),
+                            ("Sorry, what did you say?", None)):
+            self.assertEqual(talk.filler_kind(heard), kind, heard)
+
+    def test_reply_doesnt_repeat_the_filler(self):
+        self.assertEqual(talk.after_filler("Oh, that's great!", "Oh."), "That's great!")
+        self.assertEqual(talk.after_filler("Hmm, I'd say pizza.", "Hmm."), "I'd say pizza.")
+        self.assertEqual(talk.after_filler("Great question! I'd say pizza.", "Oh, good question."), "I'd say pizza.")
+        self.assertEqual(talk.after_filler("Good question.", "Oh, good question."), "Good question.")
+        self.assertEqual(talk.after_filler("My day was fine.", "Mm."), "My day was fine.")
+        self.assertEqual(talk.after_filler("Oh.", "Oh."), "Oh.")
+
+    def test_every_filler_is_rendered(self):
+        lines = [f for kind in talk.FILLERS.values() for f in kind]
+        self.assertEqual(len(lines), len(set(lines)))
 
 
 if __name__ == "__main__":

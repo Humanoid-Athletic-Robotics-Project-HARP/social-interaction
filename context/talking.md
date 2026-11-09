@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-09T22:48:19Z
+  updated: 2026-11-09T23:39:22Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -37,7 +37,7 @@ Design for the talking half of a conversation, and what both halves share, and w
    - Spoken style: usually one sentence, two at most, about as long as what they said; a question only when curious; no lists or emoji.
    - Limits: don't ask for personal details, and don't promise actions it can't do.
    - Current state: the conversation's length and turn count.
-3. Waiting: a short pre-rendered filler plays if no reply sound has come about 1.2 s after the person's turn ends. A canned reply is used on an LLM error or after 5 s.
+3. Waiting: a short pre-rendered filler that fits what they said plays 1.2 s after the person's turn ends, unless the reply's sound is expected within 0.6 s. A canned reply is used on an LLM error or after 5 s.
 4. Ending: a closing line, then `talk_done` with the reason. The reason is one of:
    - the model ends a goodbye reply with a `<bye>` tag, checked in code (more reliable than tool calls for small models)
    - the person says goodbye and the reply is a goodbye too (the person's words alone end too much: "I have to go to the dentist tomorrow")
@@ -67,7 +67,8 @@ Design for the talking half of a conversation, and what both halves share, and w
 **Built** (`speech/talk.py`, 2026-11-03; setup and use: `speech/README.md`)
 - What it does: typed lines or `listen.py`'s JSON lines in, through `llama-server` (Qwen3-4B, streamed), to a sherpa-onnx voice (`--voice kokoro` or `piper`), out through this computer's speakers (`--no-play`, `--save DIR`).
   - The greeting, fillers, "Sorry, I didn't catch that" and the closing line are rendered at start.
-  - The fillers are "Let me think." and "Let me see." ("Hmm" came out as "Hammel"). One plays only if the LLM has given no text 1.2 s after the turn ends, and nothing is still playing. Keying it on the audio being ready instead made one play before every Kokoro reply on a CPU.
+  - Fillers fit what was said (`filler_kind()`): "Oh, good question." or "Ooh, let me think." before a question that needs thought, "Um." or "Well." before another question, "Oh." after news, and none after a greeting, a goodbye or "What?". A reply that starts with the filler's sound doesn't say it again (`after_filler()`). Only sounds Kokoro says clearly: its "hmm" and "mm" came back from speech-to-text as "Hemley", "Come" and "Math".
+  - At 1.2 s (`FILLER`) one plays unless the reply's sound is expected within 0.6 s (`expected()`: what's left of the first piece's words and synthesis, from the voice's measured seconds a word), or something is playing. A `filler` event says which, and why not (unfit, soon, playing). Keyed on no first piece yet, a filler played before 58% of replies, the answer right behind it ("Let me think." then "Sure! Why did the robot…"). Keyed on the LLM's text having started, none played before a 5.5 s silence while Kokoro synthesised on an M1 (live test, 2026-11-09).
   - A reply's first piece is cut at the first comma or dash with 4 words before it (later pieces: 10), so its sound starts sooner.
   - The prompt's fixed start is processed once at start, so each turn is cached.
   - Its prompt rules out offering help or going places; without that, it offered to help find food.

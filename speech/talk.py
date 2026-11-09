@@ -14,8 +14,11 @@ is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
   - The reply's text: numbers spelled out, then each word as sounds: from our lexicon, the
     voice's, or misaki's G2P model for any other word (reported, so a wrong guess can be
     added to our lexicon); a short word in capitals in no lexicon is said letter by letter.
-  - A filler plays if the LLM has given no text, and nothing is playing, FILLER s after
-    the person's turn ended.
+  - A filler that fits what they said (FILLERS, filler_kind(): "Um." before a question,
+    "Oh." after news, none after a greeting, a goodbye or "What?") plays FILLER s after
+    the person's turn ended, unless the reply's sound is expected within SOON s (from the
+    voice's measured speed) or something is playing. A reply that starts with the
+    filler's own sound doesn't say it again.
   - The LLM writes freely, as it would talk: the reply is cut off after MAX_SENTENCES
     sentences, and stage directions, emoji, list marks and dashes are taken out (clean()).
   - A fixed line instead on an LLM error, or if it hasn't answered in GIVE_UP s.
@@ -27,7 +30,8 @@ the LLM's first text, llm_s to its first sentence, ready_s to its audio, first_s
 to its sound, which also waits for anything still playing; sent once the whole line has
 played), speaking (each piece's text and seconds as its sound starts, first for a line's
 first piece), guessed_words ({word: sounds} from the G2P model), unknown_words (skipped:
-no G2P model), ignored_bye (a <bye> on a reply that wasn't a goodbye), echo, and done
+no G2P model), ignored_bye (a <bye> on a reply that wasn't a goodbye), filler (at_s after
+the turn's end: the line said, or why none: unfit, soon or playing), echo, and done
 (reason). --save DIR keeps everything said as WAVs; --no-play stays silent;
 --output-device picks the speaker.
 
@@ -56,6 +60,8 @@ from listen import MUTE_PORT, log, models_dir
 
 HERE = Path(__file__).resolve().parent
 FILLER = 1.2       # s after the turn ends with nothing to say yet: a filler
+SOON = 0.6         # s: no filler if the reply's sound is expected within this
+WORD_S = 0.1       # s the LLM takes for a word, while it streams (12 tokens a second)
 GIVE_UP = 5.0      # s without a first sentence: a fixed line instead
 MAX_TURNS = 10     # turns before it says goodbye itself
 MAX_S = 180.0      # s before it says goodbye itself (checked after each reply)
@@ -72,7 +78,17 @@ VOICES = {         # model folder, speaker, our own lexicon
 }
 
 GREETING = "Hi, I'm HARP, a robot from Stanford. How's your day going?"
-FILLERS = ["Let me think.", "Let me see."]   # words both voices have ("Hmm" came out as "Hammel")
+# Fillers by what the person said (filler_kind()), each said in turn. Short sounds that run
+# straight into any reply, so one just before the answer still sounds right. Only ones Kokoro
+# says clearly: its "hmm" and "mm" came back from speech-to-text as "Hemley", "Come", "Math".
+FILLERS = {"think": ["Oh, good question.", "Ooh, let me think."],   # what do you think, why...
+           "question": ["Um.", "Well."],
+           "news": ["Oh."]}
+THINK = re.compile(r"\b(what do you think|do you think|what would|would you|favou?rite|why|how come|"
+                   r"should i|explain|opinion|tell me (a|about)|^\W*which)\b", re.I)
+GREET = re.compile(r"^\W*(hi|hello|hey|hiya|yo|good (morning|afternoon|evening))\b", re.I)
+CONFUSED = re.compile(r"^\W*(what|huh|sorry|pardon|excuse me|come again)\W*$|"
+                      r"\b(what did you say|say that again|didn't (catch|hear))\b", re.I)
 SPOKEN = {"G1": "gee one"}     # said as letters, not read as a word
 SORRY = "Sorry, I didn't catch that."
 LOST = "Sorry, I lost my train of thought. What were you saying?"
@@ -367,6 +383,7 @@ class Voice:
             config = sherpa_onnx.OfflineTtsModelConfig(vits=model, num_threads=2, provider=provider)
         self.tts = sherpa_onnx.OfflineTts(sherpa_onnx.OfflineTtsConfig(model=config))
         self.rate = self.tts.sample_rate
+        self.per_word = None   # s of synthesis a word, measured as it goes (this computer's speed)
 
     def sounds(self, text):
         """(sounds, {guessed word: sounds}, [words it can't say])"""
@@ -380,7 +397,11 @@ class Voice:
         config = self.sherpa.GenerationConfig()
         config.sid = self.speaker
         config.phoneme_codepoints = [[ord(c) for c in sounds]]   # one list per sentence: one here
-        return np.array(self.tts.generate(text, config).samples, np.float32)
+        began = time.perf_counter()
+        audio = np.array(self.tts.generate(text, config).samples, np.float32)
+        took = (time.perf_counter() - began) / max(1, len(text.split()))
+        self.per_word = took if self.per_word is None else 0.7 * self.per_word + 0.3 * took
+        return audio
 
 
 class Mute:
@@ -518,6 +539,34 @@ def first_sentences(text, count):
     return text[:ends[count - 1]] if len(ends) >= count else text
 
 
+def filler_kind(heard):
+    """Which kind of filler fits what the person said (FILLERS), or None: none after a
+    greeting, a goodbye or "What?", where one sounds odd and the reply comes quickly."""
+    if GREET.search(heard) or GOODBYE.search(heard) or CONFUSED.search(heard):
+        return None
+    if THINK.search(heard):
+        return "think"
+    return "question" if "?" in heard or re.match(r"\W*(what|who|where|when|how|do|does|did|are|is|"
+                                                 r"can|could|will|have)\b", heard, re.I) else "news"
+
+
+OPENING_SOUND = re.compile(r"^\W*(?:h?m+|hmm+|u+m+|u+h+|o+h+|a+h+|ooh+|well)\b[,.!]*\s*", re.I)
+GOOD_QUESTION = re.compile(r"^\W*(?:(?:that's|what) an? )?(?:good|great|tough|fun|interesting) "
+                           r"(?:question|one)\b[,.!]*\s*", re.I)
+
+
+def after_filler(text, filler):
+    """A reply's first piece without what the filler already said ("Oh." then "Oh, that's
+    great!" says "That's great!"; "Oh, good question." then "Great question! I'd..." says
+    "I'd..."). Unchanged if nothing would be left."""
+    rest = OPENING_SOUND.sub("", text, count=1)
+    if "question" in filler:
+        rest = GOOD_QUESTION.sub("", rest, count=1)
+    if rest == text or not re.search(r"[A-Za-z]", rest):
+        return text
+    return rest[:1].upper() + rest[1:]
+
+
 def timing(said):
     """A reply's times in words, from a said event."""
     think, sound = said["llm_s"], said["first_sound_s"]
@@ -536,13 +585,13 @@ class Conversation:
         self.speaker = Speaker(self.voice.rate, not args.no_play, args.save,
                                args.output_device, mute)
         self.said = []   # what it has said, newest last (for the echo check)
-        self.canned = {line: self.voice(speakable(line))
-                       for line in [GREETING, SORRY, LOST, CLOSE] + FILLERS}
+        self.canned = {line: self.voice(speakable(line)) for line in
+                       [GREETING, SORRY, LOST, CLOSE] + [f for kind in FILLERS.values() for f in kind]}
         log(f"voice {args.voice} ready in {time.perf_counter() - began:.1f} s")
         self.url = args.llm
         self.messages = [{"role": "system", "content": SYSTEM},
                          {"role": "assistant", "content": GREETING}]
-        self.turns, self.misses, self.fillers = 0, 0, 0
+        self.turns, self.misses, self.fillers = 0, 0, {kind: 0 for kind in FILLERS}
 
     def show(self, line):
         """A line of the readable conversation (stdout is a terminal and not --json)."""
@@ -634,11 +683,12 @@ class Conversation:
     def reply(self, heard, ended, heard_s=None):
         self.messages.append({"role": "user", "content": heard.strip()})
         first, reply, spoken, cut = {}, "", [], False
-        filler = threading.Timer(FILLER, self.filler, args=(first, ended))
+        filler = threading.Timer(FILLER, self.filler, args=(first, ended, filler_kind(heard)))
         filler.start()
 
         written = []   # the LLM's own words, for the history
 
+        first["written"] = written
 
         def tokens(stream):   # notes when the LLM's first text arrives
             for piece in stream:
@@ -652,6 +702,8 @@ class Conversation:
             sentences, cut = 0, False
             for text in parts:
                 text = clean(text)
+                if not spoken and first.get("filler"):
+                    text = after_filler(text, first["filler"])
                 reply = (reply + " " + text).strip()
                 sentences += bool(re.search(r"[.!?]$", text))
                 say = speakable(text)
@@ -664,6 +716,7 @@ class Conversation:
                     self.event("unknown_words", words=unknown)
                 if "llm" not in first:
                     first["llm"] = time.perf_counter() - ended
+                first.setdefault("synth", (time.perf_counter(), len(say.split())))
                 audio = self.voice(say, sounds)
                 first.setdefault("ready", time.perf_counter() - ended)
                 self.say(text, audio, not spoken, None if spoken else
@@ -706,16 +759,42 @@ class Conversation:
             return self.close("time")
         return None
 
-    def filler(self, first, ended):
-        """Fill the pause, but only while the LLM has said nothing yet and nothing is still
-        playing (once there's text, its audio follows within the voice's synthesis time)."""
-        if "llm" not in first and self.speaker.idle.is_set():
-            line = FILLERS[self.fillers % len(FILLERS)]
-            self.fillers += 1
-            self.say(line, self.canned[line])
-            self.event("said", text=line, canned=True, filler=True,
-                       at_s=round(time.perf_counter() - ended, 3),
-                       seconds=round(len(self.canned[line]) / self.voice.rate, 2))
+    def expected(self, first):
+        """s until the reply's first sound, as far as can be told now: what's left of the
+        first piece's synthesis, or of its words still to come and then its synthesis, from
+        the voice's measured speed; None while the LLM has sent nothing (a long wait)."""
+        per_word = self.voice.per_word or 0.2
+        if "ready" in first:
+            return 0.0
+        if "synth" in first:
+            began, words = first["synth"]
+            return max(0.0, words * per_word - (time.perf_counter() - began))
+        if "token" in first:
+            so_far = len("".join(first["written"]).split())
+            return max(1, FIRST_WORDS - so_far) * WORD_S + max(FIRST_WORDS, so_far) * per_word
+        return None
+
+    def filler(self, first, ended, kind):
+        """Fill the pause with a filler of this kind, unless the reply's sound is expected
+        within SOON s (a filler then only runs into it: "Let me think" and the answer at
+        once), or something is still playing. Sends a filler event either way: the line
+        said, or why none (unfit, soon or playing), with the wait expected."""
+        at = round(time.perf_counter() - ended, 3)
+        left = self.expected(first)
+        why = ("unfit" if not kind else "soon" if left is not None and left < SOON else
+               "playing" if not self.speaker.idle.is_set() else None)
+        expect = {} if left is None else {"expected_s": round(left, 2)}
+        if why:
+            self.event("filler", text=None, reason=why, at_s=at, **expect)
+            return
+        line = FILLERS[kind][self.fillers[kind] % len(FILLERS[kind])]
+        self.fillers[kind] += 1
+        first["filler"] = line
+        self.event("filler", text=line, kind=kind, at_s=at, **expect)
+        # said before it is queued, so the page knows the line before its speaking event
+        self.event("said", text=line, canned=True, filler=True, at_s=at,
+                   seconds=round(len(self.canned[line]) / self.voice.rate, 2))
+        self.say(line, self.canned[line])
 
     def close(self, reason):
         self.say(CLOSE, self.canned[CLOSE])

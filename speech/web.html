@@ -329,7 +329,7 @@ canvas { width: 100%; height: 92px; display: block; border-radius: 8px; backgrou
       <div id="reply-track" hidden>
         <div class="track">
           <div class="track-top"><span id="reply-label">Waiting for HARP's answer</span><span class="num" id="reply-s">0.0 s</span></div>
-          <div class="rail" id="reply-rail" title="From the end of their turn to HARP's first sound. A filler plays at the first mark if the LLM has sent no words yet; a fixed line at the second if it sends nothing for that long."><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
+          <div class="rail" id="reply-rail" title="From the end of their turn to HARP's first sound. A filler plays at the first mark unless the answer is about to start; a fixed line at the second if the LLM sends nothing for that long."><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
           <div class="marks" id="reply-marks"></div>
         </div>
         <div class="verdict" id="reply-verdict"></div>
@@ -642,13 +642,13 @@ function replyTrack() {
   railMarks($("reply-rail"), max, ms.map(x => x[0])); marks($("reply-marks"), max, ms);
   $("reply-label").textContent = done ? "HARP's answer started after" : "Waiting for HARP's answer";
   const f = S.filler, said = f && f.text ? 'HARP said <b>"' + f.text + '"</b> at ' + secs(f.at_s, 1) + " to fill the pause" : "";
-  const why = f && !f.text ? { started: "no filler: the LLM had already started writing", unfit: "no filler: one doesn't fit after a greeting, a goodbye or \u201cwhat?\u201d", playing: "no filler: HARP was still speaking" }[f.reason] : "";
+  const why = f && !f.text ? { soon: "no filler: the answer was about to start", unfit: "no filler: one doesn't fit after a greeting, a goodbye or \u201cwhat?\u201d", playing: "no filler: HARP was still speaking" }[f.reason] : "";
   let v;
   if (done) v = "<b>Answered " + secs(t, 1) + "</b> after their turn ended" + (said ? "; before that, " + said : why ? " (" + why + ")" : "") + ". The rest plays as it's ready.";
-  else if (said) v = "The LLM sent no words by " + secs(L.filler, 1) + ", so " + said + ". The answer follows as soon as its voice is ready.";
+  else if (said) v = "The answer wasn't about to start at " + secs(L.filler, 1) + (f.expected_s !== undefined ? " (about " + secs(f.expected_s, 1) + " more)" : "") + ", so " + said + ". The answer follows as soon as its voice is ready.";
   else if (why) v = why[0].toUpperCase() + why.slice(1) + ". It speaks as soon as the first part's voice is ready.";
   else if (now >= L.give_up) v = "The LLM sent nothing for " + secs(L.give_up, 0) + ", so HARP says a fixed line instead.";
-  else v = "The LLM is writing the reply. If it has sent no words by <b>" + secs(L.filler, 1) + "</b>, HARP fills the pause; if it sends nothing for " + secs(L.give_up, 0) + ", HARP says a fixed line.";
+  else v = "The LLM is writing the reply. If the answer isn't about to start by <b>" + secs(L.filler, 1) + "</b>, HARP fills the pause; if the LLM sends nothing for " + secs(L.give_up, 0) + ", HARP says a fixed line.";
   $("reply-verdict").innerHTML = v;
   const clock = document.querySelector(".typing .clock"); if (clock) clock.textContent = "thinking " + secs(now, 1);
 }

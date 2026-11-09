@@ -3,7 +3,7 @@ name: speech-tuning
 description: Read before changing listen.py's turn settings, talk.py's prompt, grammar, goodbye rules or fillers, or choosing the voice — what synthetic tests found and the changes they point to
 metadata:
   type: project
-  updated: 2026-11-04T22:44:59Z
+  updated: 2026-11-09T23:39:22Z
   covers: [speech/listen.py, speech/talk.py, speech/bench/*]
 ---
 
@@ -27,5 +27,5 @@ Synthetic tests on an M1 MacBook Air's CPU (2026-11-03/04), with no mic or speak
 - With the free prompt (8 scripts, Kokoro): every ending right, 5 of 30 replies asked a question, 24 of 30 opened differently, no copies of the examples, no ignored `<bye>`. It picks favourites and opinions lightly ("I'd pick The Grand Budapest Hotel").
 - Still wrong: asked "Huh?" then "Sorry, what did you say?", it gives the same rephrasing twice; when insulted it stays kind but no longer says goodbye.
 - Speed on an M1's CPU, free text with Kokoro: LLM's first text 0.6–1.7 s (3.7 s after a 40-word turn), first sentence a median 2.2 s, its audio a median 4.1 s and up to 9.8 s: Kokoro synthesises while the LLM still writes, both on the CPU. Live, through the mic (2026-11-09): first sound 2.9–5.5 s after the person stopped. Test live on a laptop with Piper; Kokoro needs PC2's GPU.
-- Fillers came before about half the replies, since the LLM's first sentence took a median 1.2 s on this CPU (`FILLER` is 1.2 s). Recheck on PC2's GPU before changing it; out loud, the reply waits behind the filler.
+- Fillers, scored as they would sound (`talk_bench.py`): keyed on no first sentence by 1.2 s, one came before 89 of 153 replies, and mostly "Let me think." just ahead of an answer that needed none. Keyed on the reply's expected sound (`expected()`), one comes only with at least 0.6 s of wait ahead: on the M1 with Kokoro, 26 of 30 replies, since its waits are long, none of them hardly needed or delaying the reply; with Piper, 2 of 20.
 - Voices, judged by Parakeet as the listener (`bench/voice_bench.py`): Kokoro 6% word errors (7% through room and robot mic), real-time factor 0.56; Piper 14.5% (18%), factor 0.06. Kokoro, if it reaches its estimated 0.35 s on PC2's GPU.
