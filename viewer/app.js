@@ -34,6 +34,10 @@ function reason(source,view) {
   return feeds(source,view).filter(([,v])=>!v.online).map(([k,v])=>`${k}: ${v.reason||'no data'}`).join('; ')||'Receiving data';
 }
 function entries() { return state.sources.flatMap(s=>views(s).map(view=>({source:s,view,key:s.id+'/'+view}))); }
+function priority(entry) {
+  const [status]=health(entry.source,entry.view);
+  return status==='live'||status==='replay'?0:status==='partial'?1:entry.source.reachable?2:3;
+}
 function showHome() {
   const items=entries(),key='home:'+Boolean(lastState)+':'+items.map(e=>e.key+':'+e.source.label).join('|');
   if(key!==signature){
@@ -43,7 +47,8 @@ function showHome() {
     }else{
       const grid=node('div','service-grid');
       for(const e of items){
-        const button=node('a','service-button');button.href='#view/'+e.key;button.setAttribute('aria-label',`Open ${e.source.label}: ${names[e.view]}`);
+        const button=node('a','service-button');button.setAttribute('role','link');button.setAttribute('aria-label',`Open ${e.source.label}: ${names[e.view]}`);
+        button.addEventListener('click',event=>{if(button.getAttribute('aria-disabled')==='true')event.preventDefault();});
         const top=node('span','service-top');top.append(node('span','service-machine',e.source.machine),node('span','badge','Offline'));
         button.append(top,node('span','service-title',names[e.view]),node('span','service-source',e.source.label),node('span','service-detail'),node('span','open-view','Open view'));
         grid.append(button);cards.set(e.key,button);
@@ -54,7 +59,22 @@ function showHome() {
   for(const e of items){
     const button=cards.get(e.key);if(!button)continue;
     const [cls,label]=health(e.source,e.view),badge=button.querySelector('.badge');badge.className='badge '+cls;badge.textContent=label;
-    button.querySelector('.service-detail').textContent=reason(e.source,e.view);
+    const available=e.source.reachable;
+    button.setAttribute('aria-disabled',String(!available));
+    if(available){button.href='#view/'+e.key;button.removeAttribute('tabindex');}
+    else{button.removeAttribute('href');button.tabIndex=-1;}
+    const detail=button.querySelector('.service-detail'),message=reason(e.source,e.view);
+    detail.textContent=message;detail.title=message;
+  }
+  const grid=$('content').querySelector('.service-grid');
+  if(grid){
+    const sorted=items.slice().sort((a,b)=>priority(a)-priority(b)),order=sorted.map(e=>e.key).join('|');
+    if(grid.dataset.order!==order){
+      const focused=document.activeElement;
+      for(const e of sorted){const card=cards.get(e.key);if(grid.moveBefore)grid.moveBefore(card,null);else grid.append(card);}
+      if(focused&&grid.contains(focused)&&document.activeElement!==focused)focused.focus({preventScroll:true});
+      grid.dataset.order=order;
+    }
   }
 }
 function showView(selected) {

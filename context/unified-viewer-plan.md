@@ -3,7 +3,7 @@ name: unified-viewer-plan
 description: Read when implementing the agreed unified viewer scope, adapters or validation
 metadata:
   type: reference
-  updated: 2026-11-09T04:47:54Z
+  updated: 2026-11-09T04:51:33Z
   covers: []
 ---
 
@@ -44,7 +44,7 @@ Offline reports and plots such as `report.py`, `blind_map.py`, `self_filter_chec
 
 ## Proposed viewer
 
-Home lists each configured source and its views as clickable service buttons, including offline services. Each button opens one view in the full window below a Home toolbar. Available views are Lidar, Camera, Hybrid, Navigation and diagnostics, Speech and configured recording replays. Home shows the machine, source label, status and failure reason. Each view preserves the existing display features. Navigation and diagnostics embeds Rerun. Direct links and browser back/forward work. Multiple browser pages can compare sources while the hub shares its collectors.
+Home lists each configured source and its views as compact service buttons, including offline services. Available viewers sort first dynamically. Unreachable services have a gray, disabled Open view action. Failure text is subdued and truncated, with the full reason on hover. Each available button opens one view in the full window below a Home toolbar. Available views are HIM simulator, Lidar, Camera, Hybrid, Navigation and diagnostics, Speech and configured recording replays. Home shows the machine, source label, status and failure reason. Each view preserves the existing display features. Navigation and diagnostics embeds Rerun. Direct links and browser back/forward work. Multiple browser pages can compare sources while the hub shares its collectors.
 
 Collect all configured sources concurrently. There is no exclusive sim, robot or local mode. The required initial source combinations are:
 

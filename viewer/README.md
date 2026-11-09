@@ -2,7 +2,9 @@
 
 One dashboard for independent HARP feeds on a laptop or PC2. Each source has its own
 connection and status. Home lists every configured service view as a button, including
-offline services. Each opens a full-window page with a Home button. Browser back/forward
+offline services. Available viewers move to the top. Unreachable services have a gray,
+disabled Open view action; hover the muted status line for its full reason. Each
+available service opens a full-window page with a Home button. Browser back/forward
 and direct links such as `#view/mac-speech/speech` work without stopping collection.
 
 ## Start
