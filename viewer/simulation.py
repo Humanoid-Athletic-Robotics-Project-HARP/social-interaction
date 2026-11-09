@@ -41,6 +41,18 @@ class Simulation(Source):
         self.seen = None
         self.recent = collections.deque(maxlen=250)
         self.world = None
+        self.pieces = {}   # avoidance, detector, behavior: the names their start events give
+
+    def note_piece(self, value):
+        """Which optional pieces this run has, from their started events (lidar_view.py
+        shows the details)."""
+        source, kind = value.get("source"), value.get("event")
+        if kind == "started" and source in ("predictive", "approach"):
+            self.pieces["avoidance"] = "predictive avoidance" if source == "predictive" else "approach stop"
+        elif kind == "started" and source == "people":
+            self.pieces["detector"] = str(value.get("detector", "person detector"))
+        elif kind == "loop_start" and source == "behavior":
+            self.pieces["behavior"] = "behavior loop"
 
     def start(self):
         self.start_thread(self.render)
@@ -79,6 +91,7 @@ class Simulation(Source):
             self.finished = False
             self.recent.clear()
             self.world = None
+            self.pieces = {}
             self.render_dropped = 0
         while True:
             try:
@@ -96,6 +109,7 @@ class Simulation(Source):
                 self.world = value
             else:
                 self.recent.append(value)
+                self.note_piece(value)
         self.offer(value)
 
     def status(self):
@@ -112,7 +126,9 @@ class Simulation(Source):
                            "frame_age": frame_age, "event_age": event_age,
                            "finished": self.finished, "dropped": self.render_dropped,
                            "rrd": self.kind == "recording" and self.config.get("path", "").lower().endswith(".rrd"),
-                           "events": list(self.recent)[-30:]}
+                           "events": list(self.recent)[-30:],
+                           "pieces": [self.pieces[k] for k in ("avoidance", "detector", "behavior")
+                                      if k in self.pieces]}
             # Replay remains available after EOF; live freshness is based on frames, not process existence.
             self.updated = time.monotonic() if self.error is None else self.updated
             value = super().status()
@@ -191,7 +207,9 @@ class Simulation(Source):
                             return
                         # Replay is lossless; backpressure here cannot delay a robot.
                         with self.lock:
-                            self.recent.append(value) if value.get("source") != "view" else None
+                            if value.get("source") != "view":
+                                self.recent.append(value)
+                                self.note_piece(value)
                         while not self.stop.is_set():
                             try:
                                 self.render_queue.put(value, timeout=.2)

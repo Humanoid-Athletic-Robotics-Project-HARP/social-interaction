@@ -83,6 +83,20 @@ class SimulationTests(unittest.TestCase):
             source.replay()
             sent = [source.render_queue.get_nowait() for _ in range(source.render_queue.qsize())]
             self.assertEqual([v.get('wall') for v in sent if 'wall' in v], [0, 1, 2, 3])
+            self.assertEqual(source.status()['detail']['pieces'], ['predictive avoidance'])
+
+    def test_live_run_names_its_pieces_and_a_new_run_forgets_them(self):
+        source = Simulation({'id': 'sim', 'kind': 'simulation'})
+        source.new_session('first')
+        source.error = None
+        for value in ({'source': 'people', 'event': 'started', 'detector': 'sim_people'},
+                      {'source': 'approach', 'event': 'started'},
+                      {'source': 'behavior', 'event': 'loop_start'}):
+            source.ingest(value)
+        self.assertEqual(source.status()['detail']['pieces'],
+                         ['approach stop', 'sim_people', 'behavior loop'])
+        source.new_session('second')
+        self.assertEqual(source.status()['detail']['pieces'], [])
 
     def test_rerun_request_scoping_keeps_sources_separate(self):
         html = '<html><head><script src="./re_viewer.js"></script></head></html>'

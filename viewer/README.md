@@ -124,6 +124,12 @@ stays intact. Start a world run using the usual simulation command; the dashboar
 attaches independently and follows container restarts. Plain move runs do not
 produce the same view frames and show offline in this view.
 
+Besides the sim's truth and what Nav2 sees, the page draws what the robot believes when
+those pieces run: the predictive filter's tracks (moving objects with velocity, lost
+objects, wall tiles) and the person detector's candidates and confirmed people. Its
+status panel names the run's avoidance filter, person detector and behavior loop, what
+each is doing now, and whether its data is arriving. Home's row lists the same pieces.
+
 Rerun starts when data arrives. It runs in a separate analysis process with a
 200 MB server buffer and loopback listeners, accessed through the dashboard.
 The browser uses the dashboard address for assets and data, including from another

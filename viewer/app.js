@@ -31,7 +31,10 @@ function health(source,view) {
 }
 function reason(source,view) {
   if(!source.reachable)return source.reason||'Waiting for this service.';
-  return feeds(source,view).filter(([,v])=>!v.online).map(([k,v])=>`${k}: ${v.reason||'no data'}`).join('; ')||'Receiving data';
+  const missing=feeds(source,view).filter(([,v])=>!v.online).map(([k,v])=>`${k}: ${v.reason||'no data'}`).join('; ');
+  // A run says which avoidance filter, detector and loop it has (their start events).
+  const pieces=(source.detail.pieces||[]).join(' · ');
+  return [missing,pieces].filter(Boolean).join(' · ')||'Receiving data';
 }
 function entries() { return state.sources.flatMap(s=>views(s).map(view=>({source:s,view,key:s.id+'/'+view}))); }
 function priority(entry) {
