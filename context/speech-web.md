@@ -3,7 +3,7 @@ name: speech-web
 description: Read before changing or using the speech web page (speech/web.py, web.html), or what listen.py and talk.py print for it
 metadata:
   type: project
-  updated: 2026-11-09T01:16:06Z
+  updated: 2026-11-09T03:43:53Z
   covers: [speech/web.py, speech/web.html]
 ---
 
@@ -18,6 +18,7 @@ metadata:
 - Turns are passed on only after talk.py's greeting (its first `said`). With a recording and talking, listen.py starts once the greeting has played: a recording can't wait for the robot the way a person does.
 - The page's settings only pick the flags for the next Start; nothing on the robot changes. "The robot's mic" only reads its stream; the voice assistant's mode is switched separately.
 - One session at a time. A `listen.py` started elsewhere holds the speaking signal's port (28732), so the page refuses to start listening then and says why.
+- `/api/status` includes a process instance ID so the unified viewer can reset history after a service restart.
 - Events reach the page as server-sent events; a page opened later gets the session so far (levels excepted).
 - The Start button for the LLM runs the README's `llama-server` command on the `--llm` address's port, and `web.py` stops it on exit. Only its startup lines reach the log: on an M1 it prints Metal compile errors that are harmless.
 

@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import listen
@@ -302,6 +303,7 @@ class Session:
 
 class Server:
     def __init__(self, llm_url=LLM_URL, mute_port=MUTE_PORT):
+        self.instance = uuid.uuid4().hex
         self.llm_url, self.mute_port = llm_url.rstrip("/"), mute_port
         self.hub = Hub()
         self.session = None
@@ -314,7 +316,8 @@ class Server:
         return {"other_listen": not ours and port_taken(self.mute_port), "mute_port": self.mute_port,"llm": llm_status(self.llm_url), "llm_url": self.llm_url, "llm_started_here": self.llm is not None and self.llm.poll() is None,
                 "running": bool(s and s.running), "talk_ready": bool(s and s.ready),
                 "config": s.config if s else None,
-                "models": str(models_dir()), "limits": LIMITS, "host": socket.gethostname()}
+                "models": str(models_dir()), "limits": LIMITS, "host": socket.gethostname(),
+                "instance": self.instance}
 
     def start(self, body):
         config = {"listen": bool(body.get("listen", True)), "talk": bool(body.get("talk", True)),

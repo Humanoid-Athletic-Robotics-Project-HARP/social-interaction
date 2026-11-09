@@ -3,7 +3,7 @@ name: architecture-guide
 description: Read when someone wants the architecture explained or a shareable document made, or before changing processes, topics or folders the guide describes
 metadata:
   type: project
-  updated: 2026-11-08T23:09:23Z
+  updated: 2026-11-09T03:43:46Z
   covers: [docs/architecture/**, submission/entrypoint.sh]
 ---
 

@@ -42,6 +42,8 @@
 - [Listening](listening.md) — before working on how the robot hears people: mic, turn end, speech-to-text
 - [Talking](talking.md) — before working on what the robot says, the speech processes' placement, or their handshake with behavior.py
 - [Speech web page](speech-web.md) — before changing or using speech/web.py, or what listen.py and talk.py print for it
+- [Unified viewer](unified-viewer.md) — before planning or implementing the shared web UI and feed adapters
+- [Unified viewer plan](unified-viewer-plan.md) — agreed scope, research and implementation sequence for the shared viewer
 - [Speech tuning](speech-tuning.md) — before tuning listening's turn settings, talk.py's prompt, grammar or goodbyes, or picking the voice
 - [Talking research](talking-research.md) — when choosing the voice, the LLM, the speaker player or how conversations go: options, licenses, findings
 - [Speech research](speech-research.md) — when choosing a piece of the speech stack: options, speeds, other G1 projects
