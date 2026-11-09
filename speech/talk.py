@@ -21,8 +21,9 @@ is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
 
 Events, one JSON line each on stdout: said (text, and from the turn's end: llm_s to the
 first sentence, ready_s to its audio, first_sound_s to its sound, which also waits for
-anything still playing), unknown_words, ignored_bye (a <bye> on a reply that wasn't a
-goodbye), echo, and done (reason). --save DIR keeps everything said as WAVs; --no-play
+anything still playing; sent once the whole line has played), speaking (each piece's
+text as its sound starts, first for a line's first piece), unknown_words, ignored_bye (a
+<bye> on a reply that wasn't a goodbye), echo, and done (reason). --save DIR keeps everything said as WAVs; --no-play
 stays silent; --output-device picks the speaker.
 
 Models in models/ beside the main checkout, like listen.py's. Plain Python that also runs
@@ -399,7 +400,8 @@ class Conversation:
         if name == "said":
             self.said.append(values["text"])
         if self.json:
-            print(json.dumps({"event": name, **values}), flush=True)
+            with self.printing:   # the speaker's thread sends speaking events too
+                print(json.dumps({"event": name, **values}), flush=True)
         elif name == "said" and "first_sound_s" in values:
             self.show("      (" + timing(values) + ")")
         elif name == "echo":
@@ -416,6 +418,8 @@ class Conversation:
         def begin(t):
             if started:
                 started(t)
+            if self.json:
+                self.event("speaking", text=text.replace(END_TAG, "").strip(), first=first)
             self.show(("HARP: " if first else "      ") + text.replace(END_TAG, "").strip())
         self.speaker.say(audio, begin)
 

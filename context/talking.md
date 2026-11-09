@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-09T00:26:42Z
+  updated: 2026-11-09T00:36:58Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -71,7 +71,7 @@ Design for the talking half of a conversation, and what both halves share, and w
   - A reply's first piece is cut at the first comma with 4 words before it (later pieces: 10), so its sound starts sooner.
   - The prompt's fixed start is processed once at start, so each turn is cached.
   - Its prompt rules out offering help or going places; without that, it offered to help find food.
-  - Events are JSON lines on stdout when it is piped (`talk_bench.py` reads them) or with `--json`. In a terminal it prints the conversation instead: `you:` with each transcript, each reply piece as its sound starts, and the reply's times.
+  - Events are JSON lines on stdout when it is piped (`talk_bench.py` reads them) or with `--json`. A `speaking` event gives each reply piece as its sound starts (the page shows replies live, [[speech-web]]); `said` comes once the whole line has played. In a terminal it prints the conversation instead: `you:` with each transcript, each reply piece as its sound starts, and the reply's times.
   - Text tests in `speech/tests/test_talk.py`.
 - Words: sherpa-onnx skips any word missing from a voice's lexicon. So `talk.py` writes one combined lexicon at start:
   - our `speech/lexicon/` entries first, then the voice's own list

@@ -151,7 +151,7 @@ def main():
                 g["split"] += len(passed) > len(expect)
                 g["missed"] += not passed
                 if passed:
-                    clip_end = len(frames) * listen.FRAME / listen.RATE - 1.0   # wav_frames adds 1 s of zeros
+                    clip_end = len(frames) * listen.FRAME / listen.RATE - listen.PAD   # wav_frames adds PAD s of zeros
                     if passed[-1]["ended"] > clip_end + 0.05:
                         g["hung"] += 1
                     else:

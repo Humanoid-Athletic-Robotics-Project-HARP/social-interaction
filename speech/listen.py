@@ -1,7 +1,8 @@
 """The listening half of a conversation (context/listening.md): sound in, one transcript
 per thing a person says out, as JSON lines on stdout.
 
-  python3 listen.py --wav FILE [FILE ...]   recordings, as fast as they decode
+  python3 listen.py --wav FILE [FILE ...]   recordings, as fast as they decode (--realtime:
+                                            at their own speed, as if live)
   python3 listen.py --mic [--device N]      this computer's microphone (--devices lists them)
   python3 listen.py --robot                 the G1's mic stream, on PC2 (or on a laptop
                                             on the robot's network, --iface its address)
@@ -35,6 +36,14 @@ Each line: text, start and end (s into the stream), silence_s (the wait for the 
 to end), stt_s (decoding time) and after_end_s (their sum: from the person going quiet
 to the text being ready), and where Smart Turn judged, finished (its probability) and
 turn_s (its time, included in after_end_s); dropped turns carry "dropped" and the reason.
+
+--events adds what listening is doing, for the web page (web.py), as lines with an
+"event" key among the turns: state (waiting for talk.py to load, listening, hearing,
+transcribing, or muted while the robot speaks) when it changes, and every LEVEL_S s a level (t s into the stream, the loudest frame's db and
+Silero's highest prob in that time, the noise floor's floor_db, and during a turn its
+speech_s so far and the quiet_s at its end), and judged when Smart Turn has judged a
+silence (finished, quiet_s). talk.py --heard reads only turns, so web.py passes it only
+those.
 
 Models are found in models/ beside the main checkout, like HIM's recovery policy (or
 HARP_MODELS; README.md says how to get them). Plain Python that also runs on 3.8 (PC2's).
@@ -77,6 +86,8 @@ MUTE_PORT = 28732   # UDP on this computer: talk.py's speaking messages (its LLM
 TAIL = 0.5          # s still muted after the robot stops speaking (the room's echo)
 HOLD = 1.0          # s a speaking message mutes for, unless another comes
 STARTUP = 1.5       # s muted from the start, for talk.py's first message if it's there
+PAD = WAIT + 0.5    # s of silence after each recording, so its last turn ends (even unfinished)
+LEVEL_S = 0.096     # s between --events level lines (3 frames: smooth enough for a meter)
 
 GROUP, PORT = "239.168.123.161", 5555   # the G1's mic stream, from PC1
 PC2 = "192.168.123.164"                  # PC2's address on the robot network
@@ -103,8 +114,10 @@ def log(*parts):
 
 # Sources: each yields float32 frames of FRAME samples at RATE.
 
-def wav_frames(paths):
-    """Recordings back to back, each followed by a second of silence so its last turn ends."""
+def wav_frames(paths, realtime=False):
+    """Recordings back to back, each followed by PAD s of silence; realtime: no faster than
+    they play."""
+    began, sent = time.monotonic(), 0
     for path in paths:
         with wave.open(str(path)) as f:
             rate, channels, width = f.getframerate(), f.getnchannels(), f.getsampwidth()
@@ -116,8 +129,11 @@ def wav_frames(paths):
         if rate != RATE:   # linear resampling is enough for speech models at 16 kHz
             audio = np.interp(np.arange(0, len(audio) / rate, 1 / RATE),
                               np.arange(len(audio)) / rate, audio).astype(np.float32)
-        audio = np.concatenate([audio, np.zeros(RATE, np.float32)])
+        audio = np.concatenate([audio, np.zeros(int(PAD * RATE), np.float32)])
         for start in range(0, len(audio) - FRAME + 1, FRAME):
+            if realtime:
+                time.sleep(max(0.0, began + sent * FRAME / RATE - time.monotonic()))
+            sent += 1
             yield audio[start:start + FRAME]
 
 
@@ -356,6 +372,46 @@ class Text:
         return stream.result.text.strip()
 
 
+def decibels(rms):
+    return round(20 * float(np.log10(max(rms, 1e-5))), 1)   # dBFS, -100 for silence
+
+
+class Monitor:
+    """--events: state lines when listening's state changes, level lines every LEVEL_S s."""
+
+    def __init__(self, turns):
+        self.turns, self.state, self.judged = turns, None, None
+        self.frames, self.rms, self.prob = 0, 0.0, 0.0
+
+    def event(self, name, **values):
+        print(json.dumps({"event": name, **values}), flush=True)
+
+    def set(self, state):
+        if state != self.state:
+            self.state = state
+            self.event("state", state=state)
+
+    def frame(self, frame, prob, state):
+        self.set(state)
+        turns = self.turns
+        if turns.judged is not None and self.judged is None:   # Smart Turn has just judged
+            self.event("judged", finished=round(turns.judged, 2),
+                       quiet_s=round(turns.quiet * turns.frame_s, 2))
+        self.judged = turns.judged
+        self.rms = max(self.rms, float(np.sqrt(np.mean(frame ** 2))))
+        self.prob = max(self.prob, prob)
+        self.frames += 1
+        if self.frames * self.turns.frame_s >= LEVEL_S - 1e-6:
+            floor, during = turns.floor, {}
+            if turns.speaking:   # the turn so far: its speech, and the silence at its end
+                during = {"speech_s": round((turns.count - turns.quiet) * turns.frame_s - turns.start, 2),
+                          "quiet_s": round(turns.quiet * turns.frame_s, 2)}
+            self.event("level", t=round(turns.count * turns.frame_s, 2),
+                       db=decibels(self.rms), prob=round(self.prob, 2),
+                       floor_db=None if floor is None else decibels(floor), **during)
+            self.frames, self.rms, self.prob = 0, 0.0, 0.0
+
+
 def dropped(text, start, end):
     """Why a turn's text isn't passed on, or None."""
     if end - start < MIN_SPEECH:
@@ -382,6 +438,9 @@ def main():
     parser.add_argument("--fixed-turn", action="store_true",
                         help=f"end every turn after {SILENCE} s of silence, without Smart Turn")
     parser.add_argument("--mute-port", type=int, default=MUTE_PORT, help="talk.py's speaking messages")
+    parser.add_argument("--realtime", action="store_true", help="play --wav at its own speed")
+    parser.add_argument("--events", action="store_true",
+                        help="also print state and level lines (for web.py)")
     args = parser.parse_args()
     if args.devices:
         import sounddevice
@@ -401,12 +460,13 @@ def main():
     began = time.perf_counter()
     text = Text(models / PARAKEET, args.provider)
     log(f"models loaded in {time.perf_counter() - began:.1f} s")
-    frames = (wav_frames(args.wav) if args.wav else mic_frames(args.device) if args.mic
-              else robot_frames(args.iface))
+    frames = (wav_frames(args.wav, args.realtime) if args.wav else mic_frames(args.device)
+              if args.mic else robot_frames(args.iface))
     live = not args.wav   # say on stderr what it's doing, for a person talking to it
     state = None          # the last frame's: listening, or why it was muted
     states = {"loading": "(waiting for talk.py's voice and LLM to load)",
               "talking": "(muted while HARP talks)", "listening": "(listening)"}
+    monitor = Monitor(turns) if args.events else None
     try:
         for frame in frames:
             now = "listening"
@@ -420,11 +480,17 @@ def main():
                 state = now
             if now != "listening":
                 turns.skip()
+                if monitor:
+                    monitor.frame(frame, 0.0, "muted" if now == "talking" else "waiting")
                 continue
             hearing = turns.speaking
-            turn = turns.push(frame, voice(frame))
+            prob = voice(frame)
+            turn = turns.push(frame, prob)
             if live and turns.speaking and not hearing:
                 log("(hearing you)")
+            if monitor:
+                monitor.frame(frame, prob, "transcribing" if turn else
+                              "hearing" if turns.speaking else "listening")
             if turn is None:
                 continue
             start, end, audio = turn
