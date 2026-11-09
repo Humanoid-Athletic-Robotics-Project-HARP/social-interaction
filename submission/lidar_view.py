@@ -161,10 +161,12 @@ class Recording:
         return True
 
     def add(self, record):
-        if not self.at(record) and record.get("event") != "world":
+        placed = self.at(record)
+        # Pieces start before the sim's clock does: keep their started events either way.
+        self.follow_pieces(record)
+        if not placed and record.get("event") != "world":
             return
         kind = record["event"]
-        self.follow_pieces(record)
         if record.get("source") == "view":
             {"world": self.world, "frame": self.frame}.get(kind, lambda r: None)(record)
         elif kind == "timing":
@@ -227,9 +229,9 @@ class Recording:
             # approach stop sends no stream of its own; the predictive filter sends tracks.
             if stream and not (key == "avoidance" and name == "approach stop"):
                 now += f" · {data(stream)}"
-            lines.append(f"**{title}:** {name} · {now}  \n<sub>{detail}</sub>")
+            lines.append(f"**{title}:** {name} · {now}  \n*{detail}*")
         text = "\n\n".join(lines)
-        if text != self.status_text:
+        if text != self.status_text and self.now is not None:
             self.status_text = text
             self.rec.log("/status", rr.TextDocument(text, media_type=rr.MediaType.MARKDOWN))
 

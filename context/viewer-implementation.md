@@ -3,7 +3,7 @@ name: viewer-implementation
 description: Read before changing dashboard collectors, source configuration, embedded pages, Rerun routing or process cleanup
 metadata:
   type: reference
-  updated: 2026-11-09T06:25:04Z
+  updated: 2026-11-09T06:36:48Z
   covers: [viewer/**]
 ---
 
@@ -16,7 +16,7 @@ Viewing policy and links: [[unified-viewer]]. Implementation is in `viewer/`; us
 - `rerun_worker.py` runs in the testground environment and reuses `submission/lidar_view.py`'s `Recording`, with bounded trails and a 200 MB server buffer. It starts on data arrival, uses dynamic loopback ports and stops with the hub. `recording` sources read saved run JSON lines (frames and events interleaved by wall time) or `.rrd` exports and stay Replay when paused or complete.
 - `diagnostics.py` proxies Rerun assets and gRPC-web through the hub. Rerun 0.41 accepts only the root `/proxy` URI, so the embedded page scopes fetches to its source route. Buffer rewritten POST bodies into ArrayBuffers: a Request body stream makes Chrome require HTTP/2 and fail on this HTTP/1 server. Quiet streams have no data timeout; cancel them on client disconnect/shutdown and handle incomplete HTTP reads normally.
 - `him` checks the existing local viewer's HTML, not frame activity; paused pages stay Ready. The iframe talks directly to HIM's loopback server. Discovery sends no Start request, and hub shutdown does not stop HIM. This source has no remote proxy.
-- `app.js` owns hash routes and availability ordering. Reorder existing Home rows without losing keyboard focus. Closed views stop browser image polling, not collectors. Full-window views retain Home navigation and offline covers; one dead source must not disable other sources.
+- `app.js` owns hash routes and availability ordering. Reorder existing Home rows without losing keyboard focus. Closed views stop browser image polling, not collectors. After a hub restart, open the view in a new tab: a reloaded tab kept showing the previous Rerun recording (Chrome-based pane, 2026-11-09). Full-window views retain Home navigation and offline covers; one dead source must not disable other sources.
 
 Limitations: our diagnostic exporter starts for simulation world runs, not plain planned moves. It does not export the simulated camera cloud; simulated depth is a point cloud rather than the real camera's depth image, and simulated RGB is absent. Do not invent those feeds or mix simulation and robot frames.
 
