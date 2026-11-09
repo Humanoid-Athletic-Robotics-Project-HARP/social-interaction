@@ -1,9 +1,12 @@
 # Unified viewer
 
 One dashboard for independent HARP feeds on a laptop or PC2. Each source has its own
-connection and status. Home lists every configured service view as a full-width row, including
-offline services. Larger names and Open view actions make the rows easy to scan.
-A line above them says whether this computer is likely to keep a sim run's deadlines
+connection and status. Home's Running now section has a square tile for each process that is
+answering (a sim run, speech, the robot's sensors, HIM's viewer, an open replay) with a few
+live facts: its pieces and late states, whether a conversation runs and the LLM is ready, lidar
+points and camera frame rate. Click a tile for its full view. Below, All services lists every
+configured service view as a full-width row, including offline services.
+A line at the top says whether this computer is likely to keep a sim run's deadlines
 (memory free and compressed, HIM viewers left open). Available viewers move to the top. Unreachable services have a gray,
 disabled Open view action; hover the muted status line for its full reason. Each
 available service opens a full-window page with a Home button. Browser back/forward

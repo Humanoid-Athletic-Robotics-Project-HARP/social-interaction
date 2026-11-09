@@ -222,8 +222,9 @@ python3 viewer/server.py
 
 It follows our simulation container and connects to local speech. Jetson sensor
 and speech sources use `G1_HOST` from the main checkout's gitignored `.env`.
-Home lists each service view, including offline sources and HIM's local viewer. Open a view to use the
-full window, then choose Home to return. A line at the top says whether this computer has the memory
+Home shows a tile with short live details for each running process, then lists every service view,
+including offline sources and HIM's local viewer. Click a tile or row to use the full window, then
+choose Home to return. A line at the top says whether this computer has the memory
 for a sim run. Saved runs lists every run in `runs/`: Replay one, tick two and Compare them side by
 side, or open Timing to chart its states against HIM's deadline and the computer's memory. Setup and source configuration: [viewer/README.md](viewer/README.md).
 

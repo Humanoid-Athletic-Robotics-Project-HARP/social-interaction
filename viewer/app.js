@@ -80,6 +80,12 @@ function showHome() {
     if(!items.length){
       const empty=node('div','empty');empty.append(node('h3','',lastState?'No services configured':'Connecting to dashboard'),node('p','',lastState?'Add services to the dashboard source configuration.':'Waiting for service status.'));$('content').append(empty);
     }else{
+      // Running now: a square per reachable process, with a few live facts.
+      const live=node('section','live');live.setAttribute('aria-label','Running now');
+      live.append(node('h2','section-title','Running now'),node('div','live-grid'));
+      const all=node('section','services');all.setAttribute('aria-label','All services');
+      all.append(node('h2','section-title','All services'));
+      $('content').append(live,all);
       const grid=node('div','service-grid');
       // Saved runs first: a list of course.py's run folders, any of them a replay.
       const runs=node('a','service-button runs-card');runs.href='#runs';runs.setAttribute('aria-label','Open saved runs');
@@ -93,7 +99,7 @@ function showHome() {
         button.append(top,node('span','service-title',names[e.view]),node('span','service-source',e.source.label),node('span','service-detail'),node('span','open-view','Open view'));
         grid.append(button);cards.set(e.key,button);
       }
-      $('content').append(grid);
+      all.append(grid);
     }
   }
   for(const e of items){
@@ -106,6 +112,7 @@ function showHome() {
     const detail=button.querySelector('.service-detail'),message=reason(e.source,e.view);
     detail.textContent=message;detail.title=message;
   }
+  drawLive();
   const runsDetail=$('content').querySelector('.runs-detail');
   if(runsDetail)runsDetail.textContent=state.runs==null?'':`${state.runs} runs in runs/`+((state.opened||[]).length?` · ${state.opened.length} open`:'');
   const grid=$('content').querySelector('.service-grid');
@@ -117,6 +124,61 @@ function showHome() {
       if(focused&&grid.contains(focused)&&document.activeElement!==focused)focused.focus({preventScroll:true});
       grid.dataset.order=order;
     }
+  }
+}
+const kinds={simulation:'Simulation',recording:'Replay',speech:'Speech',sensors:'Robot sensors',him:'HIM simulator'};
+function plural(n,word){return `${n} ${word}${n===1?'':'s'}`;}
+function facts(source) {
+  // Two to four short lines about what the process is doing now.
+  const d=source.detail||{},out=[];
+  if(source.kind==='simulation'||source.kind==='recording'){
+    if(d.stopped)out.push(`HIM stopped it: ${d.stopped}`);
+    if((d.pieces||[]).length)out.push(d.pieces.join(' · '));
+    out.push(d.late_states?`${plural(d.late_states,'late state')} (max ${Math.round(d.max_late_s*1000)} ms)`:'No late states');
+    const last=(d.events||[]).filter(e=>!['odom','timing','late_state'].includes(e.event)).at(-1);
+    if(last)out.push(`Last: ${String(last.event).replace(/_/g,' ')}`);
+    if(source.kind==='simulation'&&d.frame_age!=null&&d.frame_age>=4)out.push(`No view frames for ${Math.round(d.frame_age)} s`);
+    if(d.renderer&&d.renderer!=='ready')out.push(`Renderer: ${d.renderer}`);
+  }else if(source.kind==='speech'){
+    out.push(d.running?'Conversation running':'Idle, not listening');
+    out.push(`LLM ${d.llm==='ok'?'ready':d.llm||'unknown'}`);
+    if(d.config)out.push([d.config.listen?`hears ${d.config.source}`:'',d.config.talk?`speaks with ${d.config.voice}`:''].filter(Boolean).join(' · '));
+    if(d.other_listen)out.push('Another listen.py is running');
+  }else if(source.kind==='sensors'){
+    const l=d.lidar,c=d.camera;
+    if(l)out.push(l.connected?`Lidar on${l.pps?` · ${Math.round(l.pps).toLocaleString()} pts/s`:''}`:`Lidar off: ${l.why||'no data'}`);
+    if(c)out.push(c.depth_connected?`Depth ${c.depth_fps??'–'} fps${c.valid!=null?` · ${c.valid}% filled`:''}`:`Depth off: ${c.depth_why||'no data'}`);
+    if(c)out.push(c.colour_connected?'Colour on':'Colour off');
+  }else if(source.kind==='him'){
+    out.push('Viewer ready','Close its launcher after use: it keeps every frame');
+  }
+  return out.filter(Boolean).slice(0,4);
+}
+function primary(source){const v=views(source);return v.includes('hybrid')?'hybrid':v[0];}
+function drawLive() {
+  const box=$('content').querySelector('.live-grid');if(!box)return;
+  const running=state.sources.filter(s=>s.reachable),key=running.map(s=>s.id).join('|')+':'+Boolean(lastState);
+  if(box.dataset.key!==key){
+    box.dataset.key=key;box.replaceChildren();
+    if(!running.length){
+      const empty=node('div','live-empty');
+      empty.append(node('strong','',lastState?'Nothing running':'Connecting'),node('span','',lastState?'Start a sim run or speech/web.py and it shows here.':'Waiting for service status.'));
+      box.append(empty);
+    }
+    for(const s of running){
+      const tile=node('a','live-tile'),view=primary(s);tile.href=`#view/${s.id}/${view}`;tile.dataset.id=s.id;
+      tile.setAttribute('aria-label',`Open ${s.label}: ${names[view]}`);
+      const top=node('span','live-top');top.append(node('span','badge'),node('span','live-machine',s.machine));
+      tile.append(top,node('span','live-kind',kinds[s.kind]||names[view]),node('span','live-label',s.label===kinds[s.kind]?'':s.label),node('ul','live-facts'),node('span','live-open',views(s).length>1?`Open ${names[view].toLowerCase()} · ${views(s).length} views`:'Open'));
+      box.append(tile);
+    }
+  }
+  for(const tile of box.querySelectorAll('.live-tile')){
+    const s=state.sources.find(x=>x.id===tile.dataset.id);if(!s)continue;
+    const [cls,label]=health(s,primary(s)),badge=tile.querySelector('.badge');badge.className='badge '+cls;badge.textContent=label;
+    tile.classList.toggle('stopped',Boolean(s.detail&&s.detail.stopped));
+    const lines=facts(s),list=tile.querySelector('.live-facts'),text=lines.join('\n');
+    if(list.dataset.text!==text){list.dataset.text=text;list.replaceChildren(...lines.map(t=>{const li=node('li','',t);li.title=t;return li;}));}
   }
 }
 function showView(selected) {
