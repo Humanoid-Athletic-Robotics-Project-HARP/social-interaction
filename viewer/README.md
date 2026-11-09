@@ -142,6 +142,11 @@ HIM's stop reason and the pieces it had. Type to filter. Replay opens one run; t
 and Compare shows them side by side. Two runs stay open at most, since each holds a
 Rerun worker: opening a third closes the oldest, and Close frees one.
 
+Timing (`#timing/RUN`) charts a run's state timing against HIM's 0.2 s deadline: each
+second's worst state age, gap between states, our reply and republishing, every late
+state (40 ms or more), and this computer's memory paged in and free those seconds. Hover
+for the readings at a second; a table lists the late states. It needs no Rerun worker.
+
 To keep a saved run on Home as its own row, append an entry to the source list:
 
 ```json

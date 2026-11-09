@@ -3,7 +3,7 @@ name: unified-viewer
 description: Use whenever the user wants to see simulator activity, a replay, lidar, camera, speech, or any other data source; also read before changing the dashboard
 metadata:
   type: project
-  updated: 2026-11-09T08:51:47Z
+  updated: 2026-11-09T19:58:05Z
   covers: [viewer/**]
 ---
 
@@ -19,6 +19,7 @@ Check whether the hub is running before starting another copy. Launch: `python3 
 | Robot lidar, camera or combined view | `/#view/pc2-sensors/lidar`, `/#view/pc2-sensors/camera` or `/#view/pc2-sensors/hybrid` |
 | Jetson speech | `/#view/pc2-speech/speech` |
 | A saved sim run, or two side by side | Saved runs, `/#runs` (Replay, or tick two and Compare) |
+| Why a run went late or HIM stopped it | Saved runs, Timing on its row (`/#timing/RUN`) |
 | A saved lidar capture (`.rrd`) | A configured `recording` source, opened from Home |
 
 Resolve the paths above against the dashboard address. Give the user its Home or relevant view link, not the producer's direct port. Watched-run behavior: [[feedback-watching-runs]].

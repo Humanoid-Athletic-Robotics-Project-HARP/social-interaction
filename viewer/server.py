@@ -198,6 +198,12 @@ def handler(dashboard):
             if data is None and url.path == "/api/runs":
                 return self.reply(200, {"runs": dashboard.runs.list(), "opened": list(dashboard.opened),
                                         "max_open": MAX_OPEN})
+            if data is None and url.path == "/api/runs/timing":
+                name = urllib.parse.parse_qs(url.query).get("name", [None])[0]
+                try:
+                    return self.reply(200, dashboard.runs.timing(name))
+                except KeyError:
+                    return self.reply(404, {"error": "no such run"})
             if data is not None and url.path == "/api/runs/open":
                 try:
                     return self.reply(200, {"id": dashboard.open_run(json.loads(data).get("name"))})
@@ -230,7 +236,7 @@ def handler(dashboard):
                 return self.reply(code, body, kind)
             if data is None:
                 assets = {"/": (HERE / "index.html", "text/html; charset=utf-8"),
-                          "/app.js": (HERE / "app.js", "text/javascript"), "/style.css": (HERE / "style.css", "text/css"),
+                          "/app.js": (HERE / "app.js", "text/javascript"), "/timing.js": (HERE / "timing.js", "text/javascript"), "/style.css": (HERE / "style.css", "text/css"),
                           "/assets/three.module.js": (HERE / ".assets/three.module.js", "text/javascript"),
                           "/assets/addons/controls/OrbitControls.js": (HERE / ".assets/OrbitControls.js", "text/javascript")}
                 if url.path in assets:

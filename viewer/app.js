@@ -16,6 +16,7 @@ function route() {
   const parts=location.hash.slice(1).split('/');
   if(parts.length===3&&parts[0]==='view'&&ID.test(parts[1])&&names[parts[2]])return {source:parts[1],view:parts[2]};
   if(parts.length===1&&parts[0]==='runs')return {page:'runs'};
+  if(parts.length===2&&parts[0]==='timing'&&RUN_NAME.test(decodeURIComponent(parts[1])))return {page:'timing',name:decodeURIComponent(parts[1])};
   if(parts.length===3&&parts[0]==='compare'&&ID.test(parts[1])&&ID.test(parts[2]))return {page:'compare',ids:[parts[1],parts[2]]};
   return null;
 }
@@ -208,7 +209,10 @@ function drawRuns() {
                  r.contacts?`${r.contacts} contacts`:'',...r.pieces,r.commit?`${r.commit}${r.dirty?' (changed)':''}`:''].filter(Boolean);
     const detail=node('div','run-detail',facts.join(' · '));detail.title=r.failed_checks&&r.failed_checks.length?'Failed: '+r.failed_checks.join(', '):'';
     const replay=node('button','run-replay',r.replay?'Replay':'No replay');replay.disabled=!r.replay;replay.addEventListener('click',()=>openRuns([r.name]));
-    row.append(pick,main,node('span','badge '+cls,label),detail,replay);return row;
+    // State timing against HIM's deadline, for runs with harp_node.py's timing lines.
+    const timing=node('a','run-timing','Timing');if(r.timing)timing.href='#timing/'+encodeURIComponent(r.name);else{timing.setAttribute('aria-disabled','true');timing.title='No timing lines in this run';}
+    const actions=node('div','run-actions');actions.append(timing,replay);
+    row.append(pick,main,node('span','badge '+cls,label),detail,actions);return row;
   });
   list.replaceChildren(...(rows.length?rows:[node('p','','No runs match.')]));
   if(shown.length>300)list.append(node('p','',`Showing the newest 300 of ${shown.length}: filter to narrow.`));
@@ -232,10 +236,11 @@ function showCompare(selected) {
   $('content').replaceChildren(pair);
 }
 function render() {
-  const selected=route(),full=Boolean(selected&&selected.page!=='runs');document.body.classList.toggle('view-page',full);
+  const selected=route(),full=Boolean(selected&&selected.page!=='runs'&&selected.page!=='timing');document.body.classList.toggle('view-page',full);
   if(selected)$('home').removeAttribute('aria-current');else $('home').setAttribute('aria-current','page');
   $('view-status').hidden=!full;$('footer').hidden=Boolean(selected);
   if(selected?.page==='runs')showRuns();
+  else if(selected?.page==='timing')showTiming(selected);
   else if(selected?.page==='compare')showCompare(selected);
   else if(selected){showView(selected);document.title=names[selected.view]+' · HARP viewer';}
   else{$('title').textContent='HARP viewer';$('source-name').textContent='Home';document.title='HARP viewer';showHome();}
