@@ -151,10 +151,11 @@ quiet (`silence_s`), and Smart Turn's probability that they had finished and its
 
 Start the LLM server in its own terminal and leave it running (about 3 GB of memory). On
 an M1 Mac its GPU code fails, so run it on the CPU as here; on newer Macs, try `-ngl 99`
-without `--device none` for the GPU.
+without `--device none` for the GPU. `-np 1` keeps one conversation's slot, so each turn reuses
+what it has already read.
 
 ```bash
-llama-server -m ../../models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --device none -ngl 0 -c 4096 -t 4 --port 28731
+llama-server -m ../../models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --device none -ngl 0 -c 4096 -t 4 -np 1 --port 28731
 ```
 
 That path is from this repo's main checkout; from a worktree, give the full path to

@@ -69,6 +69,11 @@ class TestPieces(unittest.TestCase):
         self.assertEqual(list(talk.pieces(stream)),
                          ["Oh, that sounds like a really long and tiring day for anyone,", "so rest up."])
 
+    def test_a_dash_cuts_like_a_comma(self):
+        stream = ["Mine's pretty good too", "\u2014just buzzing ", "around campus, chatting."]
+        self.assertEqual([talk.clean(p) for p in talk.pieces(stream)],
+                         ["Mine's pretty good too,", "just buzzing around campus, chatting."])
+
     def test_a_decimal_point_is_not_a_sentence_end(self):
         stream = ["I'm about 1", ".", "3 metres tall. ", "How about you?"]
         self.assertEqual(list(talk.pieces(stream)), ["I'm about 1.3 metres tall.", "How about you?"])
@@ -80,14 +85,16 @@ class TestPieces(unittest.TestCase):
 class TestFarewell(unittest.TestCase):
     def test_replies_that_end_a_conversation(self):
         for reply in ("No problem, it was lovely meeting you. Have a great day!", "Okay, bye for now!",
-                      "Enjoy your lunch!", "Take care!"):
+                      "Enjoy your lunch!", "Take care!",
+                      "You too! Have a smooth day, and maybe don't spill coffee on your laptop again."):
             self.assertTrue(talk.FAREWELL.search(reply), reply)
 
     def test_replies_that_dont(self):
         # the ones the grammar pushed into a <bye> when asked for more sentences
         for reply in ("I know that because I was taught math facts by the team that built me. "
                       "It's like how you learn basic rules in school.",
-                      "I'm HARP! A robot from Stanford."):
+                      "I'm HARP! A robot from Stanford.",
+                      "That's sweet. It's always hard when you say goodbye to people you care about."):
             self.assertFalse(talk.FAREWELL.search(reply), reply)
 
 
@@ -161,10 +168,42 @@ class TestSounds(unittest.TestCase):
 
 class TestGoodbye(unittest.TestCase):
     def test_goodbyes(self):
-        for said in ("Okay, bye!", "I gotta go", "See you later", "I have to run now"):
+        for said in ("Okay, bye!", "I gotta go", "See you later", "I have to run now",
+                     "Anyway, I should get going, nice meeting you.", "Okay, okay, I'm heading out",
+                     "Great talking to you"):
             self.assertTrue(talk.GOODBYE.search(said), said)
         for said in ("Nice to meet you", "Hi there", "I'm going to the library later"):
             self.assertFalse(talk.GOODBYE.search(said), said)
+
+
+
+class TestClean(unittest.TestCase):
+    def test_what_the_voice_shouldnt_read(self):
+        self.assertEqual(talk.clean("*waves* Hi there!"), "Hi there!")
+        self.assertEqual(talk.clean("Ha (laughs) that's good."), "Ha that's good.")
+        self.assertEqual(talk.clean("Pizza \U0001F355 for sure."), "Pizza for sure.")
+        self.assertEqual(talk.clean("Coffee \u2014 or tea - either works."), "Coffee, or tea, either works.")
+        self.assertEqual(talk.clean("Salt & 10% sugar."), "Salt and 10 percent sugar.")
+        self.assertEqual(talk.clean("Two:\n1. sleep\n2. eat"), "Two: sleep eat")
+
+    def test_curly_quotes_and_stars(self):
+        self.assertEqual(talk.clean("I\u2019d pick \u201cUp\u201d."), 'I\'d pick "Up".')
+        self.assertEqual(talk.clean("Something like *WALL-E*. It's fun."), "Something like WALL-E. It's fun.")
+        self.assertEqual(talk.clean("Sure, happy to! *smiles*"), "Sure, happy to!")
+        self.assertEqual(talk.clean("Hmm, I don't eat much."), "I don't eat much.")
+        self.assertEqual(talk.clean("Mm, good point. Hmmm."), "Good point.")
+
+    def test_first_sentences(self):
+        self.assertEqual(talk.first_sentences("One. Two! Three? Four.", 3), "One. Two! Three?")
+        self.assertEqual(talk.first_sentences("I'm 1.3 metres. Hi. Yes. No.", 3), "I'm 1.3 metres. Hi. Yes.")
+        self.assertEqual(talk.first_sentences("Just one", 3), "Just one")
+
+    def test_what_it_keeps(self):
+        self.assertEqual(talk.clean("A well-known spot (the big oak tree by the quad)."),
+                         "A well-known spot (the big oak tree by the quad).")
+        self.assertEqual(talk.clean("Bye! <bye>"), "Bye! <bye>")
+
+
 
 
 if __name__ == "__main__":

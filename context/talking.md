@@ -31,10 +31,10 @@ Design for the talking half of a conversation, and what both halves share, and w
    - Model (**decided**, a teammate's call, 2026-11-03): Qwen3-4B-Instruct-2507 Q4_K_M (Apache-2.0; about 0.75 s to the first sentence, cached), or Qwen3-1.7B (Apache-2.0, about 0.4 s) if that's too slow. Not Llama 3.2: its license restricts use ([[talking-research]]).
    - Cloud fallback: Claude Haiku 5.5 (`claude-haiku-5-5`), thinking off.
    - Keep the prompt append-only so llama.cpp reuses its cache. Changing robot state goes after the history, never in the system prompt. Cap the context at 4,096 tokens.
-   - Topics (**decided**, 2026-11-03): small talk about the person: a greeting, one easy question about them or their day, a short friendly back-and-forth, a warm goodbye. Few facts needed, so less to make up.
+   - Topics (**decided**, 2026-11-03): small talk about the person: a greeting, one easy question about them or their day, a short friendly back-and-forth, a warm goodbye. Few facts needed, so less to make up. It goes along with whatever they bring up, with light opinions and humour of its own, and mentions being a robot only when it fits (a teammate's ask, 2026-11-09: talk more freely and naturally).
    - The system prompt covers:
    - Who HARP is: Stanford's humanoid, from the social interaction team.
-   - Spoken style: one or two short sentences, simple questions, no lists or emoji.
+   - Spoken style: usually one sentence, two at most, about as long as what they said; a question only when curious; no lists or emoji.
    - Limits: don't ask for personal details, and don't promise actions it can't do.
    - Current state: the conversation's length and turn count.
 3. Waiting: a short pre-rendered filler plays if no reply sound has come about 1.2 s after the person's turn ends. A canned reply is used on an LLM error or after 5 s.
@@ -68,7 +68,7 @@ Design for the talking half of a conversation, and what both halves share, and w
 - What it does: typed lines or `listen.py`'s JSON lines in, through `llama-server` (Qwen3-4B, streamed), to a sherpa-onnx voice (`--voice kokoro` or `piper`), out through this computer's speakers (`--no-play`, `--save DIR`).
   - The greeting, fillers, "Sorry, I didn't catch that" and the closing line are rendered at start.
   - The fillers are "Let me think." and "Let me see." ("Hmm" came out as "Hammel"). One plays only if the LLM has given no text 1.2 s after the turn ends, and nothing is still playing. Keying it on the audio being ready instead made one play before every Kokoro reply on a CPU.
-  - A reply's first piece is cut at the first comma with 4 words before it (later pieces: 10), so its sound starts sooner.
+  - A reply's first piece is cut at the first comma or dash with 4 words before it (later pieces: 10), so its sound starts sooner.
   - The prompt's fixed start is processed once at start, so each turn is cached.
   - Its prompt rules out offering help or going places; without that, it offered to help find food.
   - Events are JSON lines on stdout when it is piped (`talk_bench.py` reads them) or with `--json`. A `speaking` event gives each reply piece as its sound starts (the page shows replies live, [[speech-web]]); `said` comes once the whole line has played. In a terminal it prints the conversation instead: `you:` with each transcript, each reply piece as its sound starts, and the reply's times.
@@ -80,10 +80,13 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Piper's list lacked "or" and "her" (added). Of 210 very common words, both lists now have all.
   - one file, because a Piper voice reads its `word || sounds` format only from a single lexicon; a comma-separated list made it skip every word
   - numbers are spelled out, and "G1" is said as "gee one"; left as it was, the spelled-out digit turned it into "Gone". A digit and a letter are split ("106B", or "sixB", a skipped word), and times read as "one thirty"
-- A GBNF grammar (on by default; `--no-grammar` turns it off) allows only two plain sentences and an optional `<bye>`. It stops emoji and lists.
-  - After two sentences, `<bye>` is the grammar's only way on, so a model that wants to say more takes it. Asked for "multiple sentences", it did so 3 times out of 3, and the conversation ended.
-  - So a conversation ends only on a reply that sounds like a goodbye (`FAREWELL`, `ending()`), with `<bye>` or after the person's goodbye. A `<bye>` on any other reply is an `ignored_bye` event and is kept out of the history.
-- The prompt has the model answer what was said, not always open with a reaction: "Hello" was getting "Oh, nice!". It never repeats a question, and rephrases when they're confused: "What" was getting the same reply again. Its examples for those cases are now often copied word for word.
+- No grammar: the model writes freely (a teammate's ask, 2026-11-09). The two-sentence GBNF grammar it replaced cut a joke before its punchline, pushed 24 of 153 replies into a `<bye>` and made it dodge open questions ([[speech-tuning]]).
+  - `clean()` takes out what the voice shouldn't read: stage directions at a piece's start or end (`*waves*`, `(laughs)`), emoji, list marks, and "hmm" and "mm" (Kokoro can't say them); dashes become pauses, and curly quotes straight ones, since the voice drops anything not ASCII ("I’d" was "Id").
+  - Only `MAX_SENTENCES` (2) sentences are spoken, then the request is closed, so llama-server stops writing. Left open until the reply had played, llama-server went on writing, and the next turn waited about 15 s for the whole prompt to be read again on another slot (an M1's CPU reads about 47 tokens a second), so it timed out to "Sorry, I lost my train of thought".
+  - `llama-server` runs with `-np 1` (README, web.py's Start): with 4 slots, a turn sent while a cut reply was still being cancelled went to an empty slot and read the whole prompt.
+  - The history keeps what the model wrote, as written and cut where the reply was cut, so llama.cpp reuses it all from its cache; cleaned or prefixed text made it read the last reply again.
+  - A conversation ends only on a reply that sounds like a goodbye (`FAREWELL`, `ending()`), with `<bye>` or after the person's goodbye (`GOODBYE`, which also has "get going" and "nice meeting you"). "Bye" counts only at a sentence's start or after a comma: "it's hard to say goodbye to people" ended one. A `<bye>` on any other reply is an `ignored_bye` event and is kept out of the history.
+- The prompt has the model answer what was said, react to its particulars in its own words and join in on any topic, with tastes and opinions of its own when asked. It asks a question only when curious, never one it has asked, and says what it meant in other words when they're confused. After three or more short answers in a row it says goodbye. Its three examples are marked as examples only.
 - The prompt also gives its height (about 1.3 m) and what HARP stands for (Humanoid Athletic Robotics Project, as the GitHub organisation spells it), keeps it to English (it answered Spanish in Spanish, with words the voice can't say), has it answer "heart" or "hard" as its own name without remarking on it, and has it turn down personal details kindly and keep chatting (it said goodbye when given an address).
 - Joined to listening (2026-11-03): `listen.py --mic | talk.py --heard`.
   - While it loads, plays audio, and makes a reply (`busy`, so the pause between two synthesized sentences doesn't unmute), it sends listening the speaking signal (`Mute`; the protocol: [[listening]]). Measured: on from each reply's start to its last sound, heartbeats at most 0.54 s apart.
