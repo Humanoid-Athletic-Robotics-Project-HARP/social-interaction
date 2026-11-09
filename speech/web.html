@@ -911,7 +911,12 @@ function handle(m) {
       else note('Ignored HARP\'s own voice: "' + m.text + '"');
       replied(); return;
     }
-    if (event === "unknown_words") { note("The voice skipped words it can't say: " + m.words.join(", ") + " (add them to speech/lexicon/)", "warn"); return; }
+    if (event === "unknown_words") { note("The voice skipped words it can't say: " + m.words.join(", ") + " (the G2P model is missing: see speech/README.md)", "warn"); return; }
+    if (event === "guessed_words") {
+      const list = Object.entries(m.words).map(([w, s]) => w + " /" + s + "/").join(", ");
+      note("Guessed how to say " + list + ". If one sounds wrong, add it to speech/lexicon/.");
+      logLine("talk", "guessed: " + list, m.time); return;
+    }
     if (event === "ignored_bye") { logLine("talk", "ignored a <bye> on a reply that isn't a goodbye", m.time); return; }
     if (event === "done") {
       S.done = DONE[m.reason] || m.reason;

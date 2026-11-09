@@ -3,13 +3,13 @@ name: speech-web
 description: Read before changing or using the speech web page (speech/web.py, web.html), or what listen.py and talk.py print for it
 metadata:
   type: project
-  updated: 2026-11-09T00:46:19Z
+  updated: 2026-11-09T01:16:06Z
   covers: [speech/web.py, speech/web.html]
 ---
 
 `speech/web.py` serves one page (`speech/web.html`) to run and watch a conversation. Use: `speech/README.md`. Designs of the two halves: [[listening]], [[talking]].
 
-**What the page shows:** a line saying what to do now; a strip of the four stages (sound in, listen.py, talk.py and the LLM, sound out) with each one's live state; a Now card with the turn in progress (its speech and silence against `CHECK`, `SILENCE` and `WAIT`, and Smart Turn's verdict) and then HARP's wait (against `FILLER` and `GIVE_UP`), and the turn and time limits; loudness, Silero and a 12 s chart; median speeds; the conversation, where the person's bubble fills in while they speak and HARP's piece by piece as it speaks, each reply with a bar of hearing, thinking, voice and waiting time; the programs' logs; warnings for a silent mic, a missing model, no LLM or a crash. The limits come from `listen.py` and `talk.py` (`LIMITS` in `web.py`), so the page follows their settings.
+**What the page shows:** a line saying what to do now; a strip of the four stages (sound in, listen.py, talk.py and the LLM, sound out) with each one's live state; a Now card with the turn in progress (its speech and silence against `CHECK`, `SILENCE` and `WAIT`, and Smart Turn's verdict) and then HARP's wait (against `FILLER` and `GIVE_UP`), and the turn and time limits; loudness, Silero and a 12 s chart; median speeds; the conversation, where the person's bubble fills in while they speak and HARP's piece by piece as it speaks, each reply with a bar of hearing, thinking, voice and waiting time; the programs' logs; a note with the sounds of each word talk.py had to guess; warnings for a silent mic, a missing model, no LLM or a crash. The limits come from `listen.py` and `talk.py` (`LIMITS` in `web.py`), so the page follows their settings.
 
 **How it runs them**
 - It starts `listen.py --events` and `talk.py --heard` as its own child processes and is the pipe between them; it doesn't attach to copies started in a terminal. It passes talk.py only the turns, never listen.py's event lines.
