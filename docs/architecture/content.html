@@ -268,7 +268,7 @@
   <li>Every record starts the same: source, event name, wall time, and sim time where known.</li>
   <li><code>view_feed.py</code> prints what the robot sees a few times a second, compressed: the cloud, the pose, Nav2's plan and local costmap, the people.</li>
   <li><code>lidar_view.py</code> shows a live or finished run in Rerun. It draws the sim's truth beside our odometry, so the gap between the two robots is the drift.</li>
-  <li><code>viewer/server.py</code> collects the same printed records into the same Rerun presentation through an optional analysis process. It serves Rerun's assets and streaming data through the dashboard address. Saved runs and lidar <code>.rrd</code> exports appear as replay buttons on Home. HIM's own viewer remains separate.</li>
+  <li><code>viewer/server.py</code> collects the same printed records into the same Rerun presentation through an optional analysis process. It serves Rerun's assets and streaming data through the dashboard address. Saved runs and lidar <code>.rrd</code> exports appear as replay buttons on Home. A separate HIM simulator button embeds HIM's existing local viewer directly, without changing its code or lifecycle.</li>
 </ul>
 </div>
 </section>

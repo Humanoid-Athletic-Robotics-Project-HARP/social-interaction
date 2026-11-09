@@ -3,7 +3,7 @@ name: unified-viewer
 description: Read before planning or implementing the unified web viewer and its feed adapters
 metadata:
   type: reference
-  updated: 2026-11-09T04:42:57Z
+  updated: 2026-11-09T04:47:54Z
   covers: [viewer/**]
 ---
 
@@ -11,7 +11,7 @@ The agreed scope, research and implementation sequence are in [[unified-viewer-p
 
 Home lists every configured source/view as a clickable button, including offline ones. Each opens one full-window view under a compact Home toolbar, with no tabs or surrounding cards. Hash routes `#view/SOURCE/VIEW` support direct links and browser history. Returning Home removes the iframe, not the producer or collector.
 
-The requested scope combines our existing sensor, speech and diagnostic views through independent feeds from the robot or laptop. Missing feeds show offline. HIM's own simulator, viewer and replayer stay separate.
+The requested scope combines our existing sensor, speech and diagnostic views through independent feeds from the robot or laptop. Missing feeds show offline. HIM stays an external system; its own locally hosted viewer can also be embedded without changing it.
 
 Collect all configured sources concurrently: MacBook Docker simulation, native MacBook speech and native PC2 lidar/camera. Speech may also run natively on PC2. There is no exclusive deployment mode. Navigation changes presentation, not collection. Keep streams and histories separate by source and session, including simultaneous simulated/real lidar or two speech services.
 
@@ -20,6 +20,8 @@ Collect all configured sources concurrently: MacBook Docker simulation, native M
 `viewer/configuration.py` registers local sim/speech and Jetson sensors/speech by default. `host_env: G1_HOST` resolves a hostname or SSH login from the main checkout's gitignored `.env`, including from worktrees. Never copy the address into tracked JSON, docs or output. The hub redacts it from status, proxied JSON, errors and speech SSE. Missing `.env` keeps Jetson sources registered offline with a setup reason; restart after editing it. Jetson speech defaults to observation only.
 
 Three.js 0.160.0 is a pinned, hash-checked dependency installed by `viewer/setup_assets.py` into ignored `.assets/`, including its MIT license. Sensor pages use those local assets through the hub.
+
+`kind: him` registers HIM's local viewer (default port 8765). The collector checks its HTML identity, not frame activity, so paused viewers remain Ready. The page embeds the loopback URL directly and sends no controls during discovery. Local access only; changing the port uses source configuration. Neither HIM sources nor its lifecycle are modified.
 
 `viewer/simulation.py` follows our Docker stdout, identifies runs by container ID and start time, and uses a bounded nonblocking renderer queue. Fresh view frames establish live status; other log events do not. Recordings read saved JSON lines or `.rrd` files and keep Replay status at EOF. No HIM code or networking changes.
 

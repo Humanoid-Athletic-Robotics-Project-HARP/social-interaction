@@ -3,7 +3,7 @@ name: unified-viewer-plan
 description: Read when implementing the agreed unified viewer scope, adapters or validation
 metadata:
   type: reference
-  updated: 2026-11-09T04:42:57Z
+  updated: 2026-11-09T04:47:54Z
   covers: []
 ---
 
@@ -15,7 +15,7 @@ Research date: 2026-11-08. This document proposes an implementation. It does not
 
 Build one web application with a Home page and individual full-window service views outside the robot control image. Its server collects independently configured feeds from PC2, a laptop, our simulation output, or saved recordings. The browser uses that server as its entry point. Each panel shows offline when its required feed is absent, without preventing other panels from working.
 
-Keep HIM's simulator, safety harness, live viewer and replayer separate. Our simulation diagnostics remain in scope because we produce those feeds and their Rerun presentation.
+Keep HIM's simulator and safety harness external and unchanged. Embed its existing hosted viewer through a local iframe as a separate Home service. Our simulation diagnostics remain a different feed and Rerun presentation.
 
 ## Existing code to reuse
 
@@ -125,4 +125,4 @@ Primary references:
 
 ## HIM viewer embedding feasibility
 
-HIM's local `containers/sim/live.py` serves the viewer without framing-blocking headers. Its `view.py` page polls HTTP `/frames` and posts `/start`; it does not use a WebSocket for live frames. A local iframe can display the existing hosted page. Remote dashboard access would need a proxy for its page, assets and root-relative endpoints. This is feasible without editing or copying HIM. A HIM source/button has not been implemented.
+HIM's local `containers/sim/live.py` serves the viewer without framing-blocking headers. Its `view.py` page polls HTTP `/frames` and posts `/start`; it does not use a WebSocket for live frames. A local iframe can display the existing hosted page. Remote dashboard access would need a proxy for its page, assets and root-relative endpoints. This is feasible without editing or copying HIM. The implemented `him` source embeds the existing local viewer directly, registers a Home button even while offline, and checks availability without starting or controlling HIM. Remote proxying is outside the requested local-only scope.

@@ -31,6 +31,13 @@
       "host_env": "G1_HOST",
       "port": 28733,
       "controls": false
+    },
+    {
+      "id": "him-sim",
+      "kind": "him",
+      "label": "HIM simulator",
+      "machine": "MacBook",
+      "url": "http://127.0.0.1:8765"
     }
   ]
 }

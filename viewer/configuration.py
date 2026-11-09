@@ -14,6 +14,8 @@ DEFAULT = {"sources": [
      "host_env": "G1_HOST", "port": 8082, "layout": "hybrid"},
     {"id": "pc2-speech", "kind": "speech", "label": "Jetson speech", "machine": "Jetson PC2",
      "host_env": "G1_HOST", "port": 28733, "controls": False},
+    {"id": "him-sim", "kind": "him", "label": "HIM simulator", "machine": "MacBook",
+     "url": "http://127.0.0.1:8765"},
 ]}
 
 

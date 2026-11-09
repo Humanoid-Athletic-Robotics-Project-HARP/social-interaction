@@ -1,10 +1,11 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const names = {lidar:'Lidar',camera:'Camera',hybrid:'Hybrid',diagnostics:'Navigation and diagnostics',speech:'Speech',recordings:'Recording'};
+const names = {lidar:'Lidar',camera:'Camera',hybrid:'Hybrid',diagnostics:'Navigation and diagnostics',speech:'Speech',recordings:'Recording',him:'HIM simulator'};
 let state = {sources:[]}, lastState = 0, signature = '';
 const cards = new Map();
 function node(tag,cls,text) { const n=document.createElement(tag); if(cls)n.className=cls; if(text!==undefined)n.textContent=text; return n; }
 function views(source) {
+  if(source.kind==='him')return ['him'];
   if(source.kind==='speech')return ['speech'];
   if(source.kind==='simulation')return ['diagnostics'];
   if(source.kind==='recording')return ['recordings'];
@@ -16,12 +17,13 @@ function route() {
   return null;
 }
 function feeds(source,view) {
-  const keys={lidar:['lidar'],camera:['depth','colour'],hybrid:['lidar','depth'],speech:['speech'],diagnostics:['diagnostics'],recordings:['diagnostics']}[view];
+  const keys={lidar:['lidar'],camera:['depth','colour'],hybrid:['lidar','depth'],speech:['speech'],diagnostics:['diagnostics'],recordings:['diagnostics'],him:['viewer']}[view];
   return keys.map(k=>[k,source.feeds[k]||{online:false,reason:'Waiting for data'}]);
 }
 function health(source,view) {
   if(!source.reachable)return ['', 'Offline'];
   if(source.kind==='recording')return ['replay','Replay'];
+  if(source.kind==='him')return ['live','Ready'];
   const f=feeds(source,view), live=f.filter(([,v])=>v.online).length;
   if(!live)return ['', 'Offline'];
   if(live<f.length)return ['partial','Partial'];
@@ -75,7 +77,7 @@ function showView(selected) {
   // Load a reachable service behind the cover: the camera may start colour lazily.
   if(source.reachable&&!body.querySelector('iframe')){
     const frame=node('iframe');frame.title=`${names[selected.view]} · ${source.label}`;
-    frame.src=selected.view==='diagnostics'||selected.view==='recordings'?source.detail.viewer:`/source/${encodeURIComponent(source.id)}/${selected.view}/`;body.prepend(frame);
+    frame.src=['diagnostics','recordings','him'].includes(selected.view)?source.detail.viewer:`/source/${encodeURIComponent(source.id)}/${selected.view}/`;body.prepend(frame);
   }
 }
 function render() {

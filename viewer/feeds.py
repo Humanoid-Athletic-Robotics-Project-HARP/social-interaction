@@ -58,9 +58,9 @@ def validate(config):
         seen.add(key)
         if "controls" in item and not isinstance(item["controls"], bool):
             raise ValueError("controls must be a JSON boolean")
-        if item.get("kind") not in ("sensors", "speech", "simulation", "recording"):
+        if item.get("kind") not in ("sensors", "speech", "simulation", "recording", "him"):
             raise ValueError("unknown source kind for " + key)
-        if item["kind"] in ("sensors", "speech"):
+        if item["kind"] in ("sensors", "speech", "him"):
             if item.get("_configuration_error") and item.get("host_env") == "G1_HOST":
                 continue
             if not isinstance(item.get("url"), str):
@@ -68,6 +68,8 @@ def validate(config):
             url = urllib.parse.urlsplit(item.get("url", ""))
             if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
                 raise ValueError("source URL must be an HTTP(S) service address without credentials or query")
+            if item["kind"] == "him" and url.hostname not in ("127.0.0.1", "localhost", "::1"):
+                raise ValueError("HIM embedding supports a local viewer address only")
             if item["kind"] == "sensors" and item.get("layout", "hybrid") not in ("hybrid", "lidar", "camera"):
                 raise ValueError("sensor layout must be hybrid, lidar or camera")
         if item["kind"] == "recording" and not isinstance(item.get("path"), str):
@@ -85,7 +87,7 @@ class Source:
         self.threads = []
         self.updated = None
         self.error = config.get("_configuration_error", "waiting for source")
-        names = ("speech",) if self.kind == "speech" else (("lidar",) if config.get("layout") == "lidar" else
+        names = ("viewer",) if self.kind == "him" else ("speech",) if self.kind == "speech" else (("lidar",) if config.get("layout") == "lidar" else
                 ("depth", "colour") if config.get("layout") == "camera" else ("lidar", "depth", "colour"))
         self.feeds = {name: {"online": False, "reason": self.error} for name in names}
         self.detail = {}
@@ -149,6 +151,8 @@ class Source:
                     "layout": self.config.get("layout", "hybrid")}
 
     def paths(self):
+        if self.kind == "him":
+            return set()  # Its iframe talks directly to HIM's own local server.
         layout = self.config.get("layout", "hybrid")
         if self.kind == "speech":
             return {"api/status", "api/devices"}
@@ -205,7 +209,13 @@ class Source:
     def poll(self):
         while not self.stop.is_set():
             try:
-                if self.kind == "speech":
+                if self.kind == "him":
+                    code, kind, body = fetch(self.url + "/")
+                    if code != 200 or "text/html" not in kind or b"G1 sim replay" not in body:
+                        raise ValueError("HIM viewer not found at its configured local address")
+                    self.set_status({"viewer": {"online": True, "reason": "HIM viewer is available"}},
+                                    {"viewer": self.url + "/"})
+                elif self.kind == "speech":
                     value = get_json(self.url + "/api/status")
                     with self.lock:
                         stream_ok = self.stream_connected and self.stream_at is not None and time.monotonic() - self.stream_at < 25
@@ -236,7 +246,7 @@ class Source:
                         raise ValueError("; ".join(errors))
                     self.set_status(feeds, detail)
             except (OSError, ValueError, KeyError, TypeError) as error:
-                self.failed(error)
+                self.failed("HIM viewer is offline. Start a simulation with its viewer enabled." if self.kind == "him" and isinstance(error, OSError) else error)
             self.stop.wait(1)
 
     def append(self, message, identity=None):

@@ -222,7 +222,7 @@ python3 viewer/server.py
 
 It follows our simulation container and connects to local speech. Jetson sensor
 and speech sources use `G1_HOST` from the main checkout's gitignored `.env`.
-Home lists each service view, including offline sources. Open a view to use the
+Home lists each service view, including offline sources and HIM's local viewer. Open a view to use the
 full window, then choose Home to return. Setup and
 source configuration: [viewer/README.md](viewer/README.md).
 
