@@ -98,6 +98,25 @@ class SimulationTests(unittest.TestCase):
         source.new_session('second')
         self.assertEqual(source.status()['detail']['pieces'], [])
 
+    def test_late_states_are_counted_per_run(self):
+        source = Simulation({'id': 'sim', 'kind': 'simulation'})
+        source.new_session('first')
+        source.error = None
+        for age in (.049, .113):
+            source.ingest({'source': 'policy', 'event': 'late_state', 'age': age})
+        detail = source.status()['detail']
+        self.assertEqual((detail['late_states'], detail['max_late_s']), (2, .113))
+        source.new_session('second')
+        self.assertEqual(source.status()['detail']['late_states'], 0)
+
+    def test_a_saved_run_says_why_him_stopped_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'view.jsonl').write_text('')
+            (Path(folder) / 'summary.json').write_text(json.dumps({'him_reason': 'action_timeout'}))
+            source = Simulation({'id': 'saved', 'kind': 'recording', 'path': folder})
+            source.replay()
+            self.assertEqual(source.status()['detail']['stopped'], 'action_timeout')
+
     def test_rerun_request_scoping_keeps_sources_separate(self):
         html = '<html><head><script src="./re_viewer.js"></script></head></html>'
         first, second = scope_requests(html, 'one'), scope_requests(html, 'two')

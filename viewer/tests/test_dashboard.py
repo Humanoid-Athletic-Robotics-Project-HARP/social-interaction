@@ -95,9 +95,14 @@ class DashboardTests(unittest.TestCase):
     def test_empty_dashboard_has_no_optional_imports(self):
         dashboard = Dashboard({"sources": []})
         with serving(handler(dashboard)) as url:
-            self.assertEqual(json.load(urllib.request.urlopen(url + "/api/state")), {"sources": []})
+            self.assertEqual(json.load(urllib.request.urlopen(url + "/api/state"))["sources"], [])
             html = urllib.request.urlopen(url).read()
             self.assertIn(b"HARP viewer", html)
+        # Host health is read on start, from the standard library only.
+        dashboard.start()
+        eventually(lambda: dashboard.state()["host"] is not None)
+        self.assertIn("ready", dashboard.state()["host"])
+        dashboard.close()
         for package in ("numpy", "rerun", "cv2", "rclpy", "sounddevice", "sherpa_onnx"):
             self.assertNotIn(package, sys.modules)
 

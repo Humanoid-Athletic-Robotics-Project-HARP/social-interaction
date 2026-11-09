@@ -3,7 +3,7 @@ name: unified-viewer
 description: Use whenever the user wants to see simulator activity, a replay, lidar, camera, speech, or any other data source; also read before changing the dashboard
 metadata:
   type: project
-  updated: 2026-11-09T05:27:41Z
+  updated: 2026-11-09T07:01:23Z
   covers: [viewer/**]
 ---
 
@@ -22,7 +22,7 @@ Check whether the hub is running before starting another copy. Launch: `python3 
 
 Resolve the paths above against the dashboard address. Give the user its Home or relevant view link, not the producer's direct port. Watched-run behavior: [[feedback-watching-runs]].
 
-Home and service views share a compact toolbar with no introductory banner. Home has full-width rows, available viewers first, and disabled gray actions for unreachable services. Errors stay subdued with details on hover. Sources collect concurrently and retain separate sessions; navigation never stops a producer.
+Home and service views share a compact toolbar with no introductory banner. Home has full-width rows, available viewers first, and disabled gray actions for unreachable services. Errors stay subdued with details on hover. A line above the rows says whether this computer is likely to keep a sim run's deadlines ([[sim-deadline-stops]]); diagnostics and recording rows add the run's late states and HIM's stop reason. Sources collect concurrently and retain separate sessions; navigation never stops a producer.
 
 The hub starts no simulation, sensors, LLM, microphone or conversation. Start the required producer separately within the authorized task. In particular, an LLM on 28731 is not a speech feed: the speech supervisor `speech/web.py` must also run. Offline is expected when a producer is absent.
 

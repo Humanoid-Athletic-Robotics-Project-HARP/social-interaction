@@ -42,12 +42,17 @@ class Simulation(Source):
         self.recent = collections.deque(maxlen=250)
         self.world = None
         self.pieces = {}   # avoidance, detector, behavior: the names their start events give
+        self.late, self.late_max, self.stopped = 0, 0.0, None   # this run's deadline health
 
     def note_piece(self, value):
         """Which optional pieces this run has, from their started events (lidar_view.py
         shows the details)."""
         source, kind = value.get("source"), value.get("event")
-        if kind == "started" and source in ("predictive", "approach"):
+        if source == "policy" and kind == "late_state":
+            # A state our node got late: HIM stops the run past 0.2 s (sim-deadline-stops).
+            self.late += 1
+            self.late_max = max(self.late_max, float(value.get("age") or 0))
+        elif kind == "started" and source in ("predictive", "approach"):
             self.pieces["avoidance"] = "predictive avoidance" if source == "predictive" else "approach stop"
         elif kind == "started" and source == "people":
             self.pieces["detector"] = str(value.get("detector", "person detector"))
@@ -92,6 +97,7 @@ class Simulation(Source):
             self.recent.clear()
             self.world = None
             self.pieces = {}
+            self.late, self.late_max, self.stopped = 0, 0.0, None
             self.render_dropped = 0
         while True:
             try:
@@ -128,7 +134,9 @@ class Simulation(Source):
                            "rrd": self.kind == "recording" and self.config.get("path", "").lower().endswith(".rrd"),
                            "events": list(self.recent)[-30:],
                            "pieces": [self.pieces[k] for k in ("avoidance", "detector", "behavior")
-                                      if k in self.pieces]}
+                                      if k in self.pieces],
+                           "late_states": self.late, "max_late_s": round(self.late_max, 3),
+                           "stopped": self.stopped}
             # Replay remains available after EOF; live freshness is based on frames, not process existence.
             self.updated = time.monotonic() if self.error is None else self.updated
             value = super().status()
@@ -170,6 +178,9 @@ class Simulation(Source):
                     value = record(line)
                     if value:
                         self.ingest(value)
+                    elif "Policy abort:" in line:   # HIM stopped the run (plain text, not JSON)
+                        with self.lock:
+                            self.stopped = line.split("Policy abort:", 1)[1].strip()[:80]
                 self.logs.wait()
                 self.logs.stdout.close()
                 with self.lock:
@@ -196,6 +207,13 @@ class Simulation(Source):
                 if not any(p.is_file() for p in paths):
                     raise ValueError("run has no view.jsonl or policy.log")
                 self.new_session(str(path))
+                try:
+                    # How it ended, as course.py scored it: HIM's reason when it stopped the run.
+                    summary = json.loads((path / "summary.json").read_text())
+                    with self.lock:
+                        self.stopped = summary.get("him_reason")
+                except (OSError, ValueError, AttributeError):
+                    pass
                 files = [file.open(errors="replace") for file in paths if file.is_file()]
                 try:
                     # Frames and events interleaved by wall time, as they happened, so the

@@ -34,7 +34,26 @@ function reason(source,view) {
   const missing=feeds(source,view).filter(([,v])=>!v.online).map(([k,v])=>`${k}: ${v.reason||'no data'}`).join('; ');
   // A run says which avoidance filter, detector and loop it has (their start events).
   const pieces=(source.detail.pieces||[]).join(' · ');
-  return [missing,pieces].filter(Boolean).join(' · ')||'Receiving data';
+  // Deadline health of a sim run: HIM stops it once a state comes 0.2 s late.
+  const d=source.detail,late=d.late_states?`${d.late_states} late state${d.late_states>1?'s':''} (max ${d.max_late_s} s)`:'';
+  const stopped=d.stopped?`HIM stopped it: ${d.stopped}`:'';
+  return [stopped,missing,pieces,late].filter(Boolean).join(' · ')||'Receiving data';
+}
+function showHost() {
+  // Whether this computer is likely to keep a sim run's deadlines (submission/host_health.py).
+  const h=state.host,line=$('host');
+  if(!h||route()){line.hidden=true;return;}
+  const parts=[];
+  if(h.ready===false)parts.push('a sim run may stop on a deadline',...h.reasons);
+  else{
+    if(h.free_percent!=null)parts.push(`${h.free_percent}% memory free`);
+    else if(h.free_mb!=null)parts.push(`${(h.free_mb/1000).toFixed(1)} GB memory available`);
+    if(h.compressed_mb!=null)parts.push(`${(h.compressed_mb/1000).toFixed(1)} GB compressed`);
+    if(h.ready===true)parts.push('ready for a sim run');
+  }
+  line.textContent='This computer: '+parts.join(' · ');
+  line.title=h.ready===false?'Quit apps you do not need, close HIM viewers, and restart Docker Desktop between batches (context/sim-deadline-stops.md).':'';
+  line.className='host'+(h.ready===false?' warn':'');line.hidden=false;
 }
 function entries() { return state.sources.flatMap(s=>views(s).map(view=>({source:s,view,key:s.id+'/'+view}))); }
 function priority(entry) {
@@ -109,6 +128,7 @@ function render() {
   $('view-status').hidden=!view;$('footer').hidden=view;
   if(selected){showView(selected);document.title=names[selected.view]+' · HARP viewer';}
   else{$('title').textContent='HARP viewer';$('source-name').textContent='Home';document.title='HARP viewer';showHome();}
+  showHost();
 }
 window.addEventListener('hashchange',render);
 const events=new EventSource('/events');

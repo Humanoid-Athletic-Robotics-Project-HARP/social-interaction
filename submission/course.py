@@ -93,6 +93,7 @@ import zipfile
 from pathlib import Path
 
 import checkout  # beside this file
+from host_health import host_memory, memory_warnings  # beside this file too
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -690,28 +691,6 @@ def compare(world=None):
               f"{closest:>7} {mean('end_error_m'):>6} {mean('recoveries'):>5} {drift:>5}")
 
 
-def host_memory():
-    """The host's memory now in MB, or None: free, compressed and decompressed so far on
-    macOS (vm_stat), available and swapped in so far on Linux (/proc)."""
-    try:
-        if sys.platform == "darwin":
-            text = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
-            mb = int(re.search(r"page size of (\d+)", text).group(1)) / 2**20
-            pages = {k.strip('"'): int(v.strip(" .")) for k, v in
-                     (line.split(":") for line in text.splitlines()[1:] if ":" in line)}
-            return {"free_mb": round((pages["Pages free"] + pages["Pages speculative"]) * mb),
-                    "compressed_mb": round(pages["Pages occupied by compressor"] * mb),
-                    "decompressed_mb": round(pages["Decompressions"] * mb)}
-        if sys.platform.startswith("linux"):
-            info = dict(line.split(":") for line in Path("/proc/meminfo").read_text().splitlines())
-            vmstat = dict(line.split() for line in Path("/proc/vmstat").read_text().splitlines())
-            return {"free_mb": round(int(info["MemAvailable"].split()[0]) / 1024),
-                    "swapped_in_mb": round(int(vmstat["pswpin"]) * os.sysconf("SC_PAGE_SIZE") / 2**20)}
-    except (OSError, ValueError, KeyError, AttributeError, subprocess.SubprocessError):
-        pass
-    return None
-
-
 class MemoryWatch(threading.Thread):
     """host_memory() each second during a run; finish() sums it up for run.json, with each
     second's sample ("seconds": wall time, free MB and, on macOS, MB decompressed since the
@@ -748,26 +727,6 @@ class MemoryWatch(threading.Thread):
         result["seconds"] = [[b["wall"], b["free_mb"], b[change] - a[change]]
                              for a, b in zip(samples, samples[1:])]
         return result
-
-
-def memory_warnings():
-    """What to warn about before a run: HIM viewers still up, macOS short of memory."""
-    notes = []
-    try:
-        viewers = subprocess.run(["pgrep", "-f", "containers/sim/live.py"],
-                                 capture_output=True, text=True).stdout.split()
-    except OSError:
-        viewers = []
-    if viewers:
-        notes.append(f"{len(viewers)} HIM viewer(s) still up (pid {', '.join(viewers)}), about "
-                     "700 MB each: Ctrl-C them where they run")
-    if sys.platform == "darwin":
-        level = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
-                               capture_output=True, text=True).stdout.strip()
-        if level in ("2", "4"):
-            notes.append(f"macOS reports {'warning' if level == '2' else 'critical'} memory "
-                         "pressure: close apps first")
-    return notes
 
 
 def watch_live(process, run):

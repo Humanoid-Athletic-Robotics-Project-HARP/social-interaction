@@ -5,6 +5,7 @@ import ast
 import json
 from pathlib import Path
 import signal
+import sys
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,10 @@ from configuration import resolve
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+sys.path.append(str(ROOT / "submission"))
+import host_health  # noqa: E402  (standard library only, shared with course.py)
+
+HOST_EVERY = 5.0   # s between host health readings
 
 
 def page(source, view):
@@ -55,13 +60,21 @@ class Dashboard:
         self.sources = {item["id"]: (Simulation(item) if item["kind"] in ("simulation", "recording") else Source(item))
                         for item in validate(config)}
         self.stop = threading.Event()
+        self.host = None   # host_health.health(): can this computer keep a sim's deadlines
 
     def start(self):
         for source in self.sources.values():
             source.start()
+        threading.Thread(target=self.watch_host, daemon=True, name="host").start()
+
+    def watch_host(self):
+        while not self.stop.is_set():
+            self.host = host_health.health()
+            self.stop.wait(HOST_EVERY)
 
     def state(self):
-        return json.loads(self.encode({"sources": [s.status() for s in self.sources.values()]}))
+        return json.loads(self.encode({"sources": [s.status() for s in self.sources.values()],
+                                       "host": self.host}))
 
     def encode(self, value):
         return self.redact(json.dumps(value))
