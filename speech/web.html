@@ -145,6 +145,7 @@ fieldset { border: none; margin: 0; padding: 0; min-width: 0; }
 .marks span { position: absolute; transform: translateX(-50%); white-space: nowrap; top: 2px; }
 .verdict { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .verdict b { color: var(--text); }
+#end-turn { margin-top: 10px; width: 100%; }
 .limits { display: flex; gap: 14px; margin-top: 12px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
 .limits b { color: var(--text); font-weight: 600; }
 
@@ -323,6 +324,7 @@ canvas { width: 100%; height: 92px; display: block; border-radius: 8px; backgrou
           <div class="marks" id="quiet-marks"></div>
         </div>
         <div class="verdict" id="verdict"></div>
+        <button class="small" id="end-turn" aria-label="Done talking: answer now" title="Ends their turn now, without waiting for the silence or Smart Turn, and sends what was heard to HARP">Done talking: answer now</button>
       </div>
       <div id="reply-track" hidden>
         <div class="track">
@@ -511,7 +513,7 @@ function guide() {
   if (S.speaking) return ["--muted-state", "HARP is talking", c.listen ? "Wait until it has finished before you speak." : "Type the next line when it's done."];
   if (S.pending > 0) return ["--thinking", "HARP is thinking", "Working out its reply."];
   if (!c.listen) return ["--ok", "Your turn", "Type what the person says below."];
-  if (S.listen === "hearing") return ["--hearing", "Hearing you", "Keep talking; it ends the turn when you've finished."];
+  if (S.listen === "hearing") return ["--hearing", "Hearing you", "Keep talking; it ends the turn when you've finished, or press Done talking."];
   if (S.listen === "transcribing") return ["--transcribing", "Transcribing", "Turning that turn into text."];
   if (S.listen === "muted") return ["--muted-state", "HARP is talking", "Listening is muted until it has finished."];
   if (S.listen === "listening") return ["--ok", c.talk ? "Your turn: speak now" : "Listening", c.source === "wav" ? "Playing the recording into listening." : "Say something to HARP" + (c.talk ? " (or type it below)." : ".")];
@@ -616,6 +618,7 @@ function updateTurnTrack() {
   else if (S.judged >= L.finished) v = "Smart Turn: <b>" + Math.round(S.judged * 100) + "% finished</b>, so the turn ends now.";
   else v = "Smart Turn: <b>" + Math.round(S.judged * 100) + "% finished</b>, so it waits up to " + L.wait + " s in case they go on.";
   $("verdict").innerHTML = v;
+  $("end-turn").disabled = S.listen !== "hearing";
 }
 function tick() {   // timers that run between events
   if (S.running && S.began) {
@@ -889,11 +892,11 @@ function handle(m) {
       if (m.forwarded && m.dropped === "empty") expectReply();
       return;
     }
-    const meta = [secs(m.after_end_s) && "text " + secs(m.after_end_s) + " after they went quiet",
+    const meta = [secs(m.after_end_s) && "text " + secs(m.after_end_s) + " after " + (m.ended_early ? "Done talking" : "they went quiet"),
       "speech-to-text " + secs(m.stt_s), m.finished !== undefined && "Smart Turn " + Math.round(m.finished * 100) + "% finished"];
     const msg = live || message("person", "", [], []);
     msg.classList.remove("live"); const t = msg.querySelector(".text"); t.classList.remove("pending"); t.textContent = m.text;
-    fillMeta(msg.querySelector(".meta"), meta, []); msg.dataset.text = m.text;
+    fillMeta(msg.querySelector(".meta"), meta, m.ended_early ? ["ended with Done talking"] : []); msg.dataset.text = m.text;
     S.lastHeard = m.text; stat("heard", m.after_end_s);
     if (m.forwarded) { S.replyStart = Date.now(); expectReply(); }
     else if (S.config && S.config.talk) note("HARP wasn't ready yet, so it won't answer this", "warn");
@@ -976,6 +979,10 @@ $("llm-button").addEventListener("click", async () => {
   $("llm-button").disabled = true;
   await post(llm === "down" ? "/api/llm/start" : "/api/llm/stop");
   $("llm-button").disabled = false; poll();
+});
+$("end-turn").addEventListener("click", async () => {
+  $("end-turn").disabled = true;
+  await post("/api/end_turn");
 });
 $("composer").addEventListener("submit", async e => {
   e.preventDefault();

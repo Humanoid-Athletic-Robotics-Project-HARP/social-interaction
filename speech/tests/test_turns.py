@@ -33,6 +33,27 @@ LOUD = 0.1      # a voice's
 
 
 class TestTurns(unittest.TestCase):
+    def test_cut_ends_the_turn_at_once(self):
+        t = listen.Turns()
+        for frame, prob in frames(10, 0.0, QUIET) + frames(30, 0.9, LOUD) + frames(3, 0.0, QUIET):
+            self.assertIsNone(t.push(frame, prob))
+        start, end, audio = t.cut()
+        self.assertAlmostEqual(start, 10 * FRAME_S)
+        self.assertAlmostEqual(end, 40 * FRAME_S)   # where the voice stopped, not the cut
+        self.assertFalse(t.speaking)
+        self.assertIsNone(t.cut())                  # nothing being heard now
+
+    def test_cut_before_speech_is_nothing(self):
+        t = listen.Turns()
+        for frame, prob in frames(10, 0.0, QUIET):
+            t.push(frame, prob)
+        self.assertIsNone(t.cut())
+
+    def test_ending_lines(self):
+        import io
+        now = listen.ending_lines(io.StringIO("\n"))
+        self.assertTrue(now.wait(1))
+
     def test_one_turn(self):
         (start, end, audio), = turns(frames(10, 0.0, QUIET), frames(30, 0.9, LOUD),
                                      frames(30, 0.0, QUIET))
@@ -115,6 +136,7 @@ class TestSmartTurn(unittest.TestCase):
         pause = frames(int(listen.WAIT / 2 / FRAME_S), 0.0, QUIET) + frames(30, 0.9, LOUD)
         _, asked = self.silence_before_end(50, 0.1, pause)
         self.assertEqual(asked, 2)
+
 
 
 if __name__ == "__main__":

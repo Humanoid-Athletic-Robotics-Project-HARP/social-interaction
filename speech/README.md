@@ -122,7 +122,8 @@ From recordings (16-bit WAV, any rate):
 ```
 
 From this computer's microphone (Ctrl-C to stop). `--devices` lists the microphones and
-`--device N` picks one. On macOS, allow your terminal app under System Settings >
+`--device N` picks one. Press Enter to end your turn at once instead of waiting for it to
+notice you've finished. On macOS, allow your terminal app under System Settings >
 Privacy & Security > Microphone; without it the mic sends silence.
 
 ```bash
@@ -226,10 +227,12 @@ terminal at the same time. The mic and speakers are this computer's, not the bro
 Then open http://127.0.0.1:28733. The page can start the LLM server too. `--host 0.0.0.0`
 opens it to other computers (on PC2, to watch from a laptop on the robot network).
 
-After a turn, the Now card follows the wait for HARP's answer until its first sound. If
-the LLM has sent no words by the first mark, HARP says a short filler. If it sends nothing
-for 5 s, HARP says a fixed line instead. The line below says which happened. Turns and
-Time count from HARP's greeting, as `talk.py` does, not while the models load.
+While it hears someone, **Done talking: answer now** ends their turn at once, without
+waiting for the silence or Smart Turn. After a turn, the Now card follows the wait for
+HARP's answer until its first sound. If the LLM has sent no words by the first mark,
+HARP says a short filler. If it sends nothing for 5 s, HARP says a fixed line instead. The
+line below says which happened. Turns and Time count from HARP's greeting, as `talk.py`
+does, not while the models load.
 
 ## Bench
 

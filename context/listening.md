@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-09T00:36:58Z
+  updated: 2026-11-09T22:48:07Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -73,6 +73,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - Parakeet on CPU (`--provider cuda` on PC2)
   - the filter's short, empty and made-up checks
   - one JSON line per turn on stdout
+  - each line on stdin (Enter in a terminal, the speech page's Done talking) ends the turn being heard at once (`Turns.cut`, `ended_early` on its line); a line while nobody is heard is dropped
 - The turn rules (`Turns`) are tested in `speech/tests/` without models. The settings were tuned on made-up clips with `speech/bench/` ([[speech-tuning]] has the results).
 - The mute (built 2026-11-03, with the mic or the robot's mic):
   - `talk.py` sends `{"speaking": true}` every 0.5 s while it plays or makes a reply, and `false` when done, as UDP to port 28732 on the same computer.

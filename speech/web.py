@@ -195,7 +195,7 @@ class Session:
                 self.later = self.command("listen.py", *args)
                 self.hub.publish("web", "listen_held")
             else:
-                self.listen = self.spawn("listen", self.command("listen.py", *args))
+                self.listen = self.spawn("listen", self.command("listen.py", *args), stdin=True)
         self.hub.publish("web", "session", state="started", config=c)
 
     def spawn(self, name, command, stdin=False):
@@ -251,7 +251,7 @@ class Session:
     def start_later(self, command):
         with self.lock:
             if not self.over:
-                self.listen = self.spawn("listen", command)
+                self.listen = self.spawn("listen", command, stdin=True)
 
     def send(self, line):
         """A turn to talk.py; False when there is no talking, or it isn't ready yet."""
@@ -261,6 +261,18 @@ class Session:
             try:
                 self.talk.stdin.write(line if line.endswith("\n") else line + "\n")
                 self.talk.stdin.flush()
+                return True
+            except (OSError, ValueError):
+                return False
+
+    def end_turn(self):
+        """Ends the turn listen.py is hearing now (a line on its stdin); False if it isn't running."""
+        with self.lock:
+            if self.listen is None or self.listen.poll() is not None:
+                return False
+            try:
+                self.listen.stdin.write("end\n")
+                self.listen.stdin.flush()
                 return True
             except (OSError, ValueError):
                 return False
@@ -364,6 +376,11 @@ class Server:
             return 409, {"error": "HARP isn't ready yet: wait for the greeting."}
         return 200, {"ok": True}
 
+    def end_turn(self):
+        if not (self.session and self.session.running and self.session.end_turn()):
+            return 409, {"error": "Listening isn't running."}
+        return 200, {"ok": True}
+
     def start_llm(self):
         with self.lock:
             if llm_status(self.llm_url) != "down" or (self.llm and self.llm.poll() is None):
@@ -438,7 +455,8 @@ def handler(server):
             except ValueError:
                 return self.reply(400, {"error": "bad JSON"})
             routes = {"/api/start": lambda: server.start(body), "/api/stop": server.stop,
-                      "/api/say": lambda: server.say(body), "/api/llm/start": server.start_llm,
+                      "/api/say": lambda: server.say(body), "/api/end_turn": server.end_turn,
+                      "/api/llm/start": server.start_llm,
                       "/api/llm/stop": server.stop_llm}
             route = routes.get(self.path)
             self.reply(*(route() if route else (404, {"error": "not found"})))

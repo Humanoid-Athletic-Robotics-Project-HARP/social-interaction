@@ -37,6 +37,10 @@ to end), stt_s (decoding time) and after_end_s (their sum: from the person going
 to the text being ready), and where Smart Turn judged, finished (its probability) and
 turn_s (its time, included in after_end_s); dropped turns carry "dropped" and the reason.
 
+Each line on stdin (Enter, in a terminal; web.py's "Done talking" button) ends the turn
+being heard at once, without waiting for the silence or Smart Turn; its line carries
+"ended_early": true. A line while nobody is being heard does nothing.
+
 --events adds what listening is doing, for the web page (web.py), as lines with an
 "event" key among the turns: state (waiting for talk.py to load, listening, hearing,
 transcribing, or muted while the robot speaks) when it changes, and every LEVEL_S s a level (t s into the stream, the loudest frame's db and
@@ -58,6 +62,7 @@ import queue
 import socket
 import subprocess
 import sys
+import threading
 import time
 import wave
 
@@ -106,6 +111,17 @@ def models_dir():
                              "--git-common-dir"], capture_output=True, text=True).stdout.strip()
     main = Path(common).parent if common else here.parent
     return main.parent / "models"
+
+
+def ending_lines(stream=sys.stdin):
+    """An event set by each line on stdin, read in its own thread: end the turn now."""
+    now = threading.Event()
+
+    def read():
+        for _ in stream:
+            now.set()
+    threading.Thread(target=read, daemon=True).start()
+    return now
 
 
 def log(*parts):
@@ -287,12 +303,20 @@ class Turns:
             wait = CHECK if self.judged is not None and self.judged >= FINISHED else WAIT
         speech_s = len(self.frames) * self.frame_s - PREROLL
         if quiet_s >= wait or speech_s >= MAX_SPEECH:
-            end = (self.count - self.quiet) * self.frame_s
-            audio = np.concatenate(self.frames)
-            self.speaking, self.voiced, self.frames = False, 0, []
-            self.preroll.clear()
-            return self.start, end, audio
+            return self.close()
         return None
+
+    def close(self):
+        """The turn being heard, as (start s, end s, audio), and ready for the next."""
+        end = (self.count - self.quiet) * self.frame_s
+        audio = np.concatenate(self.frames)
+        self.speaking, self.voiced, self.frames = False, 0, []
+        self.preroll.clear()
+        return self.start, end, audio
+
+    def cut(self):
+        """End the turn being heard now (they said they're done), or None if there's none."""
+        return self.close() if self.speaking else None
 
     def skip(self):
         """A frame not heard (muted): drop any turn in progress, keep the clock and the
@@ -467,6 +491,7 @@ def main():
     states = {"loading": "(waiting for talk.py's voice and LLM to load)",
               "talking": "(muted while HARP talks)", "listening": "(listening)"}
     monitor = Monitor(turns) if args.events else None
+    end_now = ending_lines()
     try:
         for frame in frames:
             now = "listening"
@@ -486,6 +511,10 @@ def main():
             hearing = turns.speaking
             prob = voice(frame)
             turn = turns.push(frame, prob)
+            early = turn is None and end_now.is_set() and turns.speaking
+            if early:
+                turn = turns.cut()
+            end_now.clear()   # a press while nobody is heard doesn't end the next turn
             if live and turns.speaking and not hearing:
                 log("(hearing you)")
             if monitor:
@@ -505,6 +534,8 @@ def main():
             if turns.judged is not None:
                 line["finished"] = round(turns.judged, 2)
                 line["turn_s"] = round(judging, 3)
+            if early:
+                line["ended_early"] = True
             reason = dropped(said, start, end)
             if reason:
                 line["dropped"] = reason
