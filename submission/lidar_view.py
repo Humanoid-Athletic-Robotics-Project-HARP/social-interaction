@@ -117,7 +117,7 @@ def blueprint():
         rrb.Vertical(rrb.TextDocumentView(origin="/status", name="status"),
                      rrb.TextLogView(origin="/events", name="events"),
                      rrb.TimeSeriesView(origin="/timing", name="HIM state timing (s)"),
-                     row_shares=[2, 3, 2]),
+                     row_shares=[4, 3, 2]),
         column_shares=[3, 2]))
 
 
