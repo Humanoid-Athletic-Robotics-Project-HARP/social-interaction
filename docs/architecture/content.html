@@ -77,6 +77,7 @@
   <tr><td><code>submission/worlds/</code>, <code>routes/</code></td><td>19 MuJoCo courses with pass rules (8 of them random held-out worlds), and waypoint routes</td><td>Your laptop, staged into the image</td></tr>
   <tr><td><code>submission/tests/</code></td><td>23 unit-test files; they need ROS 2, so they run inside the image</td><td>Inside the image</td></tr>
   <tr><td><code>speech/</code></td><td>Listening and talking, as two programs joined by a pipe</td><td>A laptop (PC2 later)</td></tr>
+  <tr><td><code>viewer/</code></td><td>Shared web dashboard collecting simulation logs, speech and sensor services, and saved diagnostics</td><td>A laptop or PC2, outside the image</td></tr>
   <tr><td><code>testground/</code></td><td>Read-only tests of the real robot's sensors, and tools to analyse their recordings</td><td>PC2 and a laptop</td></tr>
   <tr><td><code>third_party/</code></td><td>Pinned forks of Ultralytics (YOLO26) and BoT-SORT, for choosing a person detector</td><td>Nowhere yet</td></tr>
   <tr><td><code>context/</code></td><td>Team memory for Claude and Codex: measured results, limits and design reasons</td><td>Read by agents</td></tr>
@@ -267,6 +268,7 @@
   <li>Every record starts the same: source, event name, wall time, and sim time where known.</li>
   <li><code>view_feed.py</code> prints what the robot sees a few times a second, compressed: the cloud, the pose, Nav2's plan and local costmap, the people.</li>
   <li><code>lidar_view.py</code> shows a live or finished run in Rerun. It draws the sim's truth beside our odometry, so the gap between the two robots is the drift.</li>
+  <li><code>viewer/server.py</code> collects the same printed records into the same Rerun presentation through an optional analysis process. It serves Rerun's assets and streaming data through the dashboard address. Saved runs and lidar <code>.rrd</code> exports appear as replay buttons on Home. A separate HIM simulator button embeds HIM's existing local viewer directly, without changing its code or lifecycle.</li>
 </ul>
 </div>
 </section>
@@ -331,6 +333,8 @@
 
 <div class="part">
 <h3><code>testground/</code>: read-only tests on the real robot</h3>
+<p><code>viewer/server.py</code> collects the sensor services and <code>speech/web.py</code> concurrently. Home lists each service view as a button, including offline sources. Each opens a full-window page with a Home button, reusing the existing presentation through one origin. Each feed reports its own offline state. The dashboard starts no hardware or speech processes; explicitly enabled speech controls reach the service that owns them. The server needs only Python's standard library.</p>
+<p>The default Jetson sources resolve <code>G1_HOST</code> from the main checkout's gitignored <code>.env</code>. The server keeps the resolved address private and redacts it from status, errors and speech events sent to the browser. Jetson sources remain registered while offline.</p>
 <p>Copied to PC2 with <code>sync.sh</code>; recordings come back over SSH and are analysed on a laptop. Scripts only listen to the robot, unless the team agrees otherwise.</p>
 <table>
   <tr><th>Folder</th><th>Tools</th><th>What for</th></tr>

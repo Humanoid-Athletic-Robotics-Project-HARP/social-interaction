@@ -3,7 +3,7 @@ name: sim-deadline-stops
 description: Read when HIM stops a sim run on a deadline or a run ends inconclusive — why it happens (the computer short of memory), what to check and do, and before changing how runs are watched or timed
 metadata:
   type: feedback
-  updated: 2026-11-04T22:40:35Z
+  updated: 2026-11-09T05:26:28Z
   covers: [submission/harp_node.py, submission/course.py, submission/sim.sh]
 ---
 
@@ -12,7 +12,7 @@ HIM stops a run when the command it accepted answers a state 0.2 s old (`observa
 **Why** (measured on a 16 GB MacBook Air, 2026-10-29/30, `runs/2026-10-29_*_probe-*`, `runs/*_sim-late-probe`):
 - Our reply takes about 2 ms (`harp_node.py`'s `timing` lines). The late part is the state reaching us: HIM's whole sim process pauses 40–240 ms, then catches up (`late_state` lines, `missed` 0).
 - The pauses follow the Mac's free memory, not what runs in the sim: macOS compresses the Docker VM's memory, and a process touching such a page waits while it is restored. Each run allocates GBs in the VM that macOS keeps as the VM's afterwards (3–3.6 GB after a few runs), so later runs get worse.
-- HIM's live viewer (`live.py`, on the Mac) keeps every frame: about 700 MB after a 100 s run, until Ctrl-C. Browsers held about 2.5 GB.
+- HIM's live viewer (`live.py`, on the Mac) keeps every frame: about 700 MB after a 100 s run, until Ctrl-C. Browsers held about 2.5 GB. Viewing it through [[unified-viewer]] does not remove this cost; returning Home does not stop its process.
 - At a run's end HIM writes `trace.npz` within a 10 s deadline; short of memory it overran (`plant_error`, a cut-off trace renamed `trace.truncated.npz`, which can't be scored).
 - Nav2's start-up was the riskiest moment, so `entrypoint.sh` starts Nav2, the lidar and the task first and our node waits for Nav2 (`harp/nav2_ready.py`, at most 15 s): HIM times nothing before our first command.
 - Ruled out: Python's garbage collector in HIM's sim, a VM-wide pause or CPU (probes in another container and on the Mac saw no spikes), and HIM's `--lockstep` (its client then calls every state stale and exits). Still unmeasured: whether HIM's paused thread is busy, waiting for a CPU or blocked.

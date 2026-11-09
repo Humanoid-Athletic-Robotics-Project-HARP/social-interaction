@@ -3,7 +3,7 @@ name: project-overview
 description: Read when you need the big picture — the robot, the team and the decisions that shape the code
 metadata:
   type: project
-  updated: 2026-11-08T23:09:43Z
+  updated: 2026-11-09T05:26:28Z
   covers: [README.md]
 ---
 
@@ -19,5 +19,7 @@ Stanford HARP project on a **Unitree G1 EDU with 29 joints** (6 per leg, 3 waist
 - Validate changes in HIM's sim before hardware use and keep scored runs under `runs/` (`submission/course.py`). Validation status is in the README. Nothing has run on the real robot yet (as of 2026-10-31).
 - Finding people: the lidar finds candidates by their shape and the camera confirms them before the last part of the walk up ([[behavior-loop]]); which detectors to use is undecided.
 - Talking with people: two processes outside the image, listening ([[listening]]) and talking ([[talking]]), both built in `speech/` and tried on a laptop, with local models first.
+
+- Viewing any source: [[unified-viewer]] is the common entry point for HIM, diagnostics, replays, robot sensors and speech. The underlying services remain independent.
 
 Plans are exploratory; check official and open-source resources before committing to a design ([[unitree-resources]]).

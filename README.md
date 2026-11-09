@@ -48,6 +48,7 @@ the robot.
 | `submission/worlds/`, `routes/` | Test courses with their pass criteria, and waypoint routes. |
 | `submission/tests/` | Unit tests. |
 | `speech/` | Listening and talking ([speech/README.md](speech/README.md)). |
+| `viewer/` | One web dashboard for simultaneous simulation, speech, PC2 sensors and saved diagnostics ([viewer/README.md](viewer/README.md)). |
 | `testground/` | Read-only tests on the real robot, and tools to analyse their recordings ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned forks of Ultralytics (YOLO26) and BoT-SORT, for choosing a person detector ([third_party/README.md](third_party/README.md)). |
 | `context/` | Notes for Claude and Codex: measured results, limits and the reasons behind our design. |
@@ -210,6 +211,20 @@ SSL_CERT_FILE="$(.venv-policy-safety/bin/python -m certifi)" .venv-policy-safety
 ```
 
 The speech models also go in `models/` ([speech/README.md](speech/README.md)).
+
+## Unified viewer
+
+Start the dashboard on the laptop or PC2, then open http://127.0.0.1:28734:
+
+```bash
+python3 viewer/server.py
+```
+
+It follows our simulation container and connects to local speech. Jetson sensor
+and speech sources use `G1_HOST` from the main checkout's gitignored `.env`.
+Home lists each service view, including offline sources and HIM's local viewer. Open a view to use the
+full window, then choose Home to return. Setup and
+source configuration: [viewer/README.md](viewer/README.md).
 
 ## Run it in the sim
 
@@ -488,6 +503,13 @@ Stopping:
 ask either of them to explain anything in this README.
 
 ## Licenses
+
+In `viewer/` (installed separately for offline sensor views):
+
+| Project | License |
+|---|---|
+| [Three.js 0.160.0](https://github.com/mrdoob/three.js/tree/r160) | MIT |
+| [Rerun 0.41.0](https://github.com/rerun-io/rerun) (from `testground/requirements.txt`) | MIT OR Apache-2.0 |
 
 In our image:
 

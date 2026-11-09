@@ -3,7 +3,7 @@ name: robot-pc2
 description: Read before logging in to the real G1's PC2 (the Jetson) or running anything on it — where we may work, how to connect, what is installed and running there
 metadata:
   type: reference
-  updated: 2026-11-03T01:44:13Z
+  updated: 2026-11-09T05:26:28Z
   covers: [testground/README.md, testground/sync.sh, testground/pc2/*]
 ---
 
@@ -29,7 +29,7 @@ for a password, have the person open it again.
 2. `camera/depth_node.py` on ROS 2 domain 42 (it owns the depth camera; not 97, HARP's).
 3. `hybrid/hybrid_viewer.py --source ros` on the same domain, with Unitree's CycloneDDS
    first on `LD_LIBRARY_PATH` (both commands: the camera and hybrid READMEs), then
-   `http://ADDRESS:8082`.
+   use the dashboard's Jetson sensor views ([[unified-viewer]]).
 Run each at nice 10 in its own Terminal tab as `ssh -tt -S ~/.ssh/cm-g1 HOST '...'`, so
 Ctrl-C there stops it on PC2 and nothing is left running. Seen: lidar 186,000
 points/s, depth 15 fps; the viewer about 58% of a core, the depth node 14%, HARP's
