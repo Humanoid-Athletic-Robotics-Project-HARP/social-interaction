@@ -236,7 +236,7 @@ def handler(dashboard):
                 return self.reply(code, body, kind)
             if data is None:
                 assets = {"/": (HERE / "index.html", "text/html; charset=utf-8"),
-                          "/app.js": (HERE / "app.js", "text/javascript"), "/timing.js": (HERE / "timing.js", "text/javascript"), "/style.css": (HERE / "style.css", "text/css"),
+                          "/app.js": (HERE / "app.js", "text/javascript"), "/timing.js": (HERE / "timing.js", "text/javascript"), "/robot.js": (HERE / "robot.js", "text/javascript"), "/style.css": (HERE / "style.css", "text/css"),
                           "/assets/three.module.js": (HERE / ".assets/three.module.js", "text/javascript"),
                           "/assets/addons/controls/OrbitControls.js": (HERE / ".assets/OrbitControls.js", "text/javascript")}
                 if url.path in assets:

@@ -3,7 +3,7 @@ name: unified-viewer
 description: Use whenever the user wants to see simulator activity, a replay, lidar, camera, speech, or any other data source; also read before changing the dashboard
 metadata:
   type: project
-  updated: 2026-11-09T20:09:04Z
+  updated: 2026-11-09T20:18:47Z
   covers: [viewer/**]
 ---
 
@@ -18,6 +18,7 @@ Check whether the hub is running before starting another copy. Launch: `python3 
 | Laptop speech/listening | `/#view/mac-speech/speech` |
 | Robot lidar, camera or combined view | `/#view/pc2-sensors/lidar`, `/#view/pc2-sensors/camera` or `/#view/pc2-sensors/hybrid` |
 | Jetson speech | `/#view/pc2-speech/speech` |
+| The robot's battery, motor temperatures and harness state | `/#view/pc2-robot/robot` ([[robot-status]]) |
 | A saved sim run, or two side by side | Saved runs, `/#runs` (Replay, or tick two and Compare) |
 | Why a run went late or HIM stopped it | Saved runs, Timing on its row (`/#timing/RUN`) |
 | A saved lidar capture (`.rrd`) | A configured `recording` source, opened from Home |
@@ -41,3 +42,8 @@ Next steps, none started (as of 2026-11-09):
 - A detector page: detections against the sim's true people (`mover_start` events), for misses and false candidates.
 - Speech beside the behavior loop: show `listen.py` and `talk.py` turns against the loop's talk handshake ([[talking]]).
 - Compare with one shared timeline, so two runs scrub together.
+- On Home's tiles: a mini map on the simulation tile (robot, goal, people from the view frames), speech's last heard and said line, small trend lines (late states over the last minute).
+- A latest-run tile with its outcome and Timing and Replay; batch progress while `course.py` runs several ("3 of 8").
+- Browser notifications when HIM stops a run, a run ends, or this computer turns "may stop".
+- Runs: trends across runs (scores by world and commit), a run scorecard page, an event timeline, Compare's measures side by side, run notes (good, bad, baseline).
+- A log viewer for `sim.log` and `policy.log`; a short history of this computer's memory.

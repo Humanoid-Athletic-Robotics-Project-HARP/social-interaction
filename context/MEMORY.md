@@ -42,6 +42,7 @@
 - [G1 built-in APIs](g1-builtin-apis.md) — when wanting speech, LED, gestures or Unitree's odometry/SLAM
 - [Listening](listening.md) — before working on how the robot hears people: mic, turn end, speech-to-text
 - [Talking](talking.md) — before working on what the robot says, the speech processes' placement, or their handshake with behavior.py
+- [Robot status](robot-status.md) — before reading the G1's battery, motor temperatures or harness state, or changing the dashboard's Robot status view
 - [Speech web page](speech-web.md) — before changing or using speech/web.py, or what listen.py and talk.py print for it
 - [Viewer implementation](viewer-implementation.md) — before changing collectors, embedded views, private source settings or Rerun routing
 - [Speech tuning](speech-tuning.md) — before tuning listening's turn settings, talk.py's prompt, grammar or goodbyes, or picking the voice

@@ -3,11 +3,11 @@ name: robot-services
 description: Read before reading the real G1's sensors or Unitree's services over DDS or ROS 2 — lidar_driver, videohub, the robot's DDS topics and which ROS 2 domain to use
 metadata:
   type: reference
-  updated: 2026-11-02T22:04:05Z
+  updated: 2026-11-09T20:18:47Z
   covers: [testground/pc2/topics.py]
 ---
 
-Checked on our robot's PC2, 2026-11-01/02 ([[robot-pc2]] for logging in and where we may work). Unitree's API calls (speech, gestures, odometry, SLAM): [[g1-builtin-apis]].
+Checked on our robot's PC2, 2026-11-01/02 ([[robot-pc2]] for logging in and where we may work). Unitree's API calls (speech, gestures, odometry, SLAM): [[g1-builtin-apis]]. The battery, motor temperatures and harness status the dashboard reads: [[robot-status]].
 
 **Unitree's services** (`robot_state` client in `unitree_sdk2py.go2.robot_state`:
 ServiceList reads, ServiceSwitch turns one on or off; status 0 is running, 1 off).

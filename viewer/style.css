@@ -57,3 +57,20 @@ body:not(.view-page) #content{flex:1;display:flex;flex-direction:column}
 .timing-tip{position:absolute;z-index:3;display:flex;flex-direction:column;gap:4px;min-width:190px;padding:9px 11px;font-size:12px;color:#dce5ee;background:#0f1419f2;border:1px solid var(--line);border-radius:6px;pointer-events:none}.tip-row{display:flex;align-items:center;gap:7px;color:#becbd8}.tip-row b{margin-left:auto;font-weight:500;color:#dce5ee}.tip-late{color:#f2c2b9}
 .timing-table table{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px}.timing-table caption{text-align:left;padding:0 0 8px;font-size:13px;color:#becbd8}.timing-table th,.timing-table td{padding:7px 12px;text-align:right;border-top:1px solid var(--line);white-space:nowrap}.timing-table th{color:var(--muted);font-weight:500;border-top:0}.timing-table th:first-child,.timing-table td:first-child{text-align:left}.timing-table{overflow-x:auto}
 @media(max-width:650px){.timing-head{flex-wrap:wrap}.timing-verdict{flex-basis:100%}.tile-value{font-size:17px}}
+
+/* Robot status (robot.js): summary tiles, then each limb's motors on the harness's limits. */
+.robot-page{--bar:#3987e5;height:100%;overflow:auto;padding:24px 32px 32px;background:#10151b}
+.robot-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:28px}
+.robot-tile{display:flex;flex-direction:column;gap:4px;padding:16px 18px;background:#161e27;border:1px solid var(--line);border-radius:10px;min-width:0}.robot-tile .tile-value{font-size:22px}
+.robot-tile.ok .tile-value{color:var(--accent)}.robot-tile.warn{border-color:#4d4128}.robot-tile.warn .tile-value{color:#edbb6f}.robot-tile.bad{border-color:#5a3a35}.robot-tile.bad .tile-value{color:#f2a598}
+.meter{display:block;height:6px;margin-top:8px;background:#222c37;border-radius:3px;overflow:hidden}.meter-fill{display:block;height:100%;background:var(--bar);border-radius:3px}.robot-tile.warn .meter-fill{background:#c98500}.robot-tile.bad .meter-fill{background:#e66767}
+.robot-note{margin:-4px 0 14px;font-size:12px}
+.robot-limbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.limb{padding:14px 16px 10px;background:#161e27;border:1px solid var(--line);border-radius:10px}
+.limb-head,.motor-row{display:grid;grid-template-columns:minmax(96px,1fr) minmax(0,1.3fr) minmax(0,1.3fr);gap:14px;align-items:center}
+.limb-head{padding-bottom:8px;border-bottom:1px solid #222c37;margin-bottom:4px}.limb-name{font-size:14px;font-weight:500;color:#dce5ee}.limb-col{font-size:11px;color:var(--muted)}
+.motor-row{padding:6px 0}.motor-name{font-size:12px;color:#becbd8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.motor-cell{display:flex;align-items:center;gap:8px;min-width:0}.bar{flex:1;height:6px;background:#222c37;border-radius:3px;overflow:hidden}.bar-fill{display:block;height:100%;background:var(--bar);border-radius:3px}
+.motor-value{flex:none;width:44px;text-align:right;font-size:12px;color:#dce5ee;font-variant-numeric:tabular-nums}
+.motor-cell.warn .bar-fill{background:#c98500}.motor-cell.warn .motor-value{color:#edbb6f}.motor-cell.bad .bar-fill{background:#e66767}.motor-cell.bad .motor-value{color:#f2a598}
+@media(max-width:650px){.robot-page{padding:18px 16px 24px}.robot-limbs{grid-template-columns:minmax(0,1fr)}.limb-head,.motor-row{grid-template-columns:76px minmax(0,1fr) minmax(0,1fr);gap:10px}}

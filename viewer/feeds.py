@@ -58,9 +58,9 @@ def validate(config):
         seen.add(key)
         if "controls" in item and not isinstance(item["controls"], bool):
             raise ValueError("controls must be a JSON boolean")
-        if item.get("kind") not in ("sensors", "speech", "simulation", "recording", "him"):
+        if item.get("kind") not in ("sensors", "speech", "simulation", "recording", "him", "robot"):
             raise ValueError("unknown source kind for " + key)
-        if item["kind"] in ("sensors", "speech", "him"):
+        if item["kind"] in ("sensors", "speech", "him", "robot"):
             if item.get("_configuration_error") and item.get("host_env") == "G1_HOST":
                 continue
             if not isinstance(item.get("url"), str):
@@ -77,6 +77,23 @@ def validate(config):
     return config["sources"]
 
 
+ROBOT_FEEDS = ("motors", "battery", "harness")
+
+
+def robot_feeds(value):
+    """testground/robot/status_server.py's readings as feeds: fresh enough to trust or not.
+    The harness publishes at least twice a second and the battery about once (HIM stops past 5 s)."""
+    def fresh(part, most, missing):
+        age = (value.get(part) or {}).get("age_s")
+        if isinstance(age, (int, float)) and age < most:
+            return {"online": True, "reason": "receiving"}
+        return {"online": False, "reason": missing if age is None else "no reading for %.0f s" % age}
+    harness = value.get("harness") or {}
+    return {"motors": fresh("lowstate", 1.0, "no rt/lowstate"),
+            "battery": fresh("battery", 5.0, "no rt/lf/bmsstate"),
+            "harness": fresh("harness", 2.0, harness.get("error") or "HARP's harness is not running")}
+
+
 class Source:
     def __init__(self, config):
         self.config = config
@@ -87,7 +104,7 @@ class Source:
         self.threads = []
         self.updated = None
         self.error = config.get("_configuration_error", "waiting for source")
-        names = ("viewer",) if self.kind == "him" else ("speech",) if self.kind == "speech" else (("lidar",) if config.get("layout") == "lidar" else
+        names = ("viewer",) if self.kind == "him" else ("speech",) if self.kind == "speech" else ROBOT_FEEDS if self.kind == "robot" else (("lidar",) if config.get("layout") == "lidar" else
                 ("depth", "colour") if config.get("layout") == "camera" else ("lidar", "depth", "colour"))
         self.feeds = {name: {"online": False, "reason": self.error} for name in names}
         self.detail = {}
@@ -151,8 +168,8 @@ class Source:
                     "layout": self.config.get("layout", "hybrid")}
 
     def paths(self):
-        if self.kind == "him":
-            return set()  # Its iframe talks directly to HIM's own local server.
+        if self.kind in ("him", "robot"):
+            return set()  # HIM's iframe talks to its own local server; robot status is drawn by the hub.
         layout = self.config.get("layout", "hybrid")
         if self.kind == "speech":
             return {"api/status", "api/devices"}
@@ -215,6 +232,9 @@ class Source:
                         raise ValueError("HIM viewer not found at its configured local address")
                     self.set_status({"viewer": {"online": True, "reason": "HIM viewer is available"}},
                                     {"viewer": self.url + "/"})
+                elif self.kind == "robot":
+                    value = get_json(self.url + "/status")
+                    self.set_status(robot_feeds(value), value)
                 elif self.kind == "speech":
                     value = get_json(self.url + "/api/status")
                     with self.lock:
@@ -246,7 +266,9 @@ class Source:
                         raise ValueError("; ".join(errors))
                     self.set_status(feeds, detail)
             except (OSError, ValueError, KeyError, TypeError) as error:
-                self.failed("HIM viewer is offline. Start a simulation with its viewer enabled." if self.kind == "him" and isinstance(error, OSError) else error)
+                offline = {"him": "HIM viewer is offline. Start a simulation with its viewer enabled.",
+                           "robot": "Robot status is offline. Start testground/robot/status_server.py on PC2."}
+                self.failed(offline[self.kind] if self.kind in offline and isinstance(error, OSError) else error)
             self.stop.wait(1)
 
     def append(self, message, identity=None):

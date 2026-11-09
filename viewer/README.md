@@ -31,7 +31,9 @@ errors and speech events. It is never copied into source configuration.
 
 Jetson sources stay visible as offline until their services are reachable and
 send data. Sensors use the existing hybrid service on port 8082. Jetson speech
-uses port 28733 and is observation only by default. Missing `G1_HOST` shows a setup
+uses port 28733 and is observation only by default. Robot status (battery, motor
+temperatures, HARP's harness state) reads `testground/robot/status_server.py` on port
+28735 and draws them here; it sends the robot nothing. Missing `G1_HOST` shows a setup
 message on those sources. Restart the dashboard after editing `.env`.
 Start speech separately with `speech/.venv/bin/python speech/web.py`; its setup is
 in [speech/README.md](../speech/README.md). Microphones and speakers belong to the

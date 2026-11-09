@@ -214,7 +214,9 @@ The speech models also go in `models/` ([speech/README.md](speech/README.md)).
 
 ## Unified viewer
 
-Start the dashboard on the laptop or PC2, then open http://127.0.0.1:28734:
+Start the dashboard on the laptop or PC2, then open http://127.0.0.1:28734. For the robot's battery,
+motor temperatures and harness state, also run `testground/robot/status_server.py` on PC2
+([testground/robot/README.md](testground/robot/README.md)):
 
 ```bash
 python3 viewer/server.py

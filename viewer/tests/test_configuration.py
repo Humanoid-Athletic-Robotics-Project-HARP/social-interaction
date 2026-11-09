@@ -22,10 +22,11 @@ class ConfigurationTests(unittest.TestCase):
             (root / '.env').write_text(content)
             config = resolve(root=root)
             self.assertEqual([s['id'] for s in config['sources']],
-                             ['mac-sim', 'mac-speech', 'pc2-sensors', 'pc2-speech', 'him-sim'])
+                             ['mac-sim', 'mac-speech', 'pc2-sensors', 'pc2-speech', 'pc2-robot', 'him-sim'])
             self.assertEqual(config['sources'][2]['url'], 'http://192.0.2.71:8082')
             self.assertEqual(config['sources'][3]['url'], 'http://192.0.2.71:28733')
             self.assertFalse(config['sources'][3]['controls'])
+            self.assertEqual(config['sources'][4]['url'], 'http://192.0.2.71:28735')
             self.assertEqual((root / '.env').read_text(), content)
 
     def test_missing_env_keeps_offline_jetson_sources(self):

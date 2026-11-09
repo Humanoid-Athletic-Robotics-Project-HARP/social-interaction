@@ -1,12 +1,13 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const names = {lidar:'Lidar',camera:'Camera',hybrid:'Hybrid',diagnostics:'Navigation and diagnostics',speech:'Speech',recordings:'Recording',him:'HIM simulator'};
+const names = {robot:'Robot status',lidar:'Lidar',camera:'Camera',hybrid:'Hybrid',diagnostics:'Navigation and diagnostics',speech:'Speech',recordings:'Recording',him:'HIM simulator'};
 let state = {sources:[]}, lastState = 0, signature = '';
 const cards = new Map();
 function node(tag,cls,text) { const n=document.createElement(tag); if(cls)n.className=cls; if(text!==undefined)n.textContent=text; return n; }
 function views(source) {
   if(source.kind==='him')return ['him'];
   if(source.kind==='speech')return ['speech'];
+  if(source.kind==='robot')return ['robot'];
   if(source.kind==='simulation')return ['diagnostics'];
   if(source.kind==='recording')return ['recordings'];
   return source.layout==='hybrid'?['lidar','camera','hybrid']:[source.layout];
@@ -25,7 +26,8 @@ async function post(path,body) {
   const value=await response.json();if(!response.ok)throw new Error(value.error||response.status);return value;
 }
 function feeds(source,view) {
-  const keys={lidar:['lidar'],camera:['depth','colour'],hybrid:['lidar','depth'],speech:['speech'],diagnostics:['diagnostics'],recordings:['diagnostics'],him:['viewer']}[view];
+  // The harness feed is optional: it runs only during a robot session.
+  const keys={robot:['motors','battery'],lidar:['lidar'],camera:['depth','colour'],hybrid:['lidar','depth'],speech:['speech'],diagnostics:['diagnostics'],recordings:['diagnostics'],him:['viewer']}[view];
   return keys.map(k=>[k,source.feeds[k]||{online:false,reason:'Waiting for data'}]);
 }
 function health(source,view) {
@@ -126,7 +128,7 @@ function showHome() {
     }
   }
 }
-const kinds={simulation:'Simulation',recording:'Replay',speech:'Speech',sensors:'Robot sensors',him:'HIM simulator'};
+const kinds={simulation:'Simulation',recording:'Replay',speech:'Speech',sensors:'Robot sensors',robot:'Robot status',him:'HIM simulator'};
 function plural(n,word){return `${n} ${word}${n===1?'':'s'}`;}
 function chip(label,value,tone){return {label,value,tone};}
 const kilo=n=>n>=1000?`${(n/1000).toFixed(n>=10000?0:1)}k`:String(Math.round(n));
@@ -160,6 +162,7 @@ const tiles={
     const both=l&&l.connected&&c&&c.depth_connected;
     return {headline:both?'Lidar and depth live':l&&l.connected?'Lidar live, no depth':c&&c.depth_connected?'Depth live, no lidar':'Waiting for sensors',chips,foot:`${views(s).length} views: ${views(s).join(', ')}`};
   },
+  robot:s=>robotTile(s),
   him(){return {headline:'Viewer ready',chips:[chip('Close its launcher after use','', 'warn')],foot:'Keeps every frame in memory until closed'};},
 };
 function run(s,d,foot) {
@@ -230,6 +233,8 @@ function showView(selected) {
   }
   const [cls,label]=health(source,selected.view);$('view-status').className='badge '+cls;$('view-status').textContent=label;
   const ready=source.reachable&&(selected.view==='diagnostics'||selected.view==='recordings'||feeds(source,selected.view).some(([,f])=>f.online));
+  // Robot status is drawn here from its readings, not embedded from PC2.
+  if(selected.view==='robot'){overlay.hidden=ready;overlay.querySelector('strong').textContent='Offline';overlay.querySelector('p').textContent=reason(source,selected.view);body.classList.toggle('stale',!ready);if(source.reachable)showRobot(body,source);return;}
   overlay.hidden=ready;overlay.querySelector('strong').textContent='Offline';overlay.querySelector('p').textContent=reason(source,selected.view);body.classList.toggle('stale',!ready);
   // Load a reachable service behind the cover: the camera may start colour lazily.
   if(source.reachable&&!body.querySelector('iframe')){

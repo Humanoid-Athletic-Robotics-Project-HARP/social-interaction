@@ -10,6 +10,7 @@ SSH and is analysed on a laptop, so it can be studied without the robot.
 | `lidar/` | both | The head lidar (a Livox MID-360): recordings, analysis and a live viewer ([lidar/README.md](lidar/README.md)). |
 | `camera/` | PC2 | The head camera (a RealSense D435i) live in a browser, and its depth as ROS 2 topics for everyone (`depth_node.py`) ([camera/README.md](camera/README.md)). |
 | `hybrid/` | PC2 | The lidar and the camera's depth together live, the camera filling the lidar's blind cone ahead, with tabs for each sensor's own view ([hybrid/README.md](hybrid/README.md)). |
+| `robot/` | PC2 | The robot's battery, motor temperatures and HARP's harness state for the dashboard, read-only ([robot/README.md](robot/README.md)). |
 | `speech/` | both | How fast the local speech models run: voice detection, speech-to-text, the LLM, text-to-speech ([speech/README.md](speech/README.md)). |
 | `sync.sh` | laptop | Copy the scripts to PC2, pull a test's captures back, or open a shell there. |
 

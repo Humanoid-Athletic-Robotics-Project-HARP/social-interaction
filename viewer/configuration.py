@@ -14,6 +14,8 @@ DEFAULT = {"sources": [
      "host_env": "G1_HOST", "port": 8082, "layout": "hybrid"},
     {"id": "pc2-speech", "kind": "speech", "label": "Jetson speech", "machine": "Jetson PC2",
      "host_env": "G1_HOST", "port": 28733, "controls": False},
+    {"id": "pc2-robot", "kind": "robot", "label": "Robot status", "machine": "Jetson PC2",
+     "host_env": "G1_HOST", "port": 28735},
     {"id": "him-sim", "kind": "him", "label": "HIM simulator", "machine": "MacBook",
      "url": "http://127.0.0.1:8765"},
 ]}
@@ -77,13 +79,13 @@ def resolve(config=None, root=ROOT):
     if not targets:
         return result
     for source in targets:
-        if source["host_env"] != "G1_HOST" or source.get("kind") not in ("sensors", "speech"):
-            raise ValueError("host_env supports G1_HOST for sensor and speech services")
+        if source["host_env"] != "G1_HOST" or source.get("kind") not in ("sensors", "speech", "robot"):
+            raise ValueError("host_env supports G1_HOST for sensor, speech and robot status services")
     host, private = robot_host(env_file(root))
     for source in targets:
         if "url" in source:
             raise ValueError("choose host_env or url for a source, not both")
-        port = source.get("port", 8082 if source["kind"] == "sensors" else 28733)
+        port = source.get("port", {"sensors": 8082, "robot": 28735}.get(source["kind"], 28733))
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
             raise ValueError("source port must be between 1 and 65535")
         source.setdefault("machine", "Jetson PC2")
