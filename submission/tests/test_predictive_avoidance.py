@@ -58,6 +58,11 @@ class Adapter(unittest.TestCase):
         self.mock_clock.start()
         self.addCleanup(self.mock_clock.stop)
 
+    def test_says_it_started_with_its_switches(self):
+        first = json.loads(self.output['/harp/events'][0].data)
+        self.assertEqual((first['source'], first['event']), ('predictive', 'started'))
+        self.assertEqual((first['cooperative'], first['detour'], first['make_way']), (True, True, False))
+
     def cloud(self, points=None):
         points = [[2, 0, 1]] if points is None else points
         cloud = PointCloud2(height=1, width=len(points), point_step=12,
