@@ -71,6 +71,52 @@ class SimulationTests(unittest.TestCase):
         self.assertTrue(state['feeds']['diagnostics']['online'])
         self.assertEqual(state['mode'],'replay')
 
+    def test_saved_run_replays_frames_and_events_in_wall_order(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            frames = [{'source': 'view', 'event': 'frame', 'wall': w, 'sim_time': w} for w in (1, 3)]
+            events = [{'source': 'predictive', 'event': 'started', 'wall': 0},
+                      {'source': 'predictive', 'event': 'avoidance', 'wall': 2, 'mode': 'yield'}]
+            (run / 'view.jsonl').write_text(''.join(json.dumps(f) + '\n' for f in frames))
+            (run / 'events.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in events))
+            source = Simulation({'id': 'saved', 'kind': 'recording', 'path': folder})
+            source.replay()
+            sent = [source.render_queue.get_nowait() for _ in range(source.render_queue.qsize())]
+            self.assertEqual([v.get('wall') for v in sent if 'wall' in v], [0, 1, 2, 3])
+            self.assertEqual(source.status()['detail']['pieces'], ['predictive avoidance'])
+
+    def test_live_run_names_its_pieces_and_a_new_run_forgets_them(self):
+        source = Simulation({'id': 'sim', 'kind': 'simulation'})
+        source.new_session('first')
+        source.error = None
+        for value in ({'source': 'people', 'event': 'started', 'detector': 'sim_people'},
+                      {'source': 'approach', 'event': 'started'},
+                      {'source': 'behavior', 'event': 'loop_start'}):
+            source.ingest(value)
+        self.assertEqual(source.status()['detail']['pieces'],
+                         ['approach stop', 'sim_people', 'behavior loop'])
+        source.new_session('second')
+        self.assertEqual(source.status()['detail']['pieces'], [])
+
+    def test_late_states_are_counted_per_run(self):
+        source = Simulation({'id': 'sim', 'kind': 'simulation'})
+        source.new_session('first')
+        source.error = None
+        for age in (.049, .113):
+            source.ingest({'source': 'policy', 'event': 'late_state', 'age': age})
+        detail = source.status()['detail']
+        self.assertEqual((detail['late_states'], detail['max_late_s']), (2, .113))
+        source.new_session('second')
+        self.assertEqual(source.status()['detail']['late_states'], 0)
+
+    def test_a_saved_run_says_why_him_stopped_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'view.jsonl').write_text('')
+            (Path(folder) / 'summary.json').write_text(json.dumps({'him_reason': 'action_timeout'}))
+            source = Simulation({'id': 'saved', 'kind': 'recording', 'path': folder})
+            source.replay()
+            self.assertEqual(source.status()['detail']['stopped'], 'action_timeout')
+
     def test_rerun_request_scoping_keeps_sources_separate(self):
         html = '<html><head><script src="./re_viewer.js"></script></head></html>'
         first, second = scope_requests(html, 'one'), scope_requests(html, 'two')

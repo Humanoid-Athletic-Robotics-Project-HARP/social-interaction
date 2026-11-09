@@ -19,17 +19,22 @@ DEFAULT = {"sources": [
 ]}
 
 
-def env_file(root):
-    """Worktrees share the main checkout's gitignored .env, as testground/sync.sh does."""
+def main_checkout(root):
+    """The main checkout, also from a worktree: its .env and runs/ are shared by all of them."""
     try:
         result = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
                                 capture_output=True, text=True, timeout=2)
         common = result.stdout.strip()
         if result.returncode == 0 and common:
-            return Path(common).resolve().parent / ".env"
+            return Path(common).resolve().parent
     except (OSError, subprocess.TimeoutExpired):
         pass
-    return Path(root) / ".env"
+    return Path(root)
+
+
+def env_file(root):
+    """Worktrees share the main checkout's gitignored .env, as testground/sync.sh does."""
+    return main_checkout(root) / ".env"
 
 
 def robot_host(path):

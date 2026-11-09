@@ -29,8 +29,8 @@ nearer of the lidar's and the latest camera frame's (CAMERA_AGE), the camera's t
 from CAMERA_MIN_Z up. The lidar stays the required input; without the camera the rule
 runs on the lidar alone.
 
-Events (policy.log, /harp/events): approach_stop (range m, closing m/s) and
-approach_go (stopped_s), and lidar_lost / lidar_back.
+Events (policy.log, /harp/events): started (its settings), approach_stop (range m, closing
+m/s) and approach_go (stopped_s), and lidar_lost / lidar_back.
 """
 
 import json
@@ -161,6 +161,9 @@ class ApproachStop:
         self.goal_failed = False   # latch route failure, including late goal acceptance
         self.stopped_at = None      # monotonic s it began standing for an approach
         self.last_coming = None
+        # Which filter this run has: viewers and recordings know without reading the task.
+        self.event("started", look=LOOK, half_width=HALF_WIDTH, body=BODY, approach=APPROACH,
+                   lidar_timeout=LIDAR_TIMEOUT)
 
     def inputs_fresh(self, now):
         return all(t is not None and now - t <= LIDAR_TIMEOUT

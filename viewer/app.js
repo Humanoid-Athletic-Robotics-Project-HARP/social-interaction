@@ -11,10 +11,17 @@ function views(source) {
   if(source.kind==='recording')return ['recordings'];
   return source.layout==='hybrid'?['lidar','camera','hybrid']:[source.layout];
 }
+const ID=/^[a-zA-Z0-9_-]+$/;
 function route() {
   const parts=location.hash.slice(1).split('/');
-  if(parts.length===3&&parts[0]==='view'&&/^[a-zA-Z0-9_-]+$/.test(parts[1])&&names[parts[2]])return {source:parts[1],view:parts[2]};
+  if(parts.length===3&&parts[0]==='view'&&ID.test(parts[1])&&names[parts[2]])return {source:parts[1],view:parts[2]};
+  if(parts.length===1&&parts[0]==='runs')return {page:'runs'};
+  if(parts.length===3&&parts[0]==='compare'&&ID.test(parts[1])&&ID.test(parts[2]))return {page:'compare',ids:[parts[1],parts[2]]};
   return null;
+}
+async function post(path,body) {
+  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const value=await response.json();if(!response.ok)throw new Error(value.error||response.status);return value;
 }
 function feeds(source,view) {
   const keys={lidar:['lidar'],camera:['depth','colour'],hybrid:['lidar','depth'],speech:['speech'],diagnostics:['diagnostics'],recordings:['diagnostics'],him:['viewer']}[view];
@@ -31,7 +38,34 @@ function health(source,view) {
 }
 function reason(source,view) {
   if(!source.reachable)return source.reason||'Waiting for this service.';
-  return feeds(source,view).filter(([,v])=>!v.online).map(([k,v])=>`${k}: ${v.reason||'no data'}`).join('; ')||'Receiving data';
+  const missing=feeds(source,view).filter(([,v])=>!v.online).map(([k,v])=>`${k}: ${v.reason||'no data'}`).join('; ');
+  // A run says which avoidance filter, detector and loop it has (their start events).
+  const pieces=(source.detail.pieces||[]).join(' · ');
+  // Deadline health of a sim run: HIM stops it once a state comes 0.2 s late.
+  const d=source.detail,late=d.late_states?`${d.late_states} late state${d.late_states>1?'s':''} (max ${d.max_late_s} s)`:'';
+  const stopped=d.stopped?`HIM stopped it: ${d.stopped}`:'';
+  return [stopped,missing,pieces,late].filter(Boolean).join(' · ')||'Receiving data';
+}
+function showHost() {
+  // Whether this computer is likely to keep a sim run's deadlines (submission/host_health.py).
+  const h=state.host,line=$('host');
+  if(!h||route()){line.hidden=true;return;}
+  // Each reading as a chip, with its target when it falls short.
+  const readings=[],t=h.targets||{};
+  if(h.free_percent!=null)readings.push([`${h.free_percent}% memory free`,h.free_percent<t.free_percent?`aim for ${t.free_percent}%+`:'']);
+  else if(h.free_mb!=null)readings.push([`${(h.free_mb/1000).toFixed(1)} GB available`,'']);
+  if(h.compressed_mb!=null)readings.push([`${(h.compressed_mb/1000).toFixed(1)} GB compressed`,t.compressed_mb!=null&&h.compressed_mb>t.compressed_mb?`aim for ${(t.compressed_mb/1000).toFixed(1)} GB or less`:'']);
+  if(h.viewers)readings.push([`${h.viewers} HIM viewer${h.viewers>1?'s':''} open`,'close after use']);
+  if(h.pressure&&h.pressure!=='normal')readings.push([`macOS: ${h.pressure} pressure`,'']);
+  const verdict=h.ready===true?'Ready for a sim run':h.ready===false?'A sim run may stop on a deadline':'Sim deadlines not measured here';
+  const key=verdict+JSON.stringify(readings);
+  if(line.dataset.key!==key){
+    line.dataset.key=key;
+    line.replaceChildren(node('span','host-dot'),node('span','host-name','This computer'),node('span','host-verdict',verdict),
+      ...readings.map(([text,aim])=>{const chip=node('span','host-reading',text);if(aim)chip.append(node('em','',aim));return chip;}));
+  }
+  line.title=h.ready===false?'Quit apps you don\'t need, close HIM viewers, and restart Docker Desktop between batches (context/sim-deadline-stops.md).':'';
+  line.className='host'+(h.ready===false?' warn':h.ready==null?' unknown':'');line.hidden=false;
 }
 function entries() { return state.sources.flatMap(s=>views(s).map(view=>({source:s,view,key:s.id+'/'+view}))); }
 function priority(entry) {
@@ -46,6 +80,11 @@ function showHome() {
       const empty=node('div','empty');empty.append(node('h3','',lastState?'No services configured':'Connecting to dashboard'),node('p','',lastState?'Add services to the dashboard source configuration.':'Waiting for service status.'));$('content').append(empty);
     }else{
       const grid=node('div','service-grid');
+      // Saved runs first: a list of course.py's run folders, any of them a replay.
+      const runs=node('a','service-button runs-card');runs.href='#runs';runs.setAttribute('aria-label','Open saved runs');
+      const runsTop=node('span','service-top');runsTop.append(node('span','service-machine','This computer'),node('span','badge replay','Runs'));
+      runs.append(runsTop,node('span','service-title','Saved runs'),node('span','service-source','Replay or compare any run'),node('span','service-detail runs-detail'),node('span','open-view','Open list'));
+      grid.append(runs);
       for(const e of items){
         const button=node('a','service-button');button.setAttribute('role','link');button.setAttribute('aria-label',`Open ${e.source.label}: ${names[e.view]}`);
         button.addEventListener('click',event=>{if(button.getAttribute('aria-disabled')==='true')event.preventDefault();});
@@ -66,6 +105,8 @@ function showHome() {
     const detail=button.querySelector('.service-detail'),message=reason(e.source,e.view);
     detail.textContent=message;detail.title=message;
   }
+  const runsDetail=$('content').querySelector('.runs-detail');
+  if(runsDetail)runsDetail.textContent=state.runs==null?'':`${state.runs} runs in runs/`+((state.opened||[]).length?` · ${state.opened.length} open`:'');
   const grid=$('content').querySelector('.service-grid');
   if(grid){
     const sorted=items.slice().sort((a,b)=>priority(a)-priority(b)),order=sorted.map(e=>e.key).join('|');
@@ -100,12 +141,105 @@ function showView(selected) {
     frame.src=['diagnostics','recordings','him'].includes(selected.view)?source.detail.viewer:`/source/${encodeURIComponent(source.id)}/${selected.view}/`;body.prepend(frame);
   }
 }
+let runList=null,runsAt=0,picked=[];
+const when=name=>name.slice(0,10)+' '+name.slice(11,16).replace('-',':');
+function outcome(run) {
+  if(!run.scored)return ['','Not scored'];
+  if(run.outcome==='succeeded'&&run.passed!==false)return ['live','Passed'];
+  if(run.outcome==='inconclusive')return ['','Inconclusive'];
+  const word=run.passed===false&&run.outcome==='succeeded'?'Failed checks':run.outcome||'failed';
+  return ['fail',word[0].toUpperCase()+word.slice(1)];
+}
+async function loadRuns(force) {
+  if(!force&&runList&&Date.now()-runsAt<10000)return;
+  runsAt=Date.now();
+  let fresh;
+  try{fresh=(await (await fetch('/api/runs')).json()).runs;}catch(error){fresh=runList||[];}
+  // Redraw only on a change: a redraw would drop focus and the pointer's place.
+  if(runList&&JSON.stringify(fresh)===JSON.stringify(runList))return;
+  runList=fresh;
+  if(route()?.page==='runs')drawRuns();
+}
+async function openRuns(names_) {
+  try{
+    const ids=[];for(const name of names_)ids.push((await post('/api/runs/open',{name})).id);
+    location.hash=ids.length===1?`#view/${ids[0]}/recordings`:`#compare/${ids[0]}/${ids[1]}`;
+  }catch(error){alert('Could not open the run: '+error.message);}
+}
+function showRuns() {
+  $('title').textContent='Saved runs';$('source-name').textContent='Replay one, or pick two to compare';document.title='Saved runs · HARP viewer';
+  if(signature!=='runs'){
+    signature='runs';cards.clear();
+    const page=node('div','runs-page'),bar=node('div','runs-bar');
+    const filter=node('input','runs-filter');filter.type='search';filter.placeholder='Filter by world, tag, outcome or piece';filter.id='runs-filter';
+    filter.addEventListener('input',drawRuns);
+    const compare=node('button','runs-compare','Compare');compare.id='runs-compare';compare.disabled=true;
+    compare.addEventListener('click',()=>openRuns(picked));
+    bar.append(filter,compare);page.append(bar,node('p','runs-open'),node('div','runs-list'));
+    $('content').replaceChildren(page);drawRuns();loadRuns(true);
+  }
+  const opened=(state.opened||[]).map(id=>state.sources.find(s=>s.id===id)).filter(Boolean);
+  const line=$('content').querySelector('.runs-open'),key=opened.map(s=>s.id).join('|');
+  if(line.dataset.key!==key){
+    line.dataset.key=key;line.replaceChildren();
+    if(opened.length){
+      line.append(node('span','','Open now (each holds a Rerun worker): '));
+      for(const s of opened){
+        const chip=node('span','open-chip'),link=node('a','',s.label);link.href=`#view/${s.id}/recordings`;
+        const close=node('button','','Close');close.addEventListener('click',()=>post('/api/runs/close',{id:s.id}));
+        chip.append(link,close);line.append(chip);
+      }
+    }
+  }
+  loadRuns(false);
+}
+function drawRuns() {
+  const list=$('content').querySelector('.runs-list');if(!list)return;
+  if(!runList){list.replaceChildren(node('p','','Reading runs/ …'));return;}
+  const words=($('runs-filter').value||'').toLowerCase().split(/\s+/).filter(Boolean);
+  const shown=runList.filter(r=>{const text=[r.name,r.world,r.tag,outcome(r)[1],r.him_reason,...r.pieces].join(' ').toLowerCase();return words.every(w=>text.includes(w));});
+  picked=picked.filter(name=>runList.some(r=>r.name===name));
+  const rows=shown.slice(0,300).map(r=>{
+    const row=node('div','run-row'),[cls,label]=outcome(r);
+    const pick=node('input');pick.type='checkbox';pick.checked=picked.includes(r.name);pick.disabled=!r.replay;pick.setAttribute('aria-label','Compare '+r.name);
+    pick.addEventListener('change',()=>{picked=pick.checked?[...picked.filter(n=>n!==r.name),r.name].slice(-2):picked.filter(n=>n!==r.name);drawRuns();});
+    const main=node('div','run-main');main.append(node('span','run-world',r.world||'no world'),node('span','run-tag',r.tag||''),node('span','run-when',when(r.name)));
+    const facts=[r.him_reason?`HIM stopped it: ${r.him_reason}`:'',r.seconds!=null?`${r.seconds} s`:'',r.closest_m!=null?`closest ${r.closest_m} m`:'',
+                 r.contacts?`${r.contacts} contacts`:'',...r.pieces,r.commit?`${r.commit}${r.dirty?' (changed)':''}`:''].filter(Boolean);
+    const detail=node('div','run-detail',facts.join(' · '));detail.title=r.failed_checks&&r.failed_checks.length?'Failed: '+r.failed_checks.join(', '):'';
+    const replay=node('button','run-replay',r.replay?'Replay':'No replay');replay.disabled=!r.replay;replay.addEventListener('click',()=>openRuns([r.name]));
+    row.append(pick,main,node('span','badge '+cls,label),detail,replay);return row;
+  });
+  list.replaceChildren(...(rows.length?rows:[node('p','','No runs match.')]));
+  if(shown.length>300)list.append(node('p','',`Showing the newest 300 of ${shown.length}: filter to narrow.`));
+  const compare=$('runs-compare');compare.disabled=picked.length!==2;compare.textContent=`Compare (${picked.length}/2)`;
+}
+function showCompare(selected) {
+  const sources=selected.ids.map(id=>state.sources.find(s=>s.id===id));
+  $('title').textContent='Compare runs';$('source-name').textContent=sources.map((s,i)=>s?s.label:selected.ids[i]).join('  vs  ');document.title='Compare runs · HARP viewer';
+  const key='compare:'+selected.ids.join('|')+':'+sources.map(s=>Boolean(s&&s.detail.viewer)).join();
+  $('view-status').textContent='Replay';$('view-status').className='badge replay';
+  if(key===signature)return;
+  signature=key;cards.clear();
+  const pair=node('div','compare');
+  sources.forEach((s,i)=>{
+    const pane=node('div','compare-pane');
+    // The embedded replay names its run itself; say so only when it is missing.
+    if(s&&s.detail.viewer){const frame=node('iframe');frame.title=s.label;frame.src=s.detail.viewer;pane.append(frame);}
+    else pane.append(node('div','compare-label','Not open: return to Saved runs and pick it again'));
+    pair.append(pane);
+  });
+  $('content').replaceChildren(pair);
+}
 function render() {
-  const selected=route(),view=Boolean(selected);document.body.classList.toggle('view-page',view);
-  if(view)$('home').removeAttribute('aria-current');else $('home').setAttribute('aria-current','page');
-  $('view-status').hidden=!view;$('footer').hidden=view;
-  if(selected){showView(selected);document.title=names[selected.view]+' · HARP viewer';}
+  const selected=route(),full=Boolean(selected&&selected.page!=='runs');document.body.classList.toggle('view-page',full);
+  if(selected)$('home').removeAttribute('aria-current');else $('home').setAttribute('aria-current','page');
+  $('view-status').hidden=!full;$('footer').hidden=Boolean(selected);
+  if(selected?.page==='runs')showRuns();
+  else if(selected?.page==='compare')showCompare(selected);
+  else if(selected){showView(selected);document.title=names[selected.view]+' · HARP viewer';}
   else{$('title').textContent='HARP viewer';$('source-name').textContent='Home';document.title='HARP viewer';showHome();}
+  showHost();
 }
 window.addEventListener('hashchange',render);
 const events=new EventSource('/events');

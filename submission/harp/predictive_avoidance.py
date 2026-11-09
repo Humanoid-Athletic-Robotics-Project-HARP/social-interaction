@@ -5,6 +5,8 @@ ownership. Alerts are JSON signals, ready for a separate speaker/indicator consu
 It also republishes each scan without the returns of moving objects on STATIC_TOPIC,
 which Nav2's costmaps mark from in this mode (nav2.launch.py): Nav2 plans around
 fixed things, and moving ones are this filter's alone.
+Events (source "predictive"): started (its switches), avoidance (mode, on each change),
+detour and make_way.
 """
 import json
 import math
@@ -192,15 +194,24 @@ class PredictiveAvoidance:
         self.mode = None
         self.last_alert = -math.inf
         self.alert_active = False
+        # Which filter this run has, with its switches: viewers and recordings know what to
+        # expect without reading the task (latched, so late joiners get it too).
+        c = self.config
+        self.announce("started", speed=c.speed, cooperative=c.cooperative, smoothing=c.smoothing,
+                      heading=c.heading, people_margin=c.people_margin,
+                      make_way=self.make_way is not None, detour=self.detour is not None)
+
+    def announce(self, name, **fields):
+        text = events.record("predictive", name, **fields)
+        self.events.publish(String(data=text))
+        print(text, flush=True)
 
     def clock(self):
         return self.node.get_clock().now().nanoseconds * 1e-9
 
     def status(self, mode, alert=False, **fields):
         if mode != self.mode:
-            text = events.record("predictive", "avoidance", mode=mode, **fields)
-            self.events.publish(String(data=text))
-            print(text, flush=True)
+            self.announce("avoidance", mode=mode, **fields)
             self.mode = mode
         now = time.monotonic()
         if alert != self.alert_active or (alert and now - self.last_alert >= 1.0):

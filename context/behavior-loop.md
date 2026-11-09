@@ -3,7 +3,7 @@ name: behavior-loop
 description: Read before changing the autonomous loop (harp/behavior.py, the stand-in detector harp/sim_people.py, the people world) or replacing its placeholders with a real detector or speech
 metadata:
   type: project
-  updated: 2026-11-03T17:33:36Z
+  updated: 2026-11-09T08:51:48Z
   covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people*, submission/worlds/decoys*]
 ---
 

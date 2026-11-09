@@ -10,7 +10,12 @@ run's are in its view.jsonl and events.jsonl (course.py), or still in its policy
 Each run is its own recording, on the sim_time timeline. In the 3D view, /world/truth
 is the sim's truth (the pelvis, the people, the fixed obstacles) and /world/odom what
 Nav2 sees (leg odometry, the cloud, the costmap, the plan, the goal), drawn as if odom
-were the world: the gap between the two robots is the drift.
+were the world: the gap between the two robots is the drift. When those pieces run,
+/world/odom also has what the robot believes: the predictive filter's tracks (moving
+objects with their velocity, lost ones it still plans around, wall tiles) and the person
+detector's detections (candidates the lidar found, people the camera confirmed). The
+status panel says which avoidance filter, detector and loop this run has (from their
+started events), what each is doing now, and whether its data is arriving.
 
 Needs Rerun, from testground's analysis tools (testground/.venv, in this checkout or the
 main checkout; it re-executes itself there). Once, in testground/:
@@ -19,6 +24,7 @@ main checkout; it re-executes itself there). Once, in testground/:
 
 import argparse
 import base64
+import heapq
 import json
 import os
 import signal
@@ -59,6 +65,18 @@ def our_record(line):
     return record if isinstance(record, dict) and "event" in record else None
 
 
+def run_records(run):
+    """A finished run's records in the order they happened: view.jsonl and events.jsonl
+    interleaved by wall time (so the status follows the frames), or its policy.log."""
+    run = Path(run)
+    files = [run / "view.jsonl", run / "events.jsonl"]
+    if not files[1].is_file():
+        files = [run / "policy.log"]
+    streams = [(r for r in map(our_record, path.open(errors="replace")) if r)
+               for path in files if path.is_file()]
+    return heapq.merge(*streams, key=lambda r: r.get("wall", 0))
+
+
 def unpack(text, dtype):
     return np.frombuffer(zlib.decompress(base64.b64decode(text)), dtype=dtype)
 
@@ -83,12 +101,33 @@ def costs(values):
     return np.clip(colors, 0, 255).astype(np.uint8)
 
 
+QUIET = 2.0   # s of sim time without a piece's data before the status calls it quiet
+BEHAVIOR = {"wander_goal": "wandering", "noticed": "noticed {person}",
+            "approach_goal": "walking up to {person} ({stage})", "confirmed": "{person} is a person",
+            "not_a_person": "{person} is not a person", "talk": "talking with {person}",
+            "talk_done": "talk with {person} over ({ended})", "turn_away": "turning away",
+            "error": "stopped: {message}"}
+APPROACH = {"approach_stop": "standing: something coming", "approach_go": "driving",
+            "lidar_lost": "standing: lidar lost", "lidar_back": "driving"}
+
+
 def blueprint():
     return rrb.Blueprint(rrb.Horizontal(
         rrb.Spatial3DView(origin="/world", name="world"),
-        rrb.Vertical(rrb.TextLogView(origin="/events", name="events"),
-                     rrb.TimeSeriesView(origin="/timing", name="HIM state timing (s)")),
+        rrb.Vertical(rrb.TextDocumentView(origin="/status", name="status"),
+                     rrb.TextLogView(origin="/events", name="events"),
+                     rrb.TimeSeriesView(origin="/timing", name="HIM state timing (s)"),
+                     row_shares=[4, 3, 2]),
         column_shares=[3, 2]))
+
+
+def settings(record):
+    """A started event's settings, as short text."""
+    def text(v):
+        return ("on" if v is True else "off" if v is False else
+                " and ".join(map(str, v)) if isinstance(v, list) else str(v))
+    return ", ".join(f"{k.replace('_', ' ')} {text(v)}" for k, v in record.items()
+                     if k not in ("source", "event", "wall", "sim_time"))
 
 
 class Recording:
@@ -101,6 +140,10 @@ class Recording:
         self.rec.send_blueprint(blueprint())
         self.clock = None        # (wall, sim time) of the latest record with both
         self.truth_path, self.odom_path = [], []
+        # The status panel: which pieces this run has (their started events), what each is
+        # doing (its latest event), and the sim time its data last came (frames).
+        self.pieces, self.doing, self.data_at, self.status_text = {}, {}, {}, None
+        self.now = None
         self.rec.log("/world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
     def at(self, record):
@@ -114,10 +157,14 @@ class Recording:
         else:
             return False
         self.rec.set_time("sim_time", duration=t)
+        self.now = t
         return True
 
     def add(self, record):
-        if not self.at(record) and record.get("event") != "world":
+        placed = self.at(record)
+        # Pieces start before the sim's clock does: keep their started events either way.
+        self.follow_pieces(record)
+        if not placed and record.get("event") != "world":
             return
         kind = record["event"]
         if record.get("source") == "view":
@@ -134,6 +181,59 @@ class Recording:
             if kind == "goal_sent":
                 self.rec.log("/world/odom/goal", rr.Points3D([[record["x"], record["y"], 0.02]],
                                                              radii=0.12, colors=(40, 200, 80)))
+
+    def follow_pieces(self, record):
+        """Keep the status panel's pieces and what each is doing, from our events."""
+        source, kind = record.get("source"), record["event"]
+        fields = {k: v for k, v in record.items() if k not in ("source", "event", "wall", "sim_time")}
+        if kind == "started" and source in ("predictive", "approach"):
+            self.pieces["avoidance"] = ("predictive avoidance" if source == "predictive"
+                                        else "approach stop", settings(record))
+        elif kind == "started" and source == "people":
+            self.pieces["detector"] = (record.get("detector", "a person detector"), settings(
+                {k: v for k, v in record.items() if k != "detector"}))
+        elif kind == "loop_start" and source == "behavior":
+            self.pieces["behavior"] = ("behavior loop", settings(
+                {k: v for k, v in record.items() if k != "home"}))
+        elif source == "predictive" and kind == "avoidance":
+            self.doing["avoidance"] = record.get("mode", "?")
+        elif source == "predictive" and kind in ("detour", "make_way"):
+            self.doing["avoidance"] = f"{kind.replace('_', ' ')} {record.get('action', '')}".strip()
+        elif source == "approach" and kind in APPROACH:
+            self.doing["avoidance"] = APPROACH[kind]
+        elif source == "behavior" and kind in BEHAVIOR:
+            try:
+                self.doing["behavior"] = BEHAVIOR[kind].format(**fields)
+            except KeyError:
+                self.doing["behavior"] = kind
+        else:
+            return
+        self.show_status()
+
+    def show_status(self):
+        """The status panel, logged only when its text changes."""
+        def data(key):
+            if key not in self.data_at:
+                return "no data yet"
+            quiet = (self.now or 0) - self.data_at[key]
+            return "data arriving" if quiet <= QUIET else f"no data for over {QUIET:.0f} s"
+        lines = []
+        for key, title, stream in (("avoidance", "Avoidance", "tracks"),
+                                   ("detector", "Person detector", "detections"),
+                                   ("behavior", "Behavior", None)):
+            if key not in self.pieces:
+                lines.append(f"**{title}:** none announced")
+                continue
+            name, detail = self.pieces[key]
+            now = self.doing.get(key, "started")
+            # approach stop sends no stream of its own; the predictive filter sends tracks.
+            if stream and not (key == "avoidance" and name == "approach stop"):
+                now += f" · {data(stream)}"
+            lines.append(f"**{title}:** {name} · {now}  \n*{detail}*")
+        text = "\n\n".join(lines)
+        if text != self.status_text and self.now is not None:
+            self.status_text = text
+            self.rec.log("/status", rr.TextDocument(text, media_type=rr.MediaType.MARKDOWN))
 
     def world(self, record):
         boxes, cylinders, spheres = [], [], []
@@ -186,6 +286,14 @@ class Recording:
                 in_base = points @ rotation(*lq).T + [lx, ly, lz]
                 in_odom = in_base @ pose[:, :3].T + pose[:, 3]
                 log("/world/odom/lidar", rr.Points3D(in_odom, radii=0.025, colors=heights(in_odom[:, 2])))
+        if "tracks" in f:
+            self.tracks(f["tracks"])
+        if "detections" in f and "odom" in f:
+            self.detections(f["detections"], *f["odom"])
+        for key in ("tracks", "detections"):
+            if key in f:
+                self.data_at[key] = self.now
+        self.show_status()
         if "people" in f:
             names = list(f["people"])
             log("/world/truth/people", rr.Cylinders3D(
@@ -204,6 +312,47 @@ class Recording:
             log("/world/odom/costmap", rr.Boxes3D(
                 centers=centers, half_sizes=[c["resolution"] / 2, c["resolution"] / 2, 0.005],
                 colors=costs(cells[rows, cols]), fill_mode="solid"))
+
+
+    def tracks(self, t):
+        """The predictive filter's belief: moving objects (orange, brighter with more credit
+        for giving way, arrow: 1 s of their velocity), lost ones (grey), wall tiles (blue)."""
+        log = self.rec.log
+        objects = np.array(t["objects"], dtype=np.float64).reshape(-1, 8)
+        lost = np.array(t["lost"], dtype=np.float64).reshape(-1, 4)
+        walls = unpack(t["walls"], np.int16).reshape(-1, 2) / 100.0
+        credit = np.clip(objects[:, 7], 0, 1)[:, None]
+        log("/world/odom/tracks/objects", rr.Cylinders3D(
+            centers=np.c_[objects[:, 1:3], np.full(len(objects), 0.05)], radii=objects[:, 5],
+            lengths=0.1, colors=np.hstack([np.full_like(credit, 255), 120 + 100 * credit,
+                                           np.full_like(credit, 40)]).astype(np.uint8),
+            labels=[f"{int(i)} {np.hypot(vx, vy):.1f} m/s" for i, vx, vy in objects[:, [0, 3, 4]]],
+            fill_mode="majorwireframe"))
+        log("/world/odom/tracks/uncertainty", rr.Cylinders3D(
+            centers=np.c_[objects[:, 1:3], np.full(len(objects), 0.05)],
+            radii=objects[:, 5] + objects[:, 6], lengths=0.02, colors=(255, 160, 40, 90)))
+        log("/world/odom/tracks/velocity", rr.Arrows3D(
+            origins=np.c_[objects[:, 1:3], np.full(len(objects), 0.1)],
+            vectors=np.c_[objects[:, 3:5], np.zeros(len(objects))], colors=(255, 120, 40)))
+        log("/world/odom/tracks/lost", rr.Cylinders3D(
+            centers=np.c_[lost[:, 1:3], np.full(len(lost), 0.05)], radii=lost[:, 3], lengths=0.1,
+            colors=(160, 160, 160, 160), labels=[f"lost {int(i)}" for i in lost[:, 0]]))
+        log("/world/odom/tracks/walls", rr.Boxes3D(
+            centers=np.c_[walls, np.full(len(walls), 0.01)], half_sizes=[0.18, 0.18, 0.01],
+            colors=(90, 140, 230, 90), fill_mode="solid"))
+
+    def detections(self, people, x, y, yaw):
+        """The detector's people, from base_link into odom with this frame's pose: candidates
+        the lidar found (yellow) and people the camera confirmed (green)."""
+        c, s = np.cos(yaw), np.sin(yaw)
+        at = [[x + c * p["x"] - s * p["y"], y + s * p["x"] + c * p["y"], 0.9] for p in people]
+        confirmed = ["camera" in p.get("seen_by", []) for p in people]
+        self.doing["detector"] = (f"{len(people) - sum(confirmed)} candidates, "
+                                  f"{sum(confirmed)} confirmed")
+        self.rec.log("/world/odom/detections", rr.Cylinders3D(
+            centers=np.array(at, dtype=np.float64).reshape(-1, 3), radii=0.08, lengths=1.8,
+            colors=[(60, 200, 90, 220) if k else (240, 200, 40, 220) for k in confirmed],
+            labels=[f"{p['id']} {'person' if k else 'candidate'}" for p, k in zip(people, confirmed)]))
 
 
 def viewer(native):
@@ -260,15 +409,8 @@ def follow(url):
 def show_run(run, url):
     run = Path(run)
     recording = Recording(run.name, url)
-    files = [run / "view.jsonl", run / "events.jsonl"]
-    if not files[1].is_file():
-        files = [run / "policy.log"]
-    for path in files:
-        if path.is_file():
-            for line in path.read_text(errors="replace").splitlines():
-                record = our_record(line)
-                if record:
-                    recording.add(record)
+    for record in run_records(run):
+        recording.add(record)
     recording.rec.flush()
     print(f"{run.name}: sent; Ctrl-C closes the viewer", flush=True)
     while True:

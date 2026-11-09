@@ -1,5 +1,6 @@
 """Collect our simulation logs and render them through the existing Rerun presentation."""
 import collections
+import heapq
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,21 @@ def record(line):
     return value if isinstance(value, dict) and "event" in value else None
 
 
+PIECES = ("avoidance", "detector", "behavior")
+
+
+def piece_of(value):
+    """(kind, name) of the optional piece an event announces as it starts, or None."""
+    source, kind = value.get("source"), value.get("event")
+    if kind == "started" and source in ("predictive", "approach"):
+        return "avoidance", "predictive avoidance" if source == "predictive" else "approach stop"
+    if kind == "started" and source == "people":
+        return "detector", str(value.get("detector", "person detector"))
+    if kind == "loop_start" and source == "behavior":
+        return "behavior", "behavior loop"
+    return None
+
+
 class Simulation(Source):
     def __init__(self, config):
         super().__init__(config)
@@ -40,6 +56,19 @@ class Simulation(Source):
         self.seen = None
         self.recent = collections.deque(maxlen=250)
         self.world = None
+        self.pieces = {}   # avoidance, detector, behavior: the names their start events give
+        self.late, self.late_max, self.stopped = 0, 0.0, None   # this run's deadline health
+
+    def note_piece(self, value):
+        """Which optional pieces this run has, from their started events (lidar_view.py
+        shows the details), and its late states."""
+        if value.get("source") == "policy" and value.get("event") == "late_state":
+            # A state our node got late: HIM stops the run past 0.2 s (sim-deadline-stops).
+            self.late += 1
+            self.late_max = max(self.late_max, float(value.get("age") or 0))
+        piece = piece_of(value)
+        if piece:
+            self.pieces[piece[0]] = piece[1]
 
     def start(self):
         self.start_thread(self.render)
@@ -78,6 +107,8 @@ class Simulation(Source):
             self.finished = False
             self.recent.clear()
             self.world = None
+            self.pieces = {}
+            self.late, self.late_max, self.stopped = 0, 0.0, None
             self.render_dropped = 0
         while True:
             try:
@@ -95,6 +126,7 @@ class Simulation(Source):
                 self.world = value
             else:
                 self.recent.append(value)
+                self.note_piece(value)
         self.offer(value)
 
     def status(self):
@@ -111,7 +143,10 @@ class Simulation(Source):
                            "frame_age": frame_age, "event_age": event_age,
                            "finished": self.finished, "dropped": self.render_dropped,
                            "rrd": self.kind == "recording" and self.config.get("path", "").lower().endswith(".rrd"),
-                           "events": list(self.recent)[-30:]}
+                           "events": list(self.recent)[-30:],
+                           "pieces": [self.pieces[k] for k in PIECES if k in self.pieces],
+                           "late_states": self.late, "max_late_s": round(self.late_max, 3),
+                           "stopped": self.stopped}
             # Replay remains available after EOF; live freshness is based on frames, not process existence.
             self.updated = time.monotonic() if self.error is None else self.updated
             value = super().status()
@@ -153,6 +188,9 @@ class Simulation(Source):
                     value = record(line)
                     if value:
                         self.ingest(value)
+                    elif "Policy abort:" in line:   # HIM stopped the run (plain text, not JSON)
+                        with self.lock:
+                            self.stopped = line.split("Policy abort:", 1)[1].strip()[:80]
                 self.logs.wait()
                 self.logs.stdout.close()
                 with self.lock:
@@ -179,25 +217,37 @@ class Simulation(Source):
                 if not any(p.is_file() for p in paths):
                     raise ValueError("run has no view.jsonl or policy.log")
                 self.new_session(str(path))
-                for file in paths:
-                    if not file.is_file():
-                        continue
-                    with file.open(errors="replace") as lines:
-                        for line in lines:
-                            if self.stop.is_set():
-                                return
-                            value = record(line)
-                            if value:
-                                # Replay is lossless; backpressure here cannot delay a robot.
-                                with self.lock:
-                                    self.recent.append(value) if value.get("source") != "view" else None
-                                while not self.stop.is_set():
-                                    try:
-                                        self.render_queue.put(value, timeout=.2)
-                                        break
-                                    except queue.Full:
-                                        if self.worker_error:
-                                            raise ValueError(self.worker_error)
+                try:
+                    # How it ended, as course.py scored it: HIM's reason when it stopped the run.
+                    summary = json.loads((path / "summary.json").read_text())
+                    with self.lock:
+                        self.stopped = summary.get("him_reason")
+                except (OSError, ValueError, AttributeError):
+                    pass
+                files = [file.open(errors="replace") for file in paths if file.is_file()]
+                try:
+                    # Frames and events interleaved by wall time, as they happened, so the
+                    # status that events set follows the frames.
+                    merged = heapq.merge(*((v for v in map(record, f) if v) for f in files),
+                                         key=lambda v: v.get("wall", 0))
+                    for value in merged:
+                        if self.stop.is_set():
+                            return
+                        # Replay is lossless; backpressure here cannot delay a robot.
+                        with self.lock:
+                            if value.get("source") != "view":
+                                self.recent.append(value)
+                                self.note_piece(value)
+                        while not self.stop.is_set():
+                            try:
+                                self.render_queue.put(value, timeout=.2)
+                                break
+                            except queue.Full:
+                                if self.worker_error:
+                                    raise ValueError(self.worker_error)
+                finally:
+                    for f in files:
+                        f.close()
                 self.offer({"_flush": True})
             with self.lock:
                 self.error = None

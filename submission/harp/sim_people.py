@@ -25,7 +25,8 @@ wedges either side, and confirmed only within about 2 m ahead. Each is placed wi
   {"frame": "base_link", "people": [{"id": "person", "x": 2.1, "y": -0.4, "seen_by": ["lidar"]}]}
 x ahead and y left of the robot, in m; seen_by lists the sensors that see them now:
 lidar (a candidate) and camera (a person). The id stays with a person or decoy, as a
-tracker's would.
+tracker's would. At start, a "started" event (source "people", detector "sim_people") says
+which detector this is, for viewers and recordings.
 """
 
 import json
@@ -69,6 +70,9 @@ class SimPeople:
         self.decoys = [g for g in range(self.model.ngeom) if self.person_shaped(g)]
         self.rng = np.random.default_rng()
         self.pub = node.create_publisher(String, "/harp/people", 10)
+        # Which detector publishes /harp/people (a real one says its own name the same way).
+        events.Events(node, "people")("started", detector="sim_people", sensors=["lidar", "camera"],
+                                      lidar_range=LIDAR_RANGE, camera_range=CAMERA_RANGE)
         node.create_subscription(String, events.TOPIC, self.on_event, events.latched())
         node.create_subscription(String, "/safety/policy_state", self.on_state,
                                  QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))

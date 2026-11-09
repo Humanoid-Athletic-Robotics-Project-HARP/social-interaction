@@ -117,14 +117,25 @@ class CheckedDistance(unittest.TestCase):
         self.data = mujoco.MjData(self.model)
         mujoco.mj_kinematics(self.model, self.data)
 
-    def test_the_exact_distance_matches_mujoco_where_mujoco_is_right(self):
-        for g in (1, 2):
-            fromto = np.zeros(6)
-            want = mujoco.mj_geomDistance(self.model, self.data, g, 0, 5., fromto)
-            self.assertAlmostEqual(course.rounded_to_cylinder(self.model, self.data, g, 0), want, places=4)
-            self.assertAlmostEqual(course.geom_distance(self.model, self.data, g, 0, 5.), want)
-        self.assertAlmostEqual(course.rounded_to_cylinder(self.model, self.data, 2, 0), .4)   # above its top
+    def test_the_exact_distance_matches_the_geometry(self):
+        # The foot lies along x at 0.04 m; its nearer end (5.753, 1.73) is 0.8826 m from the
+        # pillar's axis: 0.8826 - 0.3 - 0.01 (MuJoCo 3.3.7 agrees; 3.2.3 says 0.393).
+        for g, want in ((1, .5733), (2, .4)):    # the ball 0.4 m above the pillar's top
+            self.assertAlmostEqual(course.rounded_to_cylinder(self.model, self.data, g, 0), want, places=3)
+            self.assertAlmostEqual(course.geom_distance(self.model, self.data, g, 0, 5.), want, places=3)
         self.assertIsNone(course.rounded_to_cylinder(self.model, self.data, 3, 0))           # a box
+
+    def test_a_short_positive_with_nearest_points_off_the_geom_is_replaced(self):
+        def short(model, data, g, o, limit, fromto):
+            fromto[:] = [5.908, 1.851, .333, 6.216, 2.045, .481]   # MuJoCo 3.2.3, this pair
+            return .393
+        exact = course.rounded_to_cylinder(self.model, self.data, 1, 0)
+        with patch.object(course.mujoco, "mj_geomDistance", short):
+            self.assertAlmostEqual(course.geom_distance(self.model, self.data, 1, 0, 5.), exact)
+
+    def test_a_distance_at_the_limit_is_kept(self):
+        with patch.object(course.mujoco, "mj_geomDistance", lambda m, d, g, o, limit, ft: limit):
+            self.assertEqual(course.geom_distance(self.model, self.data, 1, 0, .2), .2)
 
     def test_a_zero_with_nearest_points_off_the_geoms_is_replaced(self):
         def broken(model, data, g, o, limit, fromto):

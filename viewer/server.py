@@ -2,9 +2,11 @@
 """One dashboard for independent HARP feeds. python3 viewer/server.py --help"""
 import argparse
 import ast
+import hashlib
 import json
 from pathlib import Path
 import signal
+import sys
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +16,11 @@ from configuration import resolve
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+sys.path.append(str(ROOT / "submission"))
+import host_health  # noqa: E402  (standard library only, shared with course.py)
+
+HOST_EVERY = 5.0   # s between host health readings
+MAX_OPEN = 2       # saved runs open at once from the Runs page: each runs a Rerun worker
 
 
 def page(source, view):
@@ -55,13 +62,69 @@ class Dashboard:
         self.sources = {item["id"]: (Simulation(item) if item["kind"] in ("simulation", "recording") else Source(item))
                         for item in validate(config)}
         self.stop = threading.Event()
+        self.host = None   # host_health.health(): can this computer keep a sim's deadlines
+        from runs import Runs, runs_folder
+        self.runs = Runs(runs_folder(root))
+        self.opened = []   # ids of saved runs opened from the Runs page, oldest first
+        self.made = set()  # every id open_run created, the only ones close_run may close
+        self.lock = threading.Lock()   # sources change as runs are opened and closed
+        self.started = False
 
     def start(self):
+        self.started = True
         for source in self.sources.values():
             source.start()
+        threading.Thread(target=self.watch_host, daemon=True, name="host").start()
+
+    def watch_host(self):
+        while not self.stop.is_set():
+            self.host = host_health.health()
+            self.stop.wait(HOST_EVERY)
+
+    def open_run(self, name):
+        """A saved run as a recording source, its id; the oldest opened one closes past
+        MAX_OPEN (configured recordings stay)."""
+        from simulation import Simulation
+        path = self.runs.path(name)
+        if path is None:
+            raise KeyError("no such run")
+        key = "run-" + hashlib.sha1(name.encode()).hexdigest()[:10]
+        with self.lock:
+            if key in self.sources:
+                self.opened.remove(key)
+                self.opened.append(key)
+                return key
+            meta = next((r for r in self.runs.list() if r["name"] == name), {})
+            source = Simulation({"id": key, "kind": "recording", "path": str(path), "run": name,
+                                 "label": " · ".join(str(v) for v in (meta.get("world"), meta.get("tag"),
+                                                                     name[:16].replace("_", " ")) if v),
+                                 "machine": "Saved run"})
+            self.sources[key] = source
+            self.made.add(key)
+            self.opened.append(key)
+            closing = self.opened[:-MAX_OPEN]
+            del self.opened[:-MAX_OPEN]
+        for old in closing:
+            self.close_run(old)
+        if self.started:
+            source.start()
+        return key
+
+    def close_run(self, key):
+        """Close a run the Runs page opened; configured sources are never closed here."""
+        with self.lock:
+            source = self.sources.pop(key, None) if key in self.made else None
+            self.made.discard(key)
+            if key in self.opened:
+                self.opened.remove(key)
+        if source is not None:
+            source.close()
 
     def state(self):
-        return json.loads(self.encode({"sources": [s.status() for s in self.sources.values()]}))
+        with self.lock:
+            sources = list(self.sources.values())
+        return json.loads(self.encode({"sources": [s.status() for s in sources], "host": self.host,
+                                       "runs": len(self.runs.list()), "opened": list(self.opened)}))
 
     def encode(self, value):
         return self.redact(json.dumps(value))
@@ -73,7 +136,9 @@ class Dashboard:
 
     def close(self):
         self.stop.set()
-        for source in self.sources.values():
+        with self.lock:
+            sources = list(self.sources.values())
+        for source in sources:
             source.close()
 
 
@@ -130,6 +195,17 @@ def handler(dashboard):
                 return self.reply(200, dashboard.state())
             if data is None and url.path == "/events":
                 return self.sse()
+            if data is None and url.path == "/api/runs":
+                return self.reply(200, {"runs": dashboard.runs.list(), "opened": list(dashboard.opened),
+                                        "max_open": MAX_OPEN})
+            if data is not None and url.path == "/api/runs/open":
+                try:
+                    return self.reply(200, {"id": dashboard.open_run(json.loads(data).get("name"))})
+                except KeyError:
+                    return self.reply(404, {"error": "no such run"})
+            if data is not None and url.path == "/api/runs/close":
+                dashboard.close_run(str(json.loads(data).get("id")))
+                return self.reply(200, {"opened": list(dashboard.opened)})
             if url.path.startswith("/source/"):
                 parts = url.path.split("/", 3)
                 source = dashboard.sources.get(parts[2])

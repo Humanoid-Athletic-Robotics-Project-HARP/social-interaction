@@ -93,6 +93,7 @@ import zipfile
 from pathlib import Path
 
 import checkout  # beside this file
+from host_health import host_memory, memory_warnings  # beside this file too
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
@@ -226,13 +227,15 @@ def geom_distance(model, data, g, o, limit):
     now and then returns 0 with nearest points far from both geoms (HIM atrium runs, Nov 3:
     8 of 3.1 million robot-to-fixed pairs, each a pillar "contact" with the foot 0.66 m away;
     once its nearest points were on both geoms but 0.62 m apart, a wheelchair "contact").
-    A result not borne out by its own nearest points (off geom g, or not as far apart as
-    it says) is replaced by the exact distance when g is a sphere or capsule and o a
-    cylinder (the case seen); any other is kept as it came."""
+    MuJoCo 3.2.3 (our image's, where the tests run) also returns too small a positive
+    distance: 0.39 m for a foot 0.57 m from a pillar, its nearest point 0.4 m off the foot.
+    Any result under limit not borne out by its own nearest points (off geom g, or not as
+    far apart as it says) is replaced by the exact distance when g is a sphere or capsule
+    and o a cylinder (the cases seen); any other is kept as it came."""
     fromto = np.zeros(6)
     d = mujoco.mj_geomDistance(model, data, g, o, limit, fromto)
-    if d > 0 or (abs(np.linalg.norm(fromto[3:] - fromto[:3]) - abs(d)) <= 1e-3
-                 and np.linalg.norm(fromto[:3] - data.geom_xpos[g]) <= model.geom_rbound[g] + 1e-6):
+    if d >= limit or (abs(np.linalg.norm(fromto[3:] - fromto[:3]) - abs(d)) <= 1e-3
+                      and np.linalg.norm(fromto[:3] - data.geom_xpos[g]) <= model.geom_rbound[g] + 1e-6):
         return d
     exact = rounded_to_cylinder(model, data, g, o)
     return d if exact is None else min(exact, limit)
@@ -688,28 +691,6 @@ def compare(world=None):
               f"{closest:>7} {mean('end_error_m'):>6} {mean('recoveries'):>5} {drift:>5}")
 
 
-def host_memory():
-    """The host's memory now in MB, or None: free, compressed and decompressed so far on
-    macOS (vm_stat), available and swapped in so far on Linux (/proc)."""
-    try:
-        if sys.platform == "darwin":
-            text = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
-            mb = int(re.search(r"page size of (\d+)", text).group(1)) / 2**20
-            pages = {k.strip('"'): int(v.strip(" .")) for k, v in
-                     (line.split(":") for line in text.splitlines()[1:] if ":" in line)}
-            return {"free_mb": round((pages["Pages free"] + pages["Pages speculative"]) * mb),
-                    "compressed_mb": round(pages["Pages occupied by compressor"] * mb),
-                    "decompressed_mb": round(pages["Decompressions"] * mb)}
-        if sys.platform.startswith("linux"):
-            info = dict(line.split(":") for line in Path("/proc/meminfo").read_text().splitlines())
-            vmstat = dict(line.split() for line in Path("/proc/vmstat").read_text().splitlines())
-            return {"free_mb": round(int(info["MemAvailable"].split()[0]) / 1024),
-                    "swapped_in_mb": round(int(vmstat["pswpin"]) * os.sysconf("SC_PAGE_SIZE") / 2**20)}
-    except (OSError, ValueError, KeyError, AttributeError, subprocess.SubprocessError):
-        pass
-    return None
-
-
 class MemoryWatch(threading.Thread):
     """host_memory() each second during a run; finish() sums it up for run.json, with each
     second's sample ("seconds": wall time, free MB and, on macOS, MB decompressed since the
@@ -746,26 +727,6 @@ class MemoryWatch(threading.Thread):
         result["seconds"] = [[b["wall"], b["free_mb"], b[change] - a[change]]
                              for a, b in zip(samples, samples[1:])]
         return result
-
-
-def memory_warnings():
-    """What to warn about before a run: HIM viewers still up, macOS short of memory."""
-    notes = []
-    try:
-        viewers = subprocess.run(["pgrep", "-f", "containers/sim/live.py"],
-                                 capture_output=True, text=True).stdout.split()
-    except OSError:
-        viewers = []
-    if viewers:
-        notes.append(f"{len(viewers)} HIM viewer(s) still up (pid {', '.join(viewers)}), about "
-                     "700 MB each: Ctrl-C them where they run")
-    if sys.platform == "darwin":
-        level = subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
-                               capture_output=True, text=True).stdout.strip()
-        if level in ("2", "4"):
-            notes.append(f"macOS reports {'warning' if level == '2' else 'critical'} memory "
-                         "pressure: close apps first")
-    return notes
 
 
 def watch_live(process, run):

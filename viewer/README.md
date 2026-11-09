@@ -3,7 +3,8 @@
 One dashboard for independent HARP feeds on a laptop or PC2. Each source has its own
 connection and status. Home lists every configured service view as a full-width row, including
 offline services. Larger names and Open view actions make the rows easy to scan.
-Available viewers move to the top. Unreachable services have a gray,
+A line above them says whether this computer is likely to keep a sim run's deadlines
+(memory free and compressed, HIM viewers left open). Available viewers move to the top. Unreachable services have a gray,
 disabled Open view action; hover the muted status line for its full reason. Each
 available service opens a full-window page with a Home button. Browser back/forward
 and direct links such as `#view/mac-speech/speech` work without stopping collection.
@@ -124,12 +125,24 @@ stays intact. Start a world run using the usual simulation command; the dashboar
 attaches independently and follows container restarts. Plain move runs do not
 produce the same view frames and show offline in this view.
 
+Besides the sim's truth and what Nav2 sees, the page draws what the robot believes when
+those pieces run: the predictive filter's tracks (moving objects with velocity, lost
+objects, wall tiles) and the person detector's candidates and confirmed people. Its
+status panel names the run's avoidance filter, person detector and behavior loop, what
+each is doing now, and whether its data is arriving. Home's row lists the same pieces.
+
 Rerun starts when data arrives. It runs in a separate analysis process with a
 200 MB server buffer and loopback listeners, accessed through the dashboard.
 The browser uses the dashboard address for assets and data, including from another
 computer. Closing the dashboard stops its renderer processes and log readers.
 
-To add a saved run as a replay button on Home, append an entry to the source list:
+Saved runs, the first row on Home (`#runs`), lists every run folder in the main
+checkout's `runs/` (or `HARP_RUNS_DIR`), newest first, with its world, tag, outcome,
+HIM's stop reason and the pieces it had. Type to filter. Replay opens one run; tick two
+and Compare shows them side by side. Two runs stay open at most, since each holds a
+Rerun worker: opening a third closes the oldest, and Close frees one.
+
+To keep a saved run on Home as its own row, append an entry to the source list:
 
 ```json
 {"id": "saved-course", "kind": "recording", "label": "Saved course", "machine": "MacBook", "path": "runs/RUN_FOLDER"}

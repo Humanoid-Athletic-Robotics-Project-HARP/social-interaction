@@ -3,8 +3,8 @@ name: sim-deadline-stops
 description: Read when HIM stops a sim run on a deadline or a run ends inconclusive — why it happens (the computer short of memory), what to check and do, and before changing how runs are watched or timed
 metadata:
   type: feedback
-  updated: 2026-11-09T05:26:28Z
-  covers: [submission/harp_node.py, submission/course.py, submission/sim.sh]
+  updated: 2026-11-09T08:51:48Z
+  covers: [submission/harp_node.py, submission/course.py, submission/sim.sh, submission/host_health.py]
 ---
 
 HIM stops a run when the command it accepted answers a state 0.2 s old (`observation_timeout`, `action_timeout`, `checked_command_expired`). On a Mac with Docker Desktop that is almost always **the Mac short of memory, not our code**: don't change code for it, and don't count the run in results.
@@ -24,7 +24,7 @@ HIM stops a run when the command it accepted answers a state 0.2 s old (`observa
 2. Close HIM viewers still up: `pgrep -fl containers/sim/live.py` (Ctrl-C them where they run). `course.py --view` closes its own.
 3. Ask the user to quit apps they don't need (browsers hold the most). Never quit their apps yourself.
 4. Restart Docker Desktop, which hands back the VM's compressed memory: `osascript -e 'quit app "Docker Desktop"'`, wait until `pgrep -f com.apple.Virtualization.VirtualMachine` finds nothing, `open -a Docker`, wait for `docker info`. Do it between batches whenever compressed memory is high, not only after a stop.
-5. Before rerunning: `memory_pressure | tail -1` about 73% free or more, and `vm_stat` "Pages occupied by compressor" (× 16 KB) about 2.5 GB or less. The VM at 4 GB (Docker Desktop, Resources) is enough: a course run uses about 1.4 GB.
+5. Before rerunning: `memory_pressure | tail -1` about 73% free or more, and `vm_stat` "Pages occupied by compressor" (× 16 KB) about 2.5 GB or less. `submission/host_health.py` checks these (and open HIM viewers): `course.py` warns with it, and the dashboard's Home shows its verdict with each run's late states and HIM's stop reason ([[unified-viewer]]). The VM at 4 GB (Docker Desktop, Resources) is enough: a course run uses about 1.4 GB.
 6. Rerun the stopped run with the same tag; long runs (over about 100 s) with `--no-view`, then watch the replay ([[course-runs]]).
 
 **On Linux** (no VM): check `free -m` and swap (`vmstat 1`); steps 2, 3 and 6 apply.
