@@ -226,8 +226,10 @@ terminal at the same time. The mic and speakers are this computer's, not the bro
 Then open http://127.0.0.1:28733. The page can start the LLM server too. `--host 0.0.0.0`
 opens it to other computers (on PC2, to watch from a laptop on the robot network).
 
-On the Now card, Turns and Time count from HARP's greeting, as `talk.py` does, not while
-the models load.
+After a turn, the Now card follows the wait for HARP's answer until its first sound. If
+the LLM has sent no words by the first mark, HARP says a short filler. If it sends nothing
+for 5 s, HARP says a fixed line instead. The line below says which happened. Turns and
+Time count from HARP's greeting, as `talk.py` does, not while the models load.
 
 ## Bench
 

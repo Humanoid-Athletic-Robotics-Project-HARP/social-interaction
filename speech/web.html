@@ -326,10 +326,11 @@ canvas { width: 100%; height: 92px; display: block; border-radius: 8px; backgrou
       </div>
       <div id="reply-track" hidden>
         <div class="track">
-          <div class="track-top"><span id="reply-label">HARP is thinking</span><span class="num" id="reply-s">0.0 s</span></div>
-          <div class="rail" id="reply-rail"><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
+          <div class="track-top"><span id="reply-label">Waiting for HARP's answer</span><span class="num" id="reply-s">0.0 s</span></div>
+          <div class="rail" id="reply-rail" title="From the end of their turn to HARP's first sound. A filler plays at the first mark if the LLM has sent no words yet; a fixed line at the second if it sends nothing for that long."><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
           <div class="marks" id="reply-marks"></div>
         </div>
+        <div class="verdict" id="reply-verdict"></div>
       </div>
       <div class="limits" id="limits" hidden><span>Turns <b class="num" id="turns">0</b><span id="turns-max"></span></span><span>Time <b class="num" id="elapsed">0 s</b><span id="elapsed-max"></span></span></div>
     </section>
@@ -398,7 +399,7 @@ const LISTEN = {
 
 let S = {};   // the page's view of the session, rebuilt from the events
 function fresh() {
-  return { running: false, config: null, talkReady: false, listen: "off", pending: 0, replyStart: null,
+  return { running: false, config: null, talkReady: false, listen: "off", pending: 0, replyStart: null, answered: null, filler: null,
     speaking: null, lastSpeech: 0, lastQuiet: 0, judged: null, live: null, harpLive: null, levels: [],
     stats: { heard: [], llm: [], sound: [] }, turns: 0, started: null, began: null, over: null, done: null, warnings: {}, lastHeard: null };
 }
@@ -625,15 +626,28 @@ function tick() {   // timers that run between events
     $("elapsed").textContent = "0 s";
     $("now-clock").textContent = "loading " + fmtClock((serverNow() - S.started) / 1000);
   } else $("now-clock").textContent = "";
-  if (S.pending > 0 && S.replyStart !== null) {
-    const t = (Date.now() - S.replyStart) / 1000, max = L.give_up + 0.5;
-    $("reply-s").textContent = secs(t, 1);
-    $("reply-fill").style.width = Math.min(100, t / max * 100) + "%";
-    const ms = [[L.filler, "filler"], [L.give_up, "gives up"]];
-    railMarks($("reply-rail"), max, ms.map(x => x[0])); marks($("reply-marks"), max, ms);
-    $("reply-label").textContent = "Since their turn ended";
-    const clock = document.querySelector(".typing .clock"); if (clock) clock.textContent = "thinking " + secs(t, 1);
-  }
+  if (S.pending > 0 && S.replyStart !== null) replyTrack();
+}
+// From the end of their turn to HARP's first sound, then frozen there while it speaks.
+function replyTrack() {
+  const now = (Date.now() - S.replyStart) / 1000, done = S.answered !== null;
+  const t = done ? S.answered : now, max = Math.max(L.give_up, t) + 0.5;
+  $("reply-s").textContent = secs(t, 1);
+  $("reply-fill").style.width = Math.min(100, t / max * 100) + "%";
+  $("reply-fill").style.background = cssVar(done ? "--muted-state" : "--thinking");
+  const ms = [[L.filler, "filler"], [L.give_up, "fixed line"]];
+  railMarks($("reply-rail"), max, ms.map(x => x[0])); marks($("reply-marks"), max, ms);
+  $("reply-label").textContent = done ? "HARP's answer started after" : "Waiting for HARP's answer";
+  const f = S.filler, said = f && f.text ? 'HARP said <b>"' + f.text + '"</b> at ' + secs(f.at_s, 1) + " to fill the pause" : "";
+  const why = f && !f.text ? { started: "no filler: the LLM had already started writing", unfit: "no filler: one doesn't fit after a greeting, a goodbye or \u201cwhat?\u201d", playing: "no filler: HARP was still speaking" }[f.reason] : "";
+  let v;
+  if (done) v = "<b>Answered " + secs(t, 1) + "</b> after their turn ended" + (said ? "; before that, " + said : why ? " (" + why + ")" : "") + ". The rest plays as it's ready.";
+  else if (said) v = "The LLM sent no words by " + secs(L.filler, 1) + ", so " + said + ". The answer follows as soon as its voice is ready.";
+  else if (why) v = why[0].toUpperCase() + why.slice(1) + ". It speaks as soon as the first part's voice is ready.";
+  else if (now >= L.give_up) v = "The LLM sent nothing for " + secs(L.give_up, 0) + ", so HARP says a fixed line instead.";
+  else v = "The LLM is writing the reply. If it has sent no words by <b>" + secs(L.filler, 1) + "</b>, HARP fills the pause; if it sends nothing for " + secs(L.give_up, 0) + ", HARP says a fixed line.";
+  $("reply-verdict").innerHTML = v;
+  const clock = document.querySelector(".typing .clock"); if (clock) clock.textContent = "thinking " + secs(now, 1);
 }
 function fmtClock(s) { s = Math.floor(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
 
@@ -758,7 +772,7 @@ function setTyping(on) {
   if (!on && t) t.remove();
 }
 function expectReply() { S.pending++; if (S.replyStart === null) S.replyStart = Date.now(); setTyping(true); render(); }
-function replied() { S.pending = Math.max(0, S.pending - 1); if (!S.pending) { setTyping(false); S.replyStart = null; } render(); }
+function replied() { S.pending = Math.max(0, S.pending - 1); if (!S.pending) { setTyping(false); S.replyStart = null; S.answered = null; S.filler = null; } render(); }
 function clearPlaying() { conv().querySelectorAll(".msg.playing").forEach(m => { m.classList.remove("playing"); const t = m.querySelector(".tag.speaking"); if (t) t.remove(); }); }
 function markPlaying(msg) {
   clearPlaying(); msg.classList.add("playing");
@@ -854,7 +868,7 @@ function handle(m) {
       divider("Started " + parts.join(", ") + " at " + new Date(m.time * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
       S.listen = m.config.listen ? "starting" : "off";
     } else {
-      S.running = false; S.pending = 0; S.replyStart = null; S.speaking = null; setTyping(false); clearPlaying(); personLive(false);
+      S.running = false; S.pending = 0; S.replyStart = null; S.answered = null; S.filler = null; S.speaking = null; setTyping(false); clearPlaying(); personLive(false);
       divider("Stopped");
       if (S.listen !== "off") S.listen = "ended";
     }
@@ -894,6 +908,7 @@ function handle(m) {
       if (canned) { canned.classList.add("spoken"); markPlaying(canned); }
       else if (m.first || !S.harpLive) {
         setTyping(false);
+        if (S.replyStart !== null && S.answered === null) S.answered = (Date.now() - S.replyStart) / 1000;
         S.harpLive = message("harp", m.text, [], []); S.harpLive.dataset.reply = "1"; markPlaying(S.harpLive);
       } else {
         const t = S.harpLive.querySelector(".text"); t.textContent = (t.textContent + " " + m.text).trim(); markPlaying(S.harpLive);
@@ -916,6 +931,7 @@ function handle(m) {
       }
       render(); return;
     }
+    if (event === "filler") { S.filler = m; render(); return; }
     if (event === "echo") {
       const mine = [...conv().querySelectorAll(".msg.person")].reverse().find(e => e.dataset.text === m.text);
       if (mine) { mine.classList.add("faded"); const meta = mine.querySelector(".meta"); meta.hidden = false; meta.append(el("span", "tag", "HARP's own voice: ignored")); }
