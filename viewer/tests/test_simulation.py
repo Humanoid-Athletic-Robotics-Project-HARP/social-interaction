@@ -1,21 +1,42 @@
 """Run isolation, freshness and proxy behavior independent of Rerun installation."""
 import json
+import http.client
+import io
 from pathlib import Path
 import struct
 import sys
 import tempfile
 import time
+import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from diagnostics import scope_requests
+from diagnostics import scope_requests, serve
 from feeds import Source
 from simulation import Simulation, record
 from test_dashboard import eventually
 
 
 class SimulationTests(unittest.TestCase):
+    def test_cancelled_rerun_stream_closes_cleanly(self):
+        source = Simulation({'id': 'sim', 'kind': 'simulation'})
+        source.ports = {'web_port': 1, 'grpc_port': 2}
+        handler = Mock()
+        handler.headers = {}
+        handler.wfile = io.BytesIO()
+        response = Mock()
+        response.status = 200
+        response.getheaders.return_value = [('Content-Type', 'application/grpc-web+proto')]
+        response.read1.side_effect = [b'data', http.client.IncompleteRead(b'')]
+        with patch('diagnostics.http.client.HTTPConnection') as connection:
+            connection.return_value.sock = None
+            connection.return_value.getresponse.return_value = response
+            serve(handler, source, 'grpc/MessageProxyService/ReadMessages', '', b'', threading.Event())
+            connection.return_value.close.assert_called_once()
+        self.assertTrue(handler.close_connection)
+        self.assertIn(b'data', handler.wfile.getvalue())
+
     def test_log_parsing_accepts_docker_and_compose(self):
         event = {'source': 'view', 'event': 'frame', 'sim_time': 1}
         for line in (json.dumps(event), 'submission-1 | ' + json.dumps(event)):

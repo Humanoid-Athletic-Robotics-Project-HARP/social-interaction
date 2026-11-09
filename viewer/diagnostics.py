@@ -105,7 +105,7 @@ def serve(handler, source, path, query, data, stop):
             handler.wfile.write(('%x\r\n' % len(chunk)).encode() + chunk + b'\r\n')
             handler.wfile.flush()
         handler.wfile.write(b'0\r\n\r\n')
-    except OSError as error:
+    except (OSError, http.client.HTTPException) as error:
         if not begun:
             handler.reply(502, {'error': str(error)})
         handler.close_connection = True
