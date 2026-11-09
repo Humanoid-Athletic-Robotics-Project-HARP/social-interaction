@@ -3,7 +3,7 @@ name: unified-viewer-plan
 description: Read when implementing the agreed unified viewer scope, adapters or validation
 metadata:
   type: reference
-  updated: 2026-11-09T03:37:43Z
+  updated: 2026-11-09T04:42:57Z
   covers: []
 ---
 
@@ -13,7 +13,7 @@ Research date: 2026-11-08. This document proposes an implementation. It does not
 
 ## Recommendation
 
-Build one tabbed web application outside the robot control image. Its server collects independently configured feeds from PC2, a laptop, our simulation output, or saved recordings. The browser uses that server as its entry point. Each panel shows offline when its required feed is absent, without preventing other panels from working.
+Build one web application with a Home page and individual full-window service views outside the robot control image. Its server collects independently configured feeds from PC2, a laptop, our simulation output, or saved recordings. The browser uses that server as its entry point. Each panel shows offline when its required feed is absent, without preventing other panels from working.
 
 Keep HIM's simulator, safety harness, live viewer and replayer separate. Our simulation diagnostics remain in scope because we produce those feeds and their Rerun presentation.
 
@@ -26,7 +26,7 @@ Keep HIM's simulator, safety harness, live viewer and replayer separate. Our sim
 | `testground/hybrid/hybrid_viewer.py` | Direct sensors or ROS 2 depth and ROS/Unitree DDS lidar | Combined 3D scene and existing Lidar/Camera/Hybrid tab shell | Reuse shared acquisition and processing; separate it from the viewer server |
 | `speech/web.py`, `speech/web.html` | Child-process JSON output, server-sent events, HTTP commands | Pipeline stages, audio levels, turn progress, conversation, timings and logs | Separate observation from session ownership; adapt status/events and optional existing commands |
 | `submission/harp/view_feed.py`, `submission/lidar_view.py` | ROS/state to JSON stdout, host Docker log reader, Rerun | Lidar, odometry/truth comparison, people, local costmap, plan, goals, events and timing | Reuse decoding and Rerun logging; expose transport and recording health |
-| `testground/lidar/view.py` | Saved captures to native Rerun or `.rrd` output | Cloud timeline, lidar IMU and robot low-state plots | Display saved `.rrd` recordings in the embedded Rerun tab |
+| `testground/lidar/view.py` | Saved captures to native Rerun or `.rrd` output | Cloud timeline, lidar IMU and robot low-state plots | Display saved `.rrd` recordings in the embedded Rerun view |
 
 Offline reports and plots such as `report.py`, `blind_map.py`, `self_filter_check.py` and `visor_model.py` remain analysis tools. Their exported results can be opened separately. Converting them into new live visualizations is additional scope.
 
@@ -44,9 +44,7 @@ Offline reports and plots such as `report.py`, `blind_map.py`, `self_filter_chec
 
 ## Proposed viewer
 
-Tabs: Overview, Lidar, Camera, Hybrid, Navigation and diagnostics, Speech, Recordings.
-
-Overview lists feed source, machine, live/replay mode, status, last arrival age and reason for failure. Recordings selects our saved diagnostics or capture exports, not HIM's replay. The other tabs preserve existing display features. Navigation and diagnostics embeds the existing Rerun presentation.
+Home lists each configured source and its views as clickable service buttons, including offline services. Each button opens one view in the full window below a Home toolbar. Available views are Lidar, Camera, Hybrid, Navigation and diagnostics, Speech and configured recording replays. Home shows the machine, source label, status and failure reason. Each view preserves the existing display features. Navigation and diagnostics embeds Rerun. Direct links and browser back/forward work. Multiple browser pages can compare sources while the hub shares its collectors.
 
 Collect all configured sources concurrently. There is no exclusive sim, robot or local mode. The required initial source combinations are:
 
@@ -59,11 +57,11 @@ Collect all configured sources concurrently. There is no exclusive sim, robot or
 
 All sources may be active together. Speech location is a deployment choice, not a requirement to run inside the submission. If MacBook and PC2 speech services both run, retain them as separate sessions.
 
-Identify streams by source ID, session ID and feed kind, not just feed kind. Simulated lidar and PC2 lidar must coexist without overwriting each other. Keep collecting and monitoring sources when the user switches tabs or changes which source a panel displays. Provide source selection within relevant tabs and simultaneous panels where users need to compare feeds. Tab selection affects presentation, not which producers are connected.
+Identify streams by source ID, session ID and feed kind, not just feed kind. Simulated lidar and PC2 lidar must coexist without overwriting each other. Keep collecting and monitoring sources when the user opens a view or returns Home. Each view belongs to one source; multiple browser pages can show sources simultaneously. Navigation affects presentation, not which producers are connected.
 
 Do not silently combine different runs, robots or coordinate systems. Hybrid requires compatible frames, transforms and timestamps from the selected source group; otherwise show the available individual feeds with a reason the overlay cannot be formed. Show source and machine labels beside live data and offline placeholders.
 
-Starting the viewer starts no sensors, microphone, LLM or robot motion. Existing speech Start/Stop/type controls can remain an explicit optional connection to the speech service that owns those processes. A remote page must label which machine supplies audio. Closing a tab does not stop its producer.
+Starting the viewer starts no sensors, microphone, LLM or robot motion. Existing speech Start/Stop/type controls can remain an explicit optional connection to the speech service that owns those processes. A remote page must label which machine supplies audio. Leaving a view does not stop its producer.
 
 ## Collection and transport
 
@@ -73,11 +71,11 @@ The browser connects to the hub's origin. The server connects only to configured
 
 Retain the existing payload encodings behind adapters initially. Standardize metadata: schema version, source ID, session/run ID, feed kind, sequence, capture timestamp and clock domain, coordinate frame and units where applicable. Record receiver arrival with a monotonic clock. Network arrival time detects failure without assuming the laptop and robot clocks agree; it does not establish sensor synchronization.
 
-Sensor streams keep the latest sample. Speech and diagnostic events use a bounded history with IDs and explicit gap handling on reconnect. Reset session state on producer restart. Hidden tabs suspend rendering and high-rate polling while central status continues. Multiple browser clients share collectors instead of multiplying hardware readers.
+Sensor streams keep the latest sample. Speech and diagnostic events use a bounded history with IDs and explicit gap handling on reconnect. Reset session state on producer restart. Closed views suspend rendering and high-rate polling while central status continues. Multiple browser clients share collectors instead of multiplying hardware readers.
 
 ## Offline behavior
 
-Every tab is available even with no sources configured. Distinguish no source, waiting for first data, live, stale/offline, error and replay. Show the last-update age and a short reason. A connected producer that is waiting for a person to speak is idle, not offline: it needs a heartbeat or session status separate from speech events.
+Every configured service remains available as an offline view when its feed is absent. Distinguish no source, waiting for first data, live, stale/offline, error and replay. Show the last-update age and a short reason. A connected producer that is waiting for a person to speak is idle, not offline: it needs a heartbeat or session status separate from speech events.
 
 Judge each feed by actual data freshness. A responsive HTTP server does not prove a depth camera is producing images. Start continuous sensor thresholds near the existing two seconds, configurable by feed; use separate transport/session heartbeats for naturally quiet event feeds. Clear or visibly shade stale geometry and images. Preserve conversation history with an offline banner. Empty fresh point clouds remain live.
 
@@ -103,9 +101,9 @@ Keep each step reviewable. Preserve working launch commands until their replacem
 
 ## Validation
 
-- Start with no hardware, Docker, speech packages or ROS installed. All tabs must render offline without startup failure.
+- Start with no hardware, Docker, speech packages or ROS installed. Home and offline service views must render without startup failure.
 - Start, stop and restart each producer independently. Test a reachable server with frozen sensor data, empty fresh clouds, quiet speech, partial colour/depth availability and changed session IDs.
-- Exercise two clients, hidden tabs, slow consumers and a burst of events. Confirm bounded memory and no growing frame backlog.
+- Exercise two clients, closed views, slow consumers and a burst of events. Confirm bounded memory and no growing frame backlog.
 - Run MacBook Docker simulation, native MacBook speech and PC2 sensors concurrently. Stop and restart each separately and verify the others continue. Test simulated and real lidar together, plus distinct MacBook and PC2 speech sessions, without data or history crossing sources. Repeat with fixture producers when hardware is unavailable and distinguish fixture checks from real deployment validation.
 - Verify a saved run and `.rrd` capture with replay time and explicit completion/paused state.
 - Check a second machine's browser so loopback assumptions and unreachable source addresses are caught.
@@ -124,3 +122,7 @@ Primary references:
 - [Rosbridge protocol](https://github.com/RobotWebTools/rosbridge_suite/blob/ros2/ROSBRIDGE_PROTOCOL.md). Topic, service and action operations and binary encoding options.
 - [Python 3.8 HTTP server documentation](https://docs.python.org/3.8/library/http.server.html). Availability of `ThreadingHTTPServer`; appropriate here as a local development service, not a public deployment server.
 - [Three.js r160 license](https://raw.githubusercontent.com/mrdoob/three.js/r160/LICENSE). MIT license for the existing sensor rendering dependency.
+
+## HIM viewer embedding feasibility
+
+HIM's local `containers/sim/live.py` serves the viewer without framing-blocking headers. Its `view.py` page polls HTTP `/frames` and posts `/start`; it does not use a WebSocket for live frames. A local iframe can display the existing hosted page. Remote dashboard access would need a proxy for its page, assets and root-relative endpoints. This is feasible without editing or copying HIM. A HIM source/button has not been implemented.

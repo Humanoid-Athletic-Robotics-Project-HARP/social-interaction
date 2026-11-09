@@ -1,7 +1,9 @@
 # Unified viewer
 
 One dashboard for independent HARP feeds on a laptop or PC2. Each source has its own
-connection and status. Switching tabs changes the display while collection continues.
+connection and status. Home lists every configured service view as a button, including
+offline services. Each opens a full-window page with a Home button. Browser back/forward
+and direct links such as `#view/mac-speech/speech` work without stopping collection.
 
 ## Start
 
@@ -61,7 +63,7 @@ The JSON `sources` list has an independent entry for each running service:
 | `python` | Optional Python executable for Rerun; defaults to `testground/.venv/bin/python` |
 | `path` | For recordings: saved run folder or `.rrd` file; relative paths use the launch directory |
 
-On PC2, start the existing hybrid sensor service for all three sensor tabs:
+On PC2, start the existing hybrid sensor service for all three sensor views:
 
 ```bash
 python3 testground/hybrid/hybrid_viewer.py
@@ -97,18 +99,18 @@ testground/.venv/bin/python -m pip install -r testground/requirements.txt
 
 Restart the dashboard after installing the analysis environment.
 
-The Navigation and diagnostics tab reuses `submission/lidar_view.py`'s Rerun
+The Navigation and diagnostics page reuses `submission/lidar_view.py`'s Rerun
 presentation. It reads our container's JSON logs, so HIM's isolated networking
 stays intact. Start a world run using the usual simulation command; the dashboard
 attaches independently and follows container restarts. Plain move runs do not
-produce the same view frames and show offline in this tab.
+produce the same view frames and show offline in this view.
 
 Rerun starts when data arrives. It runs in a separate analysis process with a
 200 MB server buffer and loopback listeners, accessed through the dashboard.
 The browser uses the dashboard address for assets and data, including from another
 computer. Closing the dashboard stops its renderer processes and log readers.
 
-To add a saved run to Recordings, append an entry to the source list:
+To add a saved run as a replay button on Home, append an entry to the source list:
 
 ```json
 {"id": "saved-course", "kind": "recording", "label": "Saved course", "machine": "MacBook", "path": "runs/RUN_FOLDER"}
@@ -119,8 +121,8 @@ Use a `.rrd` path for a saved lidar analysis export, such as one produced with
 pausing playback keeps its Replay status. These are our data views. HIM's own
 simulator viewer and replayer continue to run separately.
 
-Each configured source is monitored whether its tab is open or closed. Large
-images and point clouds are fetched when their tab is open, with shared short
+Each configured source is monitored whether its view is open or closed. Large
+images and point clouds are fetched when their view is open, with shared short
 caches for multiple browser clients. Starting the dashboard starts no sensors,
 microphone, LLM or robot commands.
 

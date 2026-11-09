@@ -2,10 +2,12 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HARP viewer</title><link rel="stylesheet" href="/style.css"></head>
 <body>
-<header><div><span class="eyebrow">SOCIAL INTERACTION</span><h1>HARP viewer</h1></div><span id="connection" role="status">Connecting</span></header>
-<nav aria-label="Viewer tabs" id="tabs"></nav>
-<main><div class="heading"><div><h2 id="title">Overview</h2><p id="description">Independent feeds from your laptop and robot.</p></div><label id="filter-label" hidden>Source <select id="filter"><option value="all">All sources</option></select></label></div>
-<div id="summary" class="summary"></div><div id="content"></div></main>
-<footer>Feeds connect independently. Audio and sensors run on their source machine.</footer>
+<header id="header">
+  <a id="home" class="home-link" href="#home" hidden>Home</a>
+  <div class="identity"><span id="eyebrow" class="eyebrow">SOCIAL INTERACTION</span><h1 id="title">HARP viewer</h1><span id="source-name" hidden></span></div>
+  <span id="view-status" class="badge" hidden></span><span id="connection" role="status">Connecting</span>
+</header>
+<main id="main"><div id="intro"><h2>Service views</h2><p>Open a view from your laptop or robot. Every service stays listed, including those offline.</p></div><div id="content"></div></main>
+<footer id="footer">Feeds connect independently. Audio and sensors run on their source machine.</footer>
 <script src="/app.js"></script>
 </body></html>

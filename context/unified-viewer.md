@@ -3,15 +3,17 @@ name: unified-viewer
 description: Read before planning or implementing the unified web viewer and its feed adapters
 metadata:
   type: reference
-  updated: 2026-11-09T04:26:18Z
+  updated: 2026-11-09T04:42:57Z
   covers: [viewer/**]
 ---
 
 The agreed scope, research and implementation sequence are in [[unified-viewer-plan]]. Keep plans in project memory, not `docs/`.
 
+Home lists every configured source/view as a clickable button, including offline ones. Each opens one full-window view under a compact Home toolbar, with no tabs or surrounding cards. Hash routes `#view/SOURCE/VIEW` support direct links and browser history. Returning Home removes the iframe, not the producer or collector.
+
 The requested scope combines our existing sensor, speech and diagnostic views through independent feeds from the robot or laptop. Missing feeds show offline. HIM's own simulator, viewer and replayer stay separate.
 
-Collect all configured sources concurrently: MacBook Docker simulation, native MacBook speech and native PC2 lidar/camera. Speech may also run natively on PC2. There is no exclusive deployment mode. Source selection changes presentation, not collection. Keep streams and histories separate by source and session, including simultaneous simulated/real lidar or two speech services.
+Collect all configured sources concurrently: MacBook Docker simulation, native MacBook speech and native PC2 lidar/camera. Speech may also run natively on PC2. There is no exclusive deployment mode. Navigation changes presentation, not collection. Keep streams and histories separate by source and session, including simultaneous simulated/real lidar or two speech services.
 
 `viewer/server.py` is a standard-library HTTP hub. Setup: `viewer/README.md`. Sensor and speech collectors run independently; the browser uses one status SSE connection. Speech has a separate bounded history per source with reconnect deduplication and reset on service instance changes. Existing sensor pages are read as literals, without importing their drivers. Binary samples use short shared caches; measurements are never cached. Speech commands require an explicitly enabled source.
 
