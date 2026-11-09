@@ -3,7 +3,8 @@
 - [README and memory guidelines](readme-and-memory-guidelines.md) — read before editing README.md or anything in context/
 - [Team context](team-context.md) — before OS-specific commands or assuming who you're talking to
 - [Project overview](project-overview.md) — the big picture: robot, team, the decisions that shape the code
-- [Watching runs](feedback-watching-runs.md) — before a sim run someone wants to watch: give the viewer link
+- [Unified viewer](unified-viewer.md) — use whenever the user wants to see the simulator, replay, lidar, camera, speech or any other data source
+- [Watching runs](feedback-watching-runs.md) — before showing watched simulations or replays: share the dashboard link
 - [Minimal setup](feedback-minimal-setup.md) — before adding nodes, packages, messages or tooling
 - [Architecture guide](architecture-guide.md) — when explaining the architecture, making a shareable doc, or changing what connects to what
 - [Beginner guide](beginner-guide.md) — only when someone is new to the repo
@@ -42,8 +43,7 @@
 - [Listening](listening.md) — before working on how the robot hears people: mic, turn end, speech-to-text
 - [Talking](talking.md) — before working on what the robot says, the speech processes' placement, or their handshake with behavior.py
 - [Speech web page](speech-web.md) — before changing or using speech/web.py, or what listen.py and talk.py print for it
-- [Unified viewer](unified-viewer.md) — before planning or implementing the shared web UI and feed adapters
-- [Unified viewer plan](unified-viewer-plan.md) — agreed scope, research and implementation sequence for the shared viewer
+- [Viewer implementation](viewer-implementation.md) — before changing collectors, embedded views, private source settings or Rerun routing
 - [Speech tuning](speech-tuning.md) — before tuning listening's turn settings, talk.py's prompt, grammar or goodbyes, or picking the voice
 - [Talking research](talking-research.md) — when choosing the voice, the LLM, the speaker player or how conversations go: options, licenses, findings
 - [Speech research](speech-research.md) — when choosing a piece of the speech stack: options, speeds, other G1 projects

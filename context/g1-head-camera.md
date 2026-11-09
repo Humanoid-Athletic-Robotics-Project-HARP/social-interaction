@@ -3,7 +3,7 @@ name: g1-head-camera
 description: Read before using the G1's head camera (RealSense D435i) — to see ahead where the lidar is blind, detect people, or record depth or colour on PC2
 metadata:
   type: project
-  updated: 2026-11-02T22:04:05Z
+  updated: 2026-11-09T05:26:28Z
   covers: [testground/pc2/v4l2_survey.py, testground/camera/*]
 ---
 
@@ -17,8 +17,8 @@ exist: no chest camera. No pyrealsense2 or `rs-*` tools; librealsense2 2.50 come
 with ROS Noetic's `realsense2_camera`, which would open every stream, colour too.
 Depth streams fine straight through V4L2 while `videohub` serves colour (tested
 2026-11-01; `testground/pc2/v4l2_survey.py` lists the modes). Infrared on `/dev/video2`
-won't stream alongside depth that way (EIO): it would need librealsense. Live view:
-`testground/camera/camera_viewer.py`; shared on ROS 2 by `testground/camera/depth_node.py`
+won't stream alongside depth that way (EIO): it would need librealsense. Use
+[[unified-viewer]] to watch it; `testground/camera/camera_viewer.py` is the backend. Shared on ROS 2 by `testground/camera/depth_node.py`
 (15 fps depth image, camera info, point cloud; tested 2026-11-01 with the hybrid viewer
 reading it at 14–16 fps). Colour from `videohub`: [[robot-services]]. Recorded for offline work by
 `testground/camera/record_camera.py` (what exists: [[robot-reference-data]]).
