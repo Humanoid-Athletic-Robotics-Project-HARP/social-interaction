@@ -43,17 +43,22 @@ function showHost() {
   // Whether this computer is likely to keep a sim run's deadlines (submission/host_health.py).
   const h=state.host,line=$('host');
   if(!h||route()){line.hidden=true;return;}
-  const parts=[];
-  if(h.ready===false)parts.push('a sim run may stop on a deadline',...h.reasons);
-  else{
-    if(h.free_percent!=null)parts.push(`${h.free_percent}% memory free`);
-    else if(h.free_mb!=null)parts.push(`${(h.free_mb/1000).toFixed(1)} GB memory available`);
-    if(h.compressed_mb!=null)parts.push(`${(h.compressed_mb/1000).toFixed(1)} GB compressed`);
-    if(h.ready===true)parts.push('ready for a sim run');
+  // Each reading as a chip, with its target when it falls short.
+  const readings=[],t=h.targets||{};
+  if(h.free_percent!=null)readings.push([`${h.free_percent}% memory free`,h.free_percent<t.free_percent?`aim for ${t.free_percent}%+`:'']);
+  else if(h.free_mb!=null)readings.push([`${(h.free_mb/1000).toFixed(1)} GB available`,'']);
+  if(h.compressed_mb!=null)readings.push([`${(h.compressed_mb/1000).toFixed(1)} GB compressed`,t.compressed_mb!=null&&h.compressed_mb>t.compressed_mb?`aim for ${(t.compressed_mb/1000).toFixed(1)} GB or less`:'']);
+  if(h.viewers)readings.push([`${h.viewers} HIM viewer${h.viewers>1?'s':''} open`,'close after use']);
+  if(h.pressure&&h.pressure!=='normal')readings.push([`macOS: ${h.pressure} pressure`,'']);
+  const verdict=h.ready===true?'Ready for a sim run':h.ready===false?'A sim run may stop on a deadline':'Sim deadlines not measured here';
+  const key=verdict+JSON.stringify(readings);
+  if(line.dataset.key!==key){
+    line.dataset.key=key;
+    line.replaceChildren(node('span','host-dot'),node('span','host-name','This computer'),node('span','host-verdict',verdict),
+      ...readings.map(([text,aim])=>{const chip=node('span','host-reading',text);if(aim)chip.append(node('em','',aim));return chip;}));
   }
-  line.textContent='This computer: '+parts.join(' · ');
-  line.title=h.ready===false?'Quit apps you do not need, close HIM viewers, and restart Docker Desktop between batches (context/sim-deadline-stops.md).':'';
-  line.className='host'+(h.ready===false?' warn':'');line.hidden=false;
+  line.title=h.ready===false?'Quit apps you don\'t need, close HIM viewers, and restart Docker Desktop between batches (context/sim-deadline-stops.md).':'';
+  line.className='host'+(h.ready===false?' warn':h.ready==null?' unknown':'');line.hidden=false;
 }
 function entries() { return state.sources.flatMap(s=>views(s).map(view=>({source:s,view,key:s.id+'/'+view}))); }
 function priority(entry) {

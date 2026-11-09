@@ -81,7 +81,8 @@ def health():
     """This computer now, for the dashboard: its memory, and whether a sim run is likely to
     keep its deadlines (ready True or False with reasons; None where unmeasured)."""
     memory, up = host_memory() or {}, viewers()
-    result = {"platform": sys.platform, "viewers": len(up), "ready": None, "reasons": [], **memory}
+    result = {"platform": sys.platform, "viewers": len(up), "ready": None, "reasons": [],
+              "targets": {"free_percent": FREE_PERCENT, "compressed_mb": COMPRESSED_MB}, **memory}
     if up:
         result["reasons"].append(f"{len(up)} HIM viewer{'s' if len(up) > 1 else ''} still open "
                                  "(about 700 MB each)")
