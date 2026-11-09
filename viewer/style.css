@@ -5,17 +5,25 @@
 body:not(.view-page){min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
 body:not(.view-page) main{flex:1;display:flex;flex-direction:column}
 body:not(.view-page) #content{flex:1;display:flex;flex-direction:column}
-/* Home: square tiles for what runs now (taller only when their facts need it), then every service as a full-width row. */
-.live{flex:none;margin-bottom:18px}.services{flex:1;display:flex;flex-direction:column}.section-title{margin:0 0 9px;font-size:12px;font-weight:500;color:var(--muted)}
-.live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
-.live-tile{position:relative;display:flex;flex-direction:column;gap:3px;aspect-ratio:1;min-width:0;padding:15px 16px;background:#161e27;border:1px solid var(--line);border-radius:8px;text-decoration:none;transition:background .15s,border-color .15s}
-.live-tile:hover{background:#1b2732;border-color:#587567}.live-tile.stopped{border-color:#5a3a35}
-.live-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px}.live-machine{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live-kind{font-size:18px;font-weight:500;letter-spacing:-.2px}.live-label{font-size:12px;color:#becbd8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live-facts{flex:1;min-width:0;margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}.live-facts li{flex:none;font-size:12px;line-height:1.35;color:#8b99a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live-label:empty{display:none}.live-open{font-size:12px;color:var(--accent)}
-.live-empty{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:14px 16px;border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--muted)}.live-empty strong{font-size:13px;font-weight:500;color:#becbd8}
-@media(max-width:650px){.live-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.live-tile{padding:12px}.live-kind{font-size:16px}.live-facts li{font-size:11px}.live{margin-bottom:14px}}
+/* Home: a tile per running process (headline, chips, footer), then every service as a full-width row. */
+.live-section{flex:none;margin-bottom:28px}.services{flex:1;display:flex;flex-direction:column}.section-title{margin:0 0 12px;font-size:13px;font-weight:500;color:#becbd8}
+.live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:16px}
+.live-tile{display:flex;flex-direction:column;gap:14px;min-height:300px;min-width:0;padding:20px 22px 18px;background:linear-gradient(180deg,#18212b,#151c24);border:1px solid var(--line);border-radius:12px;text-decoration:none;transition:background .15s,border-color .15s,transform .15s}
+.live-tile:hover{border-color:#4b6a5f;transform:translateY(-1px)}.live-tile:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.live-tile.stopped{border-color:#5a3a35}
+.live-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.live-machine{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 8px;font-size:12px;font-weight:500;color:#aab6c2;background:#1f2933;border-radius:999px}.status-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.status-pill.live{color:var(--accent);background:#173129}.status-pill.replay{color:#98b8ff;background:#1b2740}.status-pill.partial{color:#edbb6f;background:#2e2717}
+.live-name{display:flex;flex-direction:column;gap:3px;min-width:0}.live-kind{font-size:21px;font-weight:500;letter-spacing:-.3px;color:#e6edf3}.live-label{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.live-label:empty{display:none}
+.live-headline{margin:0;font-size:15px;line-height:1.4;color:#dce5ee}.live-tile.stopped .live-headline{color:#f2a598}
+.chips{display:flex;flex-wrap:wrap;align-content:flex-start;gap:7px}
+.chip{display:inline-flex;align-items:baseline;gap:6px;max-width:100%;padding:5px 10px;font-size:12px;line-height:1.3;background:#10161c;border:1px solid #27323d;border-radius:7px;color:#91a0b0}
+.chip-label,.chip-value{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chip-value{color:#dce5ee;font-weight:500}
+.chip.ok .chip-value{color:var(--accent)}.chip.warn{border-color:#4d4128;background:#1d1a13}.chip.warn .chip-value,.chip.warn .chip-label{color:#edbb6f}.chip.bad{border-color:#5a3a35;background:#1e1615}.chip.bad .chip-value,.chip.bad .chip-label{color:#f2a598}
+.tags{display:flex;flex-wrap:wrap;gap:6px}.tags:empty{display:none}.tag{padding:3px 8px;font-size:11px;color:#8b99a7;background:#1d2630;border-radius:5px;white-space:nowrap}
+.live-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid #222c37}.live-note{min-width:0;font-size:12px;color:#7c8a98;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live-open{flex:none;font-size:12px;font-weight:500;color:var(--accent)}.live-tile:hover .live-open{text-decoration:underline;text-underline-offset:3px}
+.live-empty{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:18px 20px;border:1px dashed var(--line);border-radius:12px;font-size:13px;color:var(--muted)}.live-empty strong{font-size:14px;font-weight:500;color:#becbd8}
+@media(max-width:650px){.live-grid{grid-template-columns:minmax(0,1fr);gap:12px}.live-tile{min-height:0;padding:18px}.live-kind{font-size:19px}.live-section{margin-bottom:22px}}
 .service-grid{flex:1;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(82px,1fr);gap:10px}
 .service-button{display:grid;grid-template-columns:minmax(240px,1.1fr) minmax(220px,1.4fr) auto;grid-template-areas:'title meta action' 'source detail action';column-gap:32px;row-gap:6px;align-content:center;align-items:center;min-width:0;min-height:82px;padding:16px 24px;background:#161e27;border:1px solid var(--line);border-radius:8px;text-decoration:none;transition:background .15s,border-color .15s}
 .service-button:hover{background:#1b2732;border-color:#587567}

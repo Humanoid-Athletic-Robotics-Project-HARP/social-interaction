@@ -2,9 +2,11 @@
 
 One dashboard for independent HARP feeds on a laptop or PC2. Each source has its own
 connection and status. Home's Running now section has a square tile for each process that is
-answering (a sim run, speech, the robot's sensors, HIM's viewer, an open replay) with a few
-live facts: its pieces and late states, whether a conversation runs and the LLM is ready, lidar
-points and camera frame rate. Click a tile for its full view. Below, All services lists every
+answering (a sim run, speech, the robot's sensors, HIM's viewer, an open replay). Each tile
+says in one line what the process is doing ("Talking with person_c", "Holding still: something
+close ahead"), then shows its numbers as chips: a run's late states, talks and people noticed;
+speech's LLM, microphone and voice; the lidar's points per second and the camera's frame rate.
+Amber and red chips need a look. Click a tile for its full view. Below, All services lists every
 configured service view as a full-width row, including offline services.
 A line at the top says whether this computer is likely to keep a sim run's deadlines
 (memory free and compressed, HIM viewers left open). Available viewers move to the top. Unreachable services have a gray,

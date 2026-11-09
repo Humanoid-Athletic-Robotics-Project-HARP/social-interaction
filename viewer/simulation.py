@@ -27,6 +27,9 @@ def record(line):
 
 
 PIECES = ("avoidance", "detector", "behavior")
+# Events that say what the run is doing now (the behavior loop and plain goals).
+ACTIVITY = ("loop_start", "wander_goal", "noticed", "confirmed", "not_a_person", "approach_goal", "talk",
+            "talk_done", "turn_away", "goal_sent", "goal_result")
 
 
 def piece_of(value):
@@ -58,6 +61,29 @@ class Simulation(Source):
         self.world = None
         self.pieces = {}   # avoidance, detector, behavior: the names their start events give
         self.late, self.late_max, self.stopped = 0, 0.0, None   # this run's deadline health
+        self.reset_tally()
+
+    def reset_tally(self):
+        """What Home's tile says about this run: what the loop is doing, a hold, totals."""
+        self.activity, self.holding, self.lidar_lost = None, None, False
+        self.talks, self.people, self.sim_time = 0, set(), None
+
+    def note_tally(self, value):
+        event = value.get("event")
+        if isinstance(value.get("sim_time"), (int, float)):
+            self.sim_time = value["sim_time"]
+        if event in ACTIVITY:
+            self.activity = {k: value[k] for k in ("event", "person", "distance", "status") if k in value}
+        if event == "talk":
+            self.talks += 1
+        elif event == "noticed" and value.get("person"):
+            self.people.add(str(value["person"]))
+        elif event == "approach_stop":
+            self.holding = value.get("range")
+        elif event == "approach_go":
+            self.holding = None
+        elif event in ("lidar_lost", "lidar_back"):
+            self.lidar_lost = event == "lidar_lost"
 
     def note_piece(self, value):
         """Which optional pieces this run has, from their started events (lidar_view.py
@@ -69,6 +95,7 @@ class Simulation(Source):
         piece = piece_of(value)
         if piece:
             self.pieces[piece[0]] = piece[1]
+        self.note_tally(value)
 
     def start(self):
         self.start_thread(self.render)
@@ -109,6 +136,7 @@ class Simulation(Source):
             self.world = None
             self.pieces = {}
             self.late, self.late_max, self.stopped = 0, 0.0, None
+            self.reset_tally()
             self.render_dropped = 0
         while True:
             try:
@@ -146,7 +174,9 @@ class Simulation(Source):
                            "events": list(self.recent)[-30:],
                            "pieces": [self.pieces[k] for k in PIECES if k in self.pieces],
                            "late_states": self.late, "max_late_s": round(self.late_max, 3),
-                           "stopped": self.stopped}
+                           "stopped": self.stopped, "activity": self.activity,
+                           "holding": self.holding, "lidar_lost": self.lidar_lost, "talks": self.talks,
+                           "people": len(self.people), "sim_time": self.sim_time}
             # Replay remains available after EOF; live freshness is based on frames, not process existence.
             self.updated = time.monotonic() if self.error is None else self.updated
             value = super().status()

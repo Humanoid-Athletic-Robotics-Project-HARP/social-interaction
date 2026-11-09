@@ -109,6 +109,30 @@ class SimulationTests(unittest.TestCase):
         source.new_session('second')
         self.assertEqual(source.status()['detail']['late_states'], 0)
 
+    def test_home_tile_tally_follows_the_run(self):
+        source = Simulation({'id': 'sim', 'kind': 'simulation'})
+        source.new_session('first')
+        source.error = None
+        for event in ({'source': 'behavior', 'event': 'noticed', 'person': 'a', 'confirmed': False},
+                      {'source': 'behavior', 'event': 'noticed', 'person': 'a'},
+                      {'source': 'behavior', 'event': 'noticed', 'person': 'b'},
+                      {'source': 'behavior', 'event': 'talk', 'person': 'a', 'line': 'Hi', 'distance': 1.2},
+                      {'source': 'approach', 'event': 'approach_stop', 'range': 1.1},
+                      {'source': 'approach', 'event': 'lidar_lost'},
+                      {'source': 'policy', 'event': 'timing', 'sim_time': 12.5}):
+            source.ingest(event)
+        detail = source.status()['detail']
+        self.assertEqual(detail['activity'], {'event': 'talk', 'person': 'a', 'distance': 1.2})
+        self.assertEqual((detail['talks'], detail['people'], detail['holding'], detail['lidar_lost'], detail['sim_time']),
+                         (1, 2, 1.1, True, 12.5))
+        source.ingest({'source': 'approach', 'event': 'approach_go'})
+        source.ingest({'source': 'approach', 'event': 'lidar_back'})
+        detail = source.status()['detail']
+        self.assertEqual((detail['holding'], detail['lidar_lost']), (None, False))
+        source.new_session('second')
+        detail = source.status()['detail']
+        self.assertEqual((detail['activity'], detail['talks'], detail['people']), (None, 0, 0))
+
     def test_a_saved_run_says_why_him_stopped_it(self):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / 'view.jsonl').write_text('')

@@ -81,7 +81,7 @@ function showHome() {
       const empty=node('div','empty');empty.append(node('h3','',lastState?'No services configured':'Connecting to dashboard'),node('p','',lastState?'Add services to the dashboard source configuration.':'Waiting for service status.'));$('content').append(empty);
     }else{
       // Running now: a square per reachable process, with a few live facts.
-      const live=node('section','live');live.setAttribute('aria-label','Running now');
+      const live=node('section','live-section');live.setAttribute('aria-label','Running now');
       live.append(node('h2','section-title','Running now'),node('div','live-grid'));
       const all=node('section','services');all.setAttribute('aria-label','All services');
       all.append(node('h2','section-title','All services'));
@@ -128,31 +128,49 @@ function showHome() {
 }
 const kinds={simulation:'Simulation',recording:'Replay',speech:'Speech',sensors:'Robot sensors',him:'HIM simulator'};
 function plural(n,word){return `${n} ${word}${n===1?'':'s'}`;}
-function facts(source) {
-  // Two to four short lines about what the process is doing now.
-  const d=source.detail||{},out=[];
-  if(source.kind==='simulation'||source.kind==='recording'){
-    if(d.stopped)out.push(`HIM stopped it: ${d.stopped}`);
-    if((d.pieces||[]).length)out.push(d.pieces.join(' · '));
-    out.push(d.late_states?`${plural(d.late_states,'late state')} (max ${Math.round(d.max_late_s*1000)} ms)`:'No late states');
-    const last=(d.events||[]).filter(e=>!['odom','timing','late_state'].includes(e.event)).at(-1);
-    if(last)out.push(`Last: ${String(last.event).replace(/_/g,' ')}`);
-    if(source.kind==='simulation'&&d.frame_age!=null&&d.frame_age>=4)out.push(`No view frames for ${Math.round(d.frame_age)} s`);
-    if(d.renderer&&d.renderer!=='ready')out.push(`Renderer: ${d.renderer}`);
-  }else if(source.kind==='speech'){
-    out.push(d.running?'Conversation running':'Idle, not listening');
-    out.push(`LLM ${d.llm==='ok'?'ready':d.llm||'unknown'}`);
-    if(d.config)out.push([d.config.listen?`hears ${d.config.source}`:'',d.config.talk?`speaks with ${d.config.voice}`:''].filter(Boolean).join(' · '));
-    if(d.other_listen)out.push('Another listen.py is running');
-  }else if(source.kind==='sensors'){
-    const l=d.lidar,c=d.camera;
-    if(l)out.push(l.connected?`Lidar on${l.pps?` · ${Math.round(l.pps).toLocaleString()} pts/s`:''}`:`Lidar off: ${l.why||'no data'}`);
-    if(c)out.push(c.depth_connected?`Depth ${c.depth_fps??'–'} fps${c.valid!=null?` · ${c.valid}% filled`:''}`:`Depth off: ${c.depth_why||'no data'}`);
-    if(c)out.push(c.colour_connected?'Colour on':'Colour off');
-  }else if(source.kind==='him'){
-    out.push('Viewer ready','Close its launcher after use: it keeps every frame');
-  }
-  return out.filter(Boolean).slice(0,4);
+function chip(label,value,tone){return {label,value,tone};}
+const kilo=n=>n>=1000?`${(n/1000).toFixed(n>=10000?0:1)}k`:String(Math.round(n));
+function doing(d) {
+  // One sentence for what a run is doing, from its latest loop or goal event.
+  const a=d.activity||{},who=a.person?` ${a.person}`:'';
+  return {loop_start:'Starting the behavior loop',wander_goal:'Wandering',noticed:`Noticed${who||' someone'}${a.distance!=null?` ${a.distance.toFixed(1)} m away`:''}`,
+    confirmed:`Confirmed${who||' a person'}${a.distance!=null?` ${a.distance.toFixed(1)} m away`:''}`,not_a_person:`Ruled out${who||' a candidate'}: not a person`,
+    approach_goal:`Walking to${who||' a person'}`,talk:`Talking with${who||' a person'}`,talk_done:`Finished talking with${who||' a person'}`,
+    turn_away:'Turning away',goal_sent:'Walking to its goal',goal_result:`Goal ${String(a.status||'done').toLowerCase()}`}[a.event]||'Running';
+}
+// What each kind of tile shows: a headline, chips (label, value, tone) and a footer line.
+const tiles={
+  simulation(s){const d=s.detail||{};return run(s,d,[d.sim_time!=null?`Sim ${Math.round(d.sim_time)} s`:'',d.frame_age!=null&&d.frame_age>=4?`No view frames for ${Math.round(d.frame_age)} s`:'View frames live'].filter(Boolean).join(' · '));},
+  recording(s){const d=s.detail||{};return run(s,d,d.renderer&&d.renderer!=='ready'?`Renderer: ${d.renderer}`:d.finished?'Replay finished':'Replaying');},
+  speech(s){
+    const d=s.detail||{},c=d.config||{},llm=d.llm==='ok'?['Ready','ok']:d.llm==='loading'?['Loading','warn']:[d.llm?'Down':'Unknown','bad'];
+    const chips=[chip('LLM',...llm)];
+    if(d.running&&c.listen)chips.push(chip('Hears',c.source||'mic'));
+    if(d.running&&c.talk)chips.push(chip('Voice',c.voice||'kokoro'));
+    if(d.running)chips.push(chip('Talk',d.talk_ready?'Ready':'Starting',d.talk_ready?'ok':'warn'));
+    if(d.other_listen)chips.push(chip('Another listen.py running','', 'warn'));
+    return {headline:d.running?'Conversation running':'Idle, not listening',chips,foot:s.controls?'Controls on here':'View only'};
+  },
+  sensors(s){
+    const d=s.detail||{},l=d.lidar,c=d.camera,chips=[];
+    if(l)chips.push(l.connected?chip('Lidar',l.pps?`${kilo(l.pps)} pts/s`:'On','ok'):chip('Lidar','Off','bad'));
+    if(c){chips.push(c.depth_connected?chip('Depth',c.depth_fps!=null?`${c.depth_fps} fps`:'On','ok'):chip('Depth','Off','bad'));
+      if(c.depth_connected&&c.valid!=null)chips.push(chip('Filled',`${c.valid}%`));
+      chips.push(chip('Colour',c.colour_connected?'On':'Off',c.colour_connected?'ok':''));}
+    const both=l&&l.connected&&c&&c.depth_connected;
+    return {headline:both?'Lidar and depth live':l&&l.connected?'Lidar live, no depth':c&&c.depth_connected?'Depth live, no lidar':'Waiting for sensors',chips,foot:`${views(s).length} views: ${views(s).join(', ')}`};
+  },
+  him(){return {headline:'Viewer ready',chips:[chip('Close its launcher after use','', 'warn')],foot:'Keeps every frame in memory until closed'};},
+};
+function run(s,d,foot) {
+  const chips=[];
+  if(d.holding!=null)chips.push(chip('Holding',`${d.holding} m ahead`,'warn'));
+  if(d.lidar_lost)chips.push(chip('Lidar','Lost','bad'));
+  chips.push(chip('Late states',d.late_states?`${d.late_states} · max ${Math.round(d.max_late_s*1000)} ms`:'None',d.late_states?'warn':'ok'));
+  if(d.talks)chips.push(chip('Talks',String(d.talks)));
+  if(d.people)chips.push(chip('Noticed',plural(d.people,'person').replace('persons','people')));
+  const headline=d.stopped?`HIM stopped it: ${String(d.stopped).replace(/_/g,' ')}`:d.holding!=null?'Holding still: something close ahead':doing(d);
+  return {headline,chips,foot,tags:d.pieces||[]};
 }
 function primary(source){const v=views(source);return v.includes('hybrid')?'hybrid':v[0];}
 function drawLive() {
@@ -166,19 +184,34 @@ function drawLive() {
       box.append(empty);
     }
     for(const s of running){
-      const tile=node('a','live-tile'),view=primary(s);tile.href=`#view/${s.id}/${view}`;tile.dataset.id=s.id;
+      const tile=node('a','live-tile kind-'+s.kind),view=primary(s);tile.href=`#view/${s.id}/${view}`;tile.dataset.id=s.id;
       tile.setAttribute('aria-label',`Open ${s.label}: ${names[view]}`);
-      const top=node('span','live-top');top.append(node('span','badge'),node('span','live-machine',s.machine));
-      tile.append(top,node('span','live-kind',kinds[s.kind]||names[view]),node('span','live-label',s.label===kinds[s.kind]?'':s.label),node('ul','live-facts'),node('span','live-open',views(s).length>1?`Open ${names[view].toLowerCase()} · ${views(s).length} views`:'Open'));
+      const top=node('div','live-top'),pill=node('span','status-pill');pill.append(node('span','status-dot'),node('span','status-text'));
+      top.append(pill,node('span','live-machine',s.machine));
+      const name=node('div','live-name');// A replay's label names its run; a live source's machine already tells it apart.
+      name.append(node('span','live-kind',kinds[s.kind]||names[view]),node('span','live-label',s.kind==='recording'?s.label:''));
+      const foot=node('div','live-foot');foot.append(node('span','live-note'),node('span','live-open','Open view'));
+      tile.append(top,name,node('p','live-headline'),node('div','chips'),node('div','tags'),foot);
       box.append(tile);
     }
   }
   for(const tile of box.querySelectorAll('.live-tile')){
     const s=state.sources.find(x=>x.id===tile.dataset.id);if(!s)continue;
-    const [cls,label]=health(s,primary(s)),badge=tile.querySelector('.badge');badge.className='badge '+cls;badge.textContent=label;
+    const [cls,label]=health(s,primary(s)),info=(tiles[s.kind]||(()=>({headline:'',chips:[],foot:''})))(s);
+    tile.querySelector('.status-pill').className='status-pill '+(label==='Idle'?'idle':cls);tile.querySelector('.status-text').textContent=label;
     tile.classList.toggle('stopped',Boolean(s.detail&&s.detail.stopped));
-    const lines=facts(s),list=tile.querySelector('.live-facts'),text=lines.join('\n');
-    if(list.dataset.text!==text){list.dataset.text=text;list.replaceChildren(...lines.map(t=>{const li=node('li','',t);li.title=t;return li;}));}
+    tile.querySelector('.live-headline').textContent=info.headline;
+    tile.querySelector('.live-note').textContent=info.foot;
+    // The run's pieces (avoidance, detector, loop) as quiet tags, apart from its measurements.
+    const tags=tile.querySelector('.tags'),tagText=(info.tags||[]).join('|');
+    if(tags.dataset.text!==tagText){tags.dataset.text=tagText;tags.replaceChildren(...(info.tags||[]).map(t=>node('span','tag',t)));}
+    const chips=tile.querySelector('.chips'),text=JSON.stringify(info.chips);
+    if(chips.dataset.text!==text){
+      chips.dataset.text=text;
+      chips.replaceChildren(...info.chips.map(c=>{
+        const n=node('span','chip'+(c.tone?' '+c.tone:''));n.title=c.value?`${c.label}: ${c.value}`:c.label;
+        n.append(node('span','chip-label',c.label));if(c.value)n.append(node('span','chip-value',c.value));return n;}));
+    }
   }
 }
 function showView(selected) {
