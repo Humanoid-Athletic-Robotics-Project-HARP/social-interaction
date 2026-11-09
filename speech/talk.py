@@ -11,8 +11,9 @@ its own voice (close to something it just said, ECHO) is dropped as an echo even
 A conversation: a fixed greeting at once, then for each turn the reply from a local LLM
 (llama.cpp's llama-server, which must already be running: README.md), streamed. The reply
 is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
-  - The reply's text: numbers spelled out, and any word the voice has no entry for
-    reported (sherpa-onnx skips those).
+  - The reply's text: numbers spelled out, then each word as sounds: from our lexicon, the
+    voice's, or misaki's G2P model for any other word (reported, so a wrong guess can be
+    added to our lexicon); a short word in capitals in no lexicon is said letter by letter.
   - A filler plays if the LLM has given no text, and nothing is playing, FILLER s after
     the person's turn ended.
   - A fixed line instead on an LLM error, or if it hasn't answered in GIVE_UP s.
@@ -21,9 +22,11 @@ is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
 
 Events, one JSON line each on stdout: said (text, and from the turn's end: llm_s to the
 first sentence, ready_s to its audio, first_sound_s to its sound, which also waits for
-anything still playing), unknown_words, ignored_bye (a <bye> on a reply that wasn't a
-goodbye), echo, and done (reason). --save DIR keeps everything said as WAVs; --no-play
-stays silent; --output-device picks the speaker.
+anything still playing; sent once the whole line has played), speaking (each piece's
+text and seconds as its sound starts, first for a line's first piece), guessed_words
+({word: sounds} from the G2P model), unknown_words (skipped: no G2P model), ignored_bye
+(a <bye> on a reply that wasn't a goodbye), echo, and done (reason). --save DIR keeps
+everything said as WAVs; --no-play stays silent; --output-device picks the speaker.
 
 Models in models/ beside the main checkout, like listen.py's. Plain Python that also runs
 on 3.8 (PC2's).
@@ -40,6 +43,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 import urllib.request
 import wave
 
@@ -195,23 +199,135 @@ def with_s_forms(lines):
     return lines + added
 
 
+G2P = "misaki-en-us-g2p"   # models/ folder: misaki's US English G2P model and its tables
+# misaki's symbols (Kokoro's) as espeak-style ones (Piper's): checked against Piper's own list
+PIPER_SOUNDS = [("ɜɹ", "ɜː"), ("əɹ", "ɚ"), ("A", "eɪ"), ("I", "aɪ"), ("O", "oʊ"), ("W", "aʊ"),
+                ("Y", "ɔɪ"), ("ʤ", "dʒ"), ("ʧ", "tʃ"), ("ᵊ", "ə"), ("ɑ", "ɑː"), ("ɔ", "ɔː"), ("u", "uː")]
+SPELL_UP_TO = 5      # letters: a word in capitals this short, in no lexicon, is said letter by letter
+WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)*|[.,!?;:]")
+
+
+def piper_sounds(sounds):
+    for misaki, espeak in PIPER_SOUNDS:
+        sounds = sounds.replace(misaki, espeak)
+    return sounds
+
+
+def parts(word):
+    """A joined-up name in the pieces it's said in: ChatGPT -> Chat GPT, PyTorch -> Py Torch."""
+    return re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+(?:'[a-z]+)*", word) or [word]
+
+
+def word_sounds(word, lexicon, guess, letters=None):
+    """A word's sounds, and how they were found: known (a lexicon), spelled (letter by letter,
+    with letters' names: {letter: sounds}, else the lexicon's), guessed (the G2P model), or
+    None and unknown when there's no way to say it."""
+    letters = letters or lexicon
+    if word.lower() in lexicon:
+        return lexicon[word.lower()], "known"
+    pieces = parts(word)
+    if len(pieces) > 1:
+        found = [word_sounds(piece, lexicon, guess, letters) for piece in pieces]
+        if all(sounds for sounds, _ in found):
+            how = "guessed" if any(h == "guessed" for _, h in found) else "spelled" if any(
+                h == "spelled" for _, h in found) else "known"
+            return " ".join(sounds for sounds, _ in found), how
+    if word.isupper() and len(word) <= SPELL_UP_TO and all(c.lower() in letters for c in word):
+        return " ".join(letters[c.lower()] for c in word), "spelled"
+    if guess:
+        sounds = guess(word.lower())
+        if sounds:
+            return sounds, "guessed"
+    return None, "unknown"
+
+
+def text_sounds(text, lexicon, guess, letters=None):
+    """Text as the voice's sounds, words apart and punctuation kept, and the words that had to
+    be guessed ({word: sounds}) or couldn't be said at all."""
+    out, guessed, unknown = [], {}, []
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()   # café -> cafe
+    for token in WORD.findall(text):
+        if not token[0].isalpha():
+            if out:   # one mark at most, also when the words between were skipped
+                out[-1] = out[-1].rstrip(".,!?;:") + token
+            continue
+        sounds, how = word_sounds(token, lexicon, guess, letters)
+        if how == "guessed":
+            guessed[token] = sounds
+        elif how == "unknown":
+            unknown.append(token)
+        if sounds:
+            out.append(sounds)
+    return " ".join(out), guessed, unknown
+
+
+class Guess:
+    """misaki's US English G2P (Apache-2.0): a word's sounds from its spelling, in misaki's
+    symbols, which are Kokoro's. Its small BART model, decoded greedily, one step at a time."""
+
+    def __init__(self, folder):
+        import onnxruntime
+        tables = json.loads((folder / "misaki-en_us-g2p.json").read_text(encoding="utf-8"))
+        self.graphemes, self.phonemes = tables["graphemes"], tables["phonemes"]
+        self.bos, self.eos, self.start = tables["bos_id"], tables["eos_id"], tables["start_id"]
+        self.unknown, self.steps = tables["unknown_id"], tables["max_steps"]
+        options = onnxruntime.SessionOptions()
+        options.intra_op_num_threads = options.inter_op_num_threads = 1
+        self.session = onnxruntime.InferenceSession(str(folder / "misaki-en_us-g2p.onnx"), options,
+                                                    providers=["CPUExecutionProvider"])
+        self.cache = {}
+
+    def __call__(self, word):
+        if word not in self.cache:
+            ids = [self.bos] + [self.graphemes.index(c) if c in self.graphemes[4:] else self.unknown
+                                for c in word] + [self.eos]
+            out = [self.start]
+            for _ in range(self.steps):
+                logits = self.session.run(None, {"input_ids": np.array([ids], np.int64),
+                                                 "decoder_input_ids": np.array([out], np.int64)})[0]
+                step = int(logits[0, -1].argmax())
+                if step == self.eos:
+                    break
+                out.append(step)
+            self.cache[word] = "".join(self.phonemes[i] for i in out[1:] if i >= 4)   # 0-3: special ids
+        return self.cache[word]
+
+
 class Voice:
-    """A voice through sherpa-onnx (no espeak-ng: words come only from the lexicons)."""
+    """A voice through sherpa-onnx, given sounds rather than text (no espeak-ng): each word's
+    sounds come from our lexicon, then the voice's own, then misaki's G2P model (text_sounds)."""
 
     def __init__(self, name, provider):
         import sherpa_onnx
+        self.sherpa = sherpa_onnx
         folder, self.speaker, ours = VOICES[name]
         folder = models_dir() / folder
         if not folder.exists():
             sys.exit(f"{folder} is missing: README.md says how to get it")
         theirs = sorted(folder.glob("lexicon*en*.txt"))[-1]   # Kokoro: lexicon-us-en.txt
-        # One file with our words first: sherpa-onnx reads a Piper voice's "word || phonemes"
-        # format only from a single lexicon, not a comma-separated list of them.
+        # One file with our words first: sherpa-onnx wants a lexicon even when given sounds, and
+        # reads a Piper voice's "word || phonemes" format only from a single file.
         lexicon = Path(tempfile.gettempdir()) / f"harp-{name}-lexicon.txt"
         lines = (HERE / "lexicon" / ours).read_text(encoding="utf-8").splitlines()
         lines = with_s_forms(lines + theirs.read_text(encoding="utf-8").splitlines())
         lexicon.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        self.words = {line.split(" ", 1)[0].lower() for line in lines}
+        self.lexicon = {}
+        for line in lines:
+            word, _, sounds = line.partition(" || ") if " || " in line else line.partition(" ")
+            if sounds.strip():
+                self.lexicon.setdefault(word.strip().lower(), sounds.replace(" ", ""))
+        # Letters' names from the voice's own list: ours says "a" as in "a day", not "ay".
+        self.letters = {}
+        for line in theirs.read_text(encoding="utf-8").splitlines():
+            word, _, sounds = line.partition(" || ") if " || " in line else line.partition(" ")
+            if len(word.strip()) == 1 and word.strip().isalpha():
+                self.letters.setdefault(word.strip().lower(), sounds.replace(" ", ""))
+        self.guess = None
+        if (models_dir() / G2P).exists():
+            misaki = Guess(models_dir() / G2P)
+            self.guess = misaki if name == "kokoro" else (lambda word: piper_sounds(misaki(word)))
+        else:
+            log(f"{models_dir() / G2P} is missing (README.md): words in no lexicon will be skipped")
         if name == "kokoro":
             model = sherpa_onnx.OfflineTtsKokoroModelConfig(
                 model=str(folder / "model.onnx"), voices=str(folder / "voices.bin"),
@@ -225,11 +341,19 @@ class Voice:
         self.tts = sherpa_onnx.OfflineTts(sherpa_onnx.OfflineTtsConfig(model=config))
         self.rate = self.tts.sample_rate
 
-    def unknown(self, text):
-        return [w for w in re.findall(r"[A-Za-z][A-Za-z']*", text) if w.lower() not in self.words]
+    def sounds(self, text):
+        """(sounds, {guessed word: sounds}, [words it can't say])"""
+        return text_sounds(text, self.lexicon, self.guess, self.letters)
 
-    def __call__(self, text):
-        return np.array(self.tts.generate(text, sid=self.speaker).samples, np.float32)
+    def __call__(self, text, sounds=None):
+        if sounds is None:
+            sounds = self.sounds(text)[0]
+        if not sounds:
+            return np.zeros(0, np.float32)
+        config = self.sherpa.GenerationConfig()
+        config.sid = self.speaker
+        config.phoneme_codepoints = [[ord(c) for c in sounds]]   # one list per sentence: one here
+        return np.array(self.tts.generate(text, config).samples, np.float32)
 
 
 class Mute:
@@ -399,13 +523,16 @@ class Conversation:
         if name == "said":
             self.said.append(values["text"])
         if self.json:
-            print(json.dumps({"event": name, **values}), flush=True)
+            with self.printing:   # the speaker's thread sends speaking events too
+                print(json.dumps({"event": name, **values}), flush=True)
         elif name == "said" and "first_sound_s" in values:
             self.show("      (" + timing(values) + ")")
         elif name == "echo":
             self.show(f'      (ignored "{values["text"]}": it sounded like my own voice)')
         elif name == "unknown_words":
             self.show("      (the voice can't say: " + ", ".join(values["words"]) + ")")
+        elif name == "guessed_words":
+            self.show("      (guessed how to say: " + ", ".join(values["words"]) + ")")
         elif name == "done":
             self.show(f"(conversation over: {values['reason']}, {values['turns']} turns, "
                       f"{values['seconds']} s)")
@@ -416,6 +543,9 @@ class Conversation:
         def begin(t):
             if started:
                 started(t)
+            if self.json:
+                self.event("speaking", text=text.replace(END_TAG, "").strip(), first=first,
+                           seconds=round(len(audio) / self.voice.rate, 2))
             self.show(("HARP: " if first else "      ") + text.replace(END_TAG, "").strip())
         self.speaker.say(audio, begin)
 
@@ -482,12 +612,14 @@ class Conversation:
                 say = speakable(text)
                 if not say:
                     continue
-                unknown = self.voice.unknown(say)
+                sounds, guessed, unknown = self.voice.sounds(say)
+                if guessed:
+                    self.event("guessed_words", words=guessed)
                 if unknown:
                     self.event("unknown_words", words=unknown)
                 if "llm" not in first:
                     first["llm"] = time.perf_counter() - ended
-                audio = self.voice(say)
+                audio = self.voice(say, sounds)
                 first.setdefault("ready", time.perf_counter() - ended)
                 self.say(text, audio, not spoken, None if spoken else
                          (lambda t: first.setdefault("sound", t - ended)))

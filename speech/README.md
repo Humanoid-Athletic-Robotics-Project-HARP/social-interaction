@@ -86,6 +86,17 @@ curl -L -o models/vits-piper-en_US-ljspeech-medium/lexicon-en-us.txt https://git
 echo "8b67ae549a465eee78f92ecb74644ad90c3c58ce65f19c68baf85878a10ef73a  models/vits-piper-en_US-ljspeech-medium/lexicon-en-us.txt" | shasum -a 256 -c
 ```
 
+misaki's G2P (Apache-2.0), which works out how to say a word that's in neither voice's
+list, as an ONNX model with its tables, 9 MB:
+
+```bash
+mkdir -p models/misaki-en-us-g2p && for f in misaki-en_us-g2p.onnx misaki-en_us-g2p.json; do curl -L -o models/misaki-en-us-g2p/$f https://huggingface.co/nekwo/misaki-en-us-g2p-onnx/resolve/4b3a605d2f605318ab4f762ab9855c44106528b7/$f; done
+```
+
+```bash
+printf "757759c3e3ccb0bf59c379b1671c9834a27543ceaefd6846850823633b9665a1  models/misaki-en-us-g2p/misaki-en_us-g2p.onnx\n8a8e3350713b0a00102425a5d5bd6b58b34854c74a3e8d837589f55212c51658  models/misaki-en-us-g2p/misaki-en_us-g2p.json\n" | shasum -a 256 -c
+```
+
 llama.cpp (MIT) serves the LLM. On a Mac, with Homebrew:
 
 ```bash
@@ -189,14 +200,31 @@ of common ones (8080–8082 are in use on PC2) and of Linux's temporary ports. A
 that still sounds like HARP's own words is dropped as an `echo` event. `--output-device`
 picks the speaker (`listen.py --devices` lists them).
 
-A word a voice can't say is skipped, and reported as an `unknown_words` event. Add it
-to that voice's file in `lexicon/`, in the same notation as its neighbours there.
+Each word is said from our `lexicon/`, then the voice's own list. Any other word's
+sounds are guessed from its spelling by misaki's G2P and reported as a `guessed_words`
+event with the sounds used. A short word in capitals in neither list, like GPT, is said
+letter by letter. If a guess sounds wrong (names from other languages often do), add the
+word to that voice's file in `lexicon/`, in the same notation as its neighbours there.
 
 Tests of the turn rules and the text handling (no models needed):
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
 ```
+
+## Web page
+
+A page to run and watch a conversation: listening's state and loudness live, what was
+heard and said with each turn's times, both programs' logs, and a box to type a line
+instead of speaking. It starts `listen.py` and `talk.py` itself, so don't run them in a
+terminal at the same time. The mic and speakers are this computer's, not the browser's.
+
+```bash
+.venv/bin/python web.py
+```
+
+Then open http://127.0.0.1:28733. The page can start the LLM server too. `--host 0.0.0.0`
+opens it to other computers (on PC2, to watch from a laptop on the robot network).
 
 ## Bench
 

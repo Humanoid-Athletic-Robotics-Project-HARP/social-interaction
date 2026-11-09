@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HARP speech</title>
+<!-- Served by web.py (context/speech-web.md). Self-contained: the robot network may have no internet. -->
+<style>
+:root {
+  --bg: #f6f6f4; --panel: #ffffff; --panel-2: #f1f1ee; --line: #e3e2dd; --text: #1d1d1b;
+  --muted: #6b6a65; --faint: #9a9993; --accent: #8c1515; --accent-text: #ffffff;
+  --person: #1f5fbf; --person-bg: #e8f0fc; --harp-bg: #f1f1ee;
+  --listening: #64748b; --hearing: #16a34a; --transcribing: #d97706; --muted-state: #7c3aed;
+  --thinking: #d97706; --idle: #a8a29e; --ok: #16a34a; --warn: #b45309; --bad: #dc2626;
+  --warn-bg: #fef3c7; --level: #94a3b8; --prob: #1f5fbf; --grid: #ecebe7;
+  --seg-hear: #1f5fbf; --seg-think: #d97706; --seg-voice: #7c3aed; --seg-wait: #a8a29e;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 8px rgba(0,0,0,.04);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413; --panel: #1d1d1b; --panel-2: #262624; --line: #33322f; --text: #ecebe7;
+    --muted: #a3a29c; --faint: #75746f; --accent: #c8423f; --person: #7aa7ec; --person-bg: #1e2b40;
+    --harp-bg: #2a2a27; --listening: #94a3b8; --hearing: #4ade80; --transcribing: #fbbf24;
+    --muted-state: #a78bfa; --thinking: #fbbf24; --idle: #57534e; --warn: #fbbf24; --warn-bg: #3a2e12;
+    --level: #52606f; --prob: #7aa7ec; --grid: #292927;
+    --seg-hear: #7aa7ec; --seg-think: #fbbf24; --seg-voice: #a78bfa; --seg-wait: #57534e;
+    --shadow: none; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413; --panel: #1d1d1b; --panel-2: #262624; --line: #33322f; --text: #ecebe7;
+  --muted: #a3a29c; --faint: #75746f; --accent: #c8423f; --person: #7aa7ec; --person-bg: #1e2b40;
+  --harp-bg: #2a2a27; --listening: #94a3b8; --hearing: #4ade80; --transcribing: #fbbf24;
+  --muted-state: #a78bfa; --thinking: #fbbf24; --idle: #57534e; --warn: #fbbf24; --warn-bg: #3a2e12;
+  --level: #52606f; --prob: #7aa7ec; --grid: #292927;
+  --seg-hear: #7aa7ec; --seg-think: #fbbf24; --seg-voice: #a78bfa; --seg-wait: #57534e;
+  --shadow: none; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.num { font-variant-numeric: tabular-nums; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 7px 14px; border-radius: 8px; cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--panel-2); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+button.small { padding: 3px 10px; font-size: 12.5px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; display: inline-block; }
+
+/* header */
+header {
+  display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.brand h1 { font-size: 16px; margin: 0; letter-spacing: -.01em; white-space: nowrap; }
+.guide { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.guide .dot { width: 10px; height: 10px; }
+.guide b { font-size: 15px; }
+.guide span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#go { min-width: 92px; }
+
+/* pipeline */
+.pipeline {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+  padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.stage { position: relative; padding: 2px 22px 2px 0; min-width: 0; }
+.stage:not(:last-child)::after {
+  content: ""; position: absolute; right: 8px; top: 50%; width: 8px; height: 8px;
+  border-top: 2px solid var(--line); border-right: 2px solid var(--line); transform: translateY(-50%) rotate(45deg);
+}
+.stage .name { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.stage .what { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.stage .detail { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage.off { opacity: .45; }
+
+main {
+  flex: 1; min-height: 0; display: grid; grid-template-columns: 380px minmax(0, 1fr);
+  gap: 16px; padding: 16px 20px 20px;
+}
+aside { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-bottom: 2px; }
+body.running #setup-card { order: 9; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 16px; }
+.card h2 {
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline;
+}
+.card h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); font-size: 12px; }
+
+/* banners */
+#banners { display: flex; flex-direction: column; gap: 8px; }
+.banner { background: var(--warn-bg); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: 10px; padding: 10px 12px; font-size: 13px; display: flex; gap: 10px; }
+.banner b { color: var(--warn); }
+.banner button { margin-left: auto; align-self: flex-start; border: none; background: none; color: var(--muted); padding: 0 4px; font-size: 16px; line-height: 1; }
+
+/* setup */
+.field { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 8px; margin: 8px 0; }
+.field > label:first-child, .field > span:first-child { color: var(--muted); font-size: 13px; }
+select, input[type=text] {
+  font: inherit; width: 100%; padding: 6px 8px; border-radius: 7px; min-width: 0;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.modes { display: grid; gap: 6px; margin-bottom: 10px; }
+.mode { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 8px 10px; border-radius: 9px; width: 100%; }
+.mode[aria-pressed=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.mode .radio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--faint); flex: none; margin-top: 3px; }
+.mode[aria-pressed=true] .radio { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+.mode b { display: block; font-size: 13.5px; }
+.mode span { display: block; color: var(--muted); font-size: 12px; }
+details { margin-top: 6px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+.llm-row { display: flex; align-items: center; gap: 8px; }
+.llm-row .grow { flex: 1; font-size: 13px; }
+fieldset { border: none; margin: 0; padding: 0; min-width: 0; }
+.summary-line { font-size: 13px; color: var(--muted); }
+.summary-line b { color: var(--text); font-weight: 600; }
+
+/* now */
+.now-state { display: flex; align-items: center; gap: 12px; }
+.orb { width: 36px; height: 36px; border-radius: 50%; background: var(--idle); flex: none; position: relative; transition: background .15s; }
+.orb::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 2px solid currentColor; opacity: 0; }
+.orb.pulse::after { animation: pulse 1.2s ease-out infinite; }
+@keyframes pulse { 0% { opacity: .55; transform: scale(.85); } 100% { opacity: 0; transform: scale(1.35); } }
+.now-state b { display: block; font-size: 16px; }
+.now-state span { color: var(--muted); font-size: 12.5px; }
+.track { margin-top: 12px; }
+.track-top { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; gap: 8px; }
+.track-top .num { color: var(--text); }
+.rail { position: relative; height: 10px; border-radius: 5px; background: var(--panel-2); }
+.rail .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 5px; background: var(--hearing); }
+.rail .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--muted); opacity: .7; }
+.marks { position: relative; height: 15px; font-size: 10.5px; color: var(--faint); }
+.marks span { position: absolute; transform: translateX(-50%); white-space: nowrap; top: 2px; }
+.verdict { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.verdict b { color: var(--text); }
+.limits { display: flex; gap: 14px; margin-top: 12px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+.limits b { color: var(--text); font-weight: 600; }
+
+/* meters */
+.meter { margin: 8px 0; }
+.meter-top { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.meter-top .num { color: var(--text); }
+.bar { position: relative; height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.bar .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--level); transition: width .08s linear; }
+.bar .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .6; }
+.bar .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--muted); opacity: .7; }
+canvas { width: 100%; height: 92px; display: block; border-radius: 8px; background: var(--panel-2); margin-top: 10px; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+
+/* timing */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+.stat .label { font-size: 11.5px; color: var(--muted); line-height: 1.25; min-height: 2.5em; }
+.stat .value { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.stat .value small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.stat .sub { font-size: 11.5px; color: var(--faint); }
+
+/* conversation */
+.talk { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; }
+.tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 8px 12px; }
+.tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs .count { font-size: 11px; background: var(--panel-2); border-radius: 999px; padding: 1px 7px; margin-left: 4px; color: var(--muted); }
+.tabs .count.bad { background: var(--bad); color: #fff; }
+.pane { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; }
+#conversation { display: flex; flex-direction: column; gap: 10px; }
+.empty { margin: auto; text-align: center; color: var(--muted); max-width: 420px; padding: 36px 0; }
+.empty b { color: var(--text); display: block; font-size: 15px; margin-bottom: 8px; }
+.empty ol { text-align: left; margin: 12px auto 0; padding-left: 20px; display: inline-block; }
+.empty li { margin: 3px 0; }
+.msg { display: flex; gap: 10px; max-width: min(660px, 88%); }
+.msg.person { align-self: flex-end; flex-direction: row-reverse; }
+.avatar { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--accent); color: var(--accent-text); }
+.person .avatar { background: var(--person); }
+.bubble { padding: 8px 12px; border-radius: 14px; background: var(--harp-bg); min-width: 0; border: 1.5px solid transparent; transition: border-color .2s; }
+.person .bubble { background: var(--person-bg); border-top-right-radius: 4px; }
+.harp .bubble { border-top-left-radius: 4px; }
+.msg.playing .bubble { border-color: var(--muted-state); }
+.msg.live .bubble { border-color: var(--hearing); border-style: dashed; }
+.bubble .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble .text.pending { color: var(--muted); font-style: italic; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+.person .meta { justify-content: flex-end; }
+.tag { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; padding: 0 6px; border-radius: 4px; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+.tag.speaking { color: var(--muted-state); border-color: var(--muted-state); }
+.msg.faded .bubble { opacity: .55; }
+.msg.faded .text { text-decoration: line-through; text-decoration-color: var(--faint); }
+.latency { margin-top: 6px; }
+.latency .segs { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--panel); }
+.latency .segs i { display: block; height: 100%; }
+.latency .cap { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.latency .cap b { color: var(--text); }
+.note { align-self: center; color: var(--faint); font-size: 12.5px; text-align: center; max-width: 80%; }
+.note.warn { color: var(--warn); }
+.divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 6px 0; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.typing .bubble { display: inline-flex; gap: 8px; align-items: center; padding: 9px 12px; }
+.typing .dots { display: inline-flex; gap: 4px; }
+.typing .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: blink 1.2s infinite; }
+.typing .dots i:nth-child(2) { animation-delay: .2s; } .typing .dots i:nth-child(3) { animation-delay: .4s; }
+.typing .clock { font-size: 12px; color: var(--muted); }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.composer { border-top: 1px solid var(--line); background: var(--panel); padding: 10px 14px 12px; }
+.composer form { display: flex; gap: 8px; }
+.composer input { flex: 1; padding: 9px 12px; }
+.composer .hint { margin: 6px 2px 0; }
+#log { font-size: 12px; line-height: 1.55; }
+.log-line { display: grid; grid-template-columns: 64px 52px minmax(0, 1fr); gap: 8px; }
+.log-line .src { font-weight: 600; }
+.log-line .src.listen { color: var(--hearing); } .log-line .src.talk { color: var(--accent); }
+.log-line .src.web { color: var(--muted); } .log-line .src.llm { color: var(--transcribing); }
+.log-line .when { color: var(--faint); }
+.log-line .line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-line.error .line { color: var(--bad); }
+#toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px));
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 13.5px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5;
+}
+#toast.show { opacity: 1; }
+@media (max-width: 960px) {
+  .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; padding: 10px 16px; }
+  .stage:nth-child(2)::after { display: none; }
+}
+@media (max-width: 880px) {
+  html, body { height: auto; min-height: 100%; }
+  main { flex: none; grid-template-columns: 1fr; padding: 12px 16px 16px; }
+  aside { overflow: visible; }
+  .talk { min-height: 75vh; }
+  header { padding: 10px 16px; flex-wrap: wrap; }
+  .guide { order: 3; flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .orb.pulse::after, .typing .dots i { animation: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><h1>HARP speech</h1></div>
+  <div class="guide" aria-live="polite"><span class="dot" id="guide-dot"></span><b id="guide-title">Connecting</b><span id="guide-text"></span></div>
+  <button class="primary" id="go">Start</button>
+</header>
+
+<div class="pipeline" aria-label="The speech pipeline, live">
+  <div class="stage" id="stage-in"><div class="name"><span class="dot"></span>Sound in</div><div class="what">–</div><div class="detail"></div></div>
+  <div class="stage" id="stage-listen"><div class="name"><span class="dot"></span>listen.py</div><div class="what">Off</div><div class="detail">sound to text</div></div>
+  <div class="stage" id="stage-talk"><div class="name"><span class="dot"></span>talk.py and LLM</div><div class="what">Off</div><div class="detail">text to a spoken reply</div></div>
+  <div class="stage" id="stage-out"><div class="name"><span class="dot"></span>Sound out</div><div class="what">–</div><div class="detail"></div></div>
+</div>
+
+<main>
+  <aside>
+    <div id="banners"></div>
+
+    <section class="card" id="setup-card">
+      <h2>Setup <small id="setup-where"></small></h2>
+      <fieldset id="setup">
+        <div class="modes" role="radiogroup" aria-label="What to run">
+          <button type="button" class="mode" data-mode="both" aria-pressed="true"><i class="radio"></i><div><b>Conversation</b><span>Listen to a person and answer out loud. You can also type lines.</span></div></button>
+          <button type="button" class="mode" data-mode="listen" aria-pressed="false"><i class="radio"></i><div><b>Listen only</b><span>Just turn speech into text, to check the mic and turn ends.</span></div></button>
+          <button type="button" class="mode" data-mode="talk" aria-pressed="false"><i class="radio"></i><div><b>Typed only</b><span>Type what the person says; HARP answers out loud. No mic.</span></div></button>
+        </div>
+        <div data-for="listen">
+          <div class="field"><label for="source">Hear from</label>
+            <select id="source">
+              <option value="mic">A microphone</option>
+              <option value="robot">The robot's mic</option>
+              <option value="wav">A recording (WAV)</option>
+            </select></div>
+          <div class="field" data-source="mic"><label for="device">Microphone</label><select id="device"></select></div>
+          <div class="field" data-source="wav"><label for="wav">File</label><input type="text" id="wav" class="mono" placeholder="path on the server, from speech/"></div>
+          <div class="field" data-source="wav"><span></span><label class="check"><input type="checkbox" id="realtime" checked> At its own speed, as if live</label></div>
+        </div>
+        <div data-for="talk">
+          <div class="field"><label for="voice">Voice</label>
+            <select id="voice"><option value="kokoro">Kokoro (clearer)</option><option value="piper">Piper (faster)</option></select></div>
+          <div class="field"><span></span><label class="check"><input type="checkbox" id="play" checked> Play HARP's voice out loud</label></div>
+        </div>
+        <details id="advanced">
+          <summary>More settings</summary>
+          <div data-for="listen">
+            <div class="field"><label for="turn">Turn end</label>
+              <select id="turn"><option value="smart">Smart Turn (judges when they've finished)</option><option value="fixed">After 0.7 s of silence</option></select></div>
+            <div class="field" data-source="robot"><label for="iface">Address</label><input type="text" id="iface" class="mono" placeholder="192.168.123.164 (PC2)"></div>
+          </div>
+          <div data-for="talk">
+            <div class="field"><label for="output">Speaker</label><select id="output"></select></div>
+          </div>
+        </details>
+      </fieldset>
+      <div class="field" data-for="talk" style="margin-top: 10px"><span>LLM</span>
+        <div class="llm-row"><span class="dot" id="llm-dot"></span><span class="grow" id="llm-text">checking</span><button class="small" id="llm-button" hidden>Start</button></div></div>
+      <p class="hint" id="setup-hint"></p>
+      <p class="hint">These only choose how web.py starts listen.py and talk.py at the next Start. Nothing on the robot changes.</p>
+    </section>
+
+    <section class="card" id="now-card">
+      <h2>Now <small id="now-clock"></small></h2>
+      <div class="now-state">
+        <div class="orb" id="orb"></div>
+        <div><b id="now-name">Off</b><span id="now-help">Press Start to begin.</span></div>
+      </div>
+      <div id="turn-track" hidden>
+        <div class="track">
+          <div class="track-top"><span>Their speech</span><span class="num" id="speech-s">0.0 s</span></div>
+          <div class="rail"><div class="fill" id="speech-fill"></div></div>
+        </div>
+        <div class="track">
+          <div class="track-top"><span>Silence since</span><span class="num" id="quiet-s">0.0 s</span></div>
+          <div class="rail" id="quiet-rail"><div class="fill" id="quiet-fill" style="background: var(--transcribing)"></div></div>
+          <div class="marks" id="quiet-marks"></div>
+        </div>
+        <div class="verdict" id="verdict"></div>
+      </div>
+      <div id="reply-track" hidden>
+        <div class="track">
+          <div class="track-top"><span id="reply-label">HARP is thinking</span><span class="num" id="reply-s">0.0 s</span></div>
+          <div class="rail" id="reply-rail"><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
+          <div class="marks" id="reply-marks"></div>
+        </div>
+      </div>
+      <div class="limits" id="limits" hidden><span>Turns <b class="num" id="turns">0</b><span id="turns-max"></span></span><span>Time <b class="num" id="elapsed">0 s</b><span id="elapsed-max"></span></span></div>
+    </section>
+
+    <section class="card" data-for="listen" id="hearing-card">
+      <h2>What the mic hears <small>last 12 s</small></h2>
+      <div class="meter">
+        <div class="meter-top"><span>Loudness</span><span class="num" id="db-text">–</span></div>
+        <div class="bar" title="dBFS from -80 to 0. The line is the room's noise floor."><div class="fill" id="db-fill"></div><div class="mark" id="floor-mark" hidden></div></div>
+      </div>
+      <div class="meter">
+        <div class="meter-top"><span>Voice probability (Silero)</span><span class="num" id="prob-text">–</span></div>
+        <div class="bar" id="prob-bar"><div class="fill" id="prob-fill" style="background: var(--prob)"></div></div>
+      </div>
+      <canvas id="chart" aria-label="Loudness and voice probability over the last 12 seconds"></canvas>
+      <div class="legend">
+        <span><i style="background: var(--prob)"></i>voice</span>
+        <span><i style="background: var(--level)"></i>loudness</span>
+        <span><i style="background: var(--faint)"></i>start and end thresholds</span>
+        <span><i style="background: var(--hearing)"></i>a turn</span>
+        <span><i style="background: var(--muted-state)"></i>muted</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Speed <small>median, this session</small></h2>
+      <div class="stats">
+        <div class="stat"><div class="label">They go quiet to the text</div><div class="value num" id="stat-heard">–</div><div class="sub num" id="stat-heard-sub"></div></div>
+        <div class="stat"><div class="label">LLM's first sentence</div><div class="value num" id="stat-llm">–</div><div class="sub num" id="stat-llm-sub"></div></div>
+        <div class="stat"><div class="label">Their turn's end to HARP's voice</div><div class="value num" id="stat-sound">–</div><div class="sub num" id="stat-sound-sub"></div></div>
+      </div>
+    </section>
+  </aside>
+
+  <section class="card talk">
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="conversation">Conversation</button>
+      <button role="tab" aria-selected="false" data-tab="log">Log <span class="count" id="log-count">0</span></button>
+    </div>
+    <div class="pane" id="conversation-pane"><div id="conversation" aria-live="polite"></div></div>
+    <div class="pane mono" id="log-pane" hidden><div id="log"></div></div>
+    <div class="composer">
+      <form id="composer">
+        <input type="text" id="say" autocomplete="off" placeholder="Type what the person says" disabled>
+        <button class="primary" id="send" disabled>Send</button>
+      </form>
+      <p class="hint" id="composer-hint">Goes to HARP just like a line it heard, so you can mix typing and speaking.</p>
+    </div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const SAVED = ["source", "device", "wav", "realtime", "iface", "turn", "voice", "output", "play"];
+const CHART_S = 12;
+// Listening's and talking's settings; web.py sends the real ones (its LIMITS).
+let L = { start_prob: 0.6, end_prob: 0.45, check: 0.2, finished: 0.5, wait: 1.5, silence: 0.7,
+          short_turn: 1.0, max_speech: 15, filler: 1.2, give_up: 5, max_turns: 8, max_s: 90 };
+const LISTEN = {
+  off: ["Off", "--idle"], held: ["Starts after the greeting", "--idle"], starting: ["Loading models", "--idle"], waiting: ["Waiting for talk.py", "--idle"],
+  listening: ["Listening", "--listening"], hearing: ["Hearing someone", "--hearing"],
+  transcribing: ["Transcribing", "--transcribing"], muted: ["Muted while HARP talks", "--muted-state"], ended: ["Stopped", "--idle"],
+};
+
+let S = {};   // the page's view of the session, rebuilt from the events
+function fresh() {
+  return { running: false, config: null, talkReady: false, listen: "off", pending: 0, replyStart: null,
+    speaking: null, lastSpeech: 0, lastQuiet: 0, judged: null, live: null, harpLive: null, levels: [],
+    stats: { heard: [], llm: [], sound: [] }, turns: 0, began: null, done: null, warnings: {}, lastHeard: null };
+}
+S = fresh();
+let mode = "both", llm = "unknown", llmHere = false, llmUrl = "", serverHost = "", otherListen = false, mutePort = 28732;
+let devicesInfo = { inputs: [], outputs: [] }, logCount = 0, logErrors = 0, connected = false;
+
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function store(key, value) { try { localStorage.setItem("harp-speech-" + key, JSON.stringify(value)); } catch (e) {} }
+function recall(key) { try { const v = localStorage.getItem("harp-speech-" + key); return v === null ? undefined : JSON.parse(v); } catch (e) { return undefined; } }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+function secs(v, digits) { return v === undefined || v === null ? null : (+v).toFixed(digits === undefined ? 2 : digits) + " s"; }
+function setDot(node, color) { node.style.background = cssVar(color); }
+
+let toastTimer;
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 5000);
+}
+async function post(path, body) {
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(data.error || ("Failed: " + r.status)); return false; }
+    return true;
+  } catch (e) { toast("The speech server isn't answering. Is web.py running?"); return false; }
+}
+
+/* ---------- setup ---------- */
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === m));
+  store("mode", m); applyMode(); render();
+}
+function wants() {   // what the shown parts are for: the running session's, or the form's
+  const c = S.running && S.config ? S.config : { listen: mode !== "talk", talk: mode !== "listen", source: $("source").value };
+  return c;
+}
+function applyMode() {
+  const c = wants();
+  document.querySelectorAll('[data-for="listen"]').forEach(e => e.hidden = !c.listen);
+  document.querySelectorAll('[data-for="talk"]').forEach(e => e.hidden = !c.talk);
+  const s = $("source").value;
+  document.querySelectorAll("[data-source]").forEach(e => e.hidden = e.dataset.source !== s);
+  const where = serverHost ? serverHost : "the server";
+  $("setup-where").textContent = "runs on " + where;
+  $("setup-hint").textContent = !c.listen ? "HARP's voice plays on " + where + "'s speakers." :
+    s === "mic" ? "The mic is opened on " + where + " by listen.py, not by this browser. On macOS, the app that started web.py needs microphone access (System Settings, Privacy & Security, Microphone)." :
+    s === "robot" ? "Reads the robot's mic stream over the robot network. It needs Unitree's voice assistant in wake-up mode: ask the team before switching it." :
+    "A 16-bit WAV on " + where + ", fed to listening as if someone were speaking.";
+}
+function gather() {
+  const v = id => $(id).value, n = id => $(id).value === "" ? null : +$(id).value;
+  return { listen: mode !== "talk", talk: mode !== "listen", source: v("source"), device: n("device"),
+    wav: v("wav").trim(), realtime: $("realtime").checked, iface: v("iface").trim() || null,
+    fixed_turn: v("turn") === "fixed", voice: v("voice"), play: $("play").checked, output_device: n("output") };
+}
+function saveForm() { SAVED.forEach(id => store(id, $(id).type === "checkbox" ? $(id).checked : $(id).value)); }
+function loadForm() {
+  SAVED.forEach(id => { const v = recall(id); if (v === undefined || id === "device" || id === "output") return; if ($(id).type === "checkbox") $(id).checked = v; else $(id).value = v; });
+}
+async function loadDevices() {
+  try {
+    devicesInfo = await (await fetch("/api/devices")).json();
+    for (const [id, list] of [["device", devicesInfo.inputs], ["output", devicesInfo.outputs]]) {
+      const sel = $(id); sel.innerHTML = "";
+      const d = (list || []).find(x => x.default);
+      const def = el("option", "", "Default" + (d ? " (" + d.name + ")" : "")); def.value = ""; sel.append(def);
+      (list || []).forEach(x => { const o = el("option", "", x.name); o.value = x.index; sel.append(o); });
+      const saved = recall(id); if (saved !== undefined && [...sel.options].some(o => o.value === saved)) sel.value = saved;
+    }
+  } catch (e) {}
+  render();
+}
+function deviceName(kind, index) {
+  const list = devicesInfo[kind] || [];
+  const d = index === null || index === undefined ? list.find(x => x.default) : list.find(x => x.index === index);
+  return d ? d.name : (index === null || index === undefined ? "the default device" : "device " + index);
+}
+
+/* ---------- status ---------- */
+async function poll() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    llm = s.llm; llmHere = s.llm_started_here; llmUrl = s.llm_url || "";
+    const here = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+    serverHost = here ? "this computer" : (s.host || location.hostname);
+    otherListen = s.other_listen; mutePort = s.mute_port; if (s.limits) L = s.limits;
+    if (!s.running && S.running && !connected) S.running = false;
+  } catch (e) { llm = "unknown"; }
+  applyMode(); render();
+}
+
+/* ---------- rendering the live state ---------- */
+function guide() {
+  const c = S.config;
+  if (!connected) return ["--bad", "Not connected", "Waiting for web.py. Is it still running?"];
+  if (!S.running) {
+    if (S.done) return ["--idle", "Conversation over", S.done[0].toUpperCase() + S.done.slice(1) + ". Press Start for another."];
+    if (mode !== "listen" && llm !== "ok") return ["--warn", "Start the LLM first", llm === "loading" ? "It's loading the model." : "Use Start next to LLM in Setup, then press Start."];
+    if (mode !== "talk" && $("source").value !== "wav" && otherListen) return ["--warn", "listen.py is already running elsewhere", "Stop it in its terminal: only one can hear the mic."];
+    return ["--idle", "Ready", "Pick what to run in Setup, then press Start."];
+  }
+  if (c.talk && !S.talkReady) return ["--warn", "Loading", "HARP's voice and the LLM are getting ready: up to half a minute on a laptop."];
+  if (S.speaking) return ["--muted-state", "HARP is talking", c.listen ? "Wait until it has finished before you speak." : "Type the next line when it's done."];
+  if (S.pending > 0) return ["--thinking", "HARP is thinking", "Working out its reply."];
+  if (!c.listen) return ["--ok", "Your turn", "Type what the person says below."];
+  if (S.listen === "hearing") return ["--hearing", "Hearing you", "Keep talking; it ends the turn when you've finished."];
+  if (S.listen === "transcribing") return ["--transcribing", "Transcribing", "Turning that turn into text."];
+  if (S.listen === "muted") return ["--muted-state", "HARP is talking", "Listening is muted until it has finished."];
+  if (S.listen === "listening") return ["--ok", c.talk ? "Your turn: speak now" : "Listening", c.source === "wav" ? "Playing the recording into listening." : "Say something to HARP" + (c.talk ? " (or type it below)." : ".")];
+  if (S.listen === "ended") return ["--idle", "Listening has ended", c.talk ? "You can still type lines below." : ""];
+  return ["--idle", "Starting", "Loading the listening models."];
+}
+
+function stage(id, on, color, what, detail) {
+  const s = $(id); s.classList.toggle("off", !on);
+  setDot(s.querySelector(".dot"), on ? color : "--idle");
+  s.querySelector(".what").textContent = what; s.querySelector(".detail").textContent = detail || "";
+}
+
+function render() {
+  const c = wants(), running = S.running;
+  document.body.classList.toggle("running", running);
+  const [gColor, gTitle, gText] = guide();
+  setDot($("guide-dot"), gColor); $("guide-title").textContent = gTitle; $("guide-text").textContent = gText;
+  $("go").textContent = running ? "Stop" : "Start"; $("go").classList.toggle("primary", !running);
+  $("setup").disabled = running;
+  document.querySelectorAll("#setup .mode").forEach(b => b.disabled = running);
+
+  // pipeline
+  const src = c.source || $("source").value;
+  const inWhat = !c.listen ? "Typed lines" : src === "mic" ? deviceName("inputs", running ? c.device : ($("device").value === "" ? null : +$("device").value)) :
+    src === "robot" ? "The robot's mic" : "A recording";
+  const inDetail = !c.listen ? "from this page" : src === "wav" ? (c.wav || $("wav").value || "").split("/").pop() : "on " + (serverHost || "the server") + (c.talk ? ", or typed lines" : "");
+  stage("stage-in", running, S.listen === "muted" ? "--muted-state" : "--ok", inWhat, inDetail);
+  const ls = LISTEN[running && c.listen ? S.listen : "off"] || LISTEN.off;
+  let lDetail = "sound to text";
+  if (running && c.listen) lDetail = S.listen === "hearing" ? "turn " + secs(S.lastSpeech, 1) + (S.lastQuiet > 0.05 ? ", quiet " + secs(S.lastQuiet, 1) : "") :
+    S.lastHeard ? 'last: "' + S.lastHeard + '"' : (c.fixed_turn ? "turn ends after 0.7 s quiet" : "Smart Turn ends turns");
+  stage("stage-listen", running && c.listen, ls[1], c.listen ? ls[0] : "Not used", c.listen ? lDetail : "typed lines only");
+  let tWhat = "Not used", tDetail = "listening only", tColor = "--idle";
+  if (c.talk) {
+    tWhat = !running ? "Off" : !S.talkReady ? "Loading" : S.speaking ? "Speaking" : S.pending ? "Thinking" : "Ready";
+    tColor = !S.talkReady ? "--warn" : S.speaking ? "--muted-state" : S.pending ? "--thinking" : "--ok";
+    tDetail = running ? (c.voice === "kokoro" ? "Kokoro" : "Piper") + " voice, LLM " + (llm === "ok" ? "ready" : llm) : "LLM " + ({ ok: "ready", loading: "loading", down: "off" }[llm] || "unknown");
+  }
+  stage("stage-talk", running && c.talk, tColor, tWhat, tDetail);
+  const outWhat = !c.talk ? "Not used" : !(running ? c.play : $("play").checked) ? "Silent (not played)" : deviceName("outputs", running ? c.output_device : ($("output").value === "" ? null : +$("output").value));
+  stage("stage-out", running && c.talk, S.speaking ? "--muted-state" : "--ok", outWhat, S.speaking ? '"' + S.speaking + '"' : c.talk ? "on " + (serverHost || "the server") : "");
+
+  // LLM row
+  const llmLabel = { ok: "Ready", loading: "Loading the model", down: "Not running", unknown: "Unknown" }[llm] || llm;
+  setDot($("llm-dot"), llm === "ok" ? "--ok" : llm === "loading" ? "--warn" : "--idle");
+  $("llm-text").textContent = llmLabel + (llmUrl ? " at " + llmUrl.replace(/^https?:\/\//, "") : "") + (llmHere ? ", started here" : "");
+  $("llm-button").hidden = !(llm === "down" || llmHere);
+  $("llm-button").textContent = llm === "down" ? "Start" : "Stop";
+
+  // now card
+  const st = running && c.listen ? S.listen : running ? "listening" : "off";
+  const [nName, nColor] = S.speaking ? ["HARP is talking", "--muted-state"] : S.pending ? ["HARP is thinking", "--thinking"] :
+    running && !c.listen ? (S.talkReady ? ["Waiting for a typed line", "--ok"] : ["Loading", "--warn"]) : LISTEN[st] || LISTEN.off;
+  $("now-name").textContent = nName;
+  $("now-help").textContent = gText;
+  const orb = $("orb"); orb.style.background = cssVar(nColor); orb.style.color = cssVar(nColor);
+  orb.classList.toggle("pulse", S.listen === "hearing" || !!S.speaking);
+  $("turn-track").hidden = !(running && c.listen && (S.listen === "hearing" || S.listen === "transcribing"));
+  $("reply-track").hidden = !(running && c.talk && S.pending > 0 && S.replyStart !== null);
+  $("limits").hidden = !(running && c.talk);
+  $("turns").textContent = S.turns; $("turns-max").textContent = " of " + L.max_turns;
+  $("turns-max").title = "HARP says goodbye itself after " + L.max_turns + " turns or " + L.max_s + " s";
+  $("elapsed-max").textContent = " of " + L.max_s + " s";
+  updateTurnTrack();
+
+  // composer
+  const canSay = running && c.talk && S.talkReady;
+  $("say").disabled = $("send").disabled = !canSay;
+  $("say").placeholder = !(running && c.talk) ? "Start a conversation to type what the person says" : !S.talkReady ? "Waiting for HARP's greeting" : "Type what the person says, then Enter";
+  $("composer-hint").hidden = !(c.talk);
+
+  // banners
+  renderBanners();
+}
+
+function marks(container, max, items) {
+  container.innerHTML = "";
+  items.forEach(([at, label]) => { if (at > max) return; const s = el("span", "", label); s.style.left = (at / max * 100) + "%"; container.append(s); });
+}
+function railMarks(rail, max, at) {
+  rail.querySelectorAll(".mark").forEach(m => m.remove());
+  at.forEach(a => { if (a > max) return; const m = el("div", "mark"); m.style.left = "calc(" + (a / max * 100) + "% - 1px)"; rail.append(m); });
+}
+function updateTurnTrack() {
+  const c = S.config || {};
+  const speech = S.lastSpeech || 0, quiet = S.lastQuiet || 0;
+  $("speech-s").textContent = secs(speech, 1) + " of " + L.max_speech + " s at most";
+  $("speech-fill").style.width = Math.min(100, speech / L.max_speech * 100) + "%";
+  const short = speech < L.short_turn, fixed = c.fixed_turn || short;
+  const max = Math.max(L.wait, L.silence) + 0.1;
+  $("quiet-s").textContent = secs(quiet, 1);
+  $("quiet-fill").style.width = Math.min(100, quiet / max * 100) + "%";
+  const ms = fixed ? [[L.silence, "ends at " + L.silence + " s"]] : [[L.check, "judged"], [L.wait, "ends at " + L.wait + " s"]];
+  railMarks($("quiet-rail"), max, ms.map(x => x[0])); marks($("quiet-marks"), max, ms);
+  let v = "";
+  if (S.listen === "transcribing") v = "<b>Turn over.</b> Turning it into text.";
+  else if (c.fixed_turn) v = "Ends after <b>" + L.silence + " s</b> of silence (fixed turn end).";
+  else if (short) v = "A short turn (under " + L.short_turn + " s of speech) ends after <b>" + L.silence + " s</b> of silence, without asking Smart Turn.";
+  else if (S.judged === null) v = "After <b>" + L.check + " s</b> of silence, Smart Turn judges whether they've finished.";
+  else if (S.judged >= L.finished) v = "Smart Turn: <b>" + Math.round(S.judged * 100) + "% finished</b>, so the turn ends now.";
+  else v = "Smart Turn: <b>" + Math.round(S.judged * 100) + "% finished</b>, so it waits up to " + L.wait + " s in case they go on.";
+  $("verdict").innerHTML = v;
+}
+function tick() {   // timers that run between events
+  if (S.running && S.began) {
+    $("elapsed").textContent = Math.round((Date.now() - S.began) / 1000) + " s";
+    $("now-clock").textContent = "running " + fmtClock((Date.now() - S.began) / 1000);
+  } else $("now-clock").textContent = "";
+  if (S.pending > 0 && S.replyStart !== null) {
+    const t = (Date.now() - S.replyStart) / 1000, max = L.give_up + 0.5;
+    $("reply-s").textContent = secs(t, 1);
+    $("reply-fill").style.width = Math.min(100, t / max * 100) + "%";
+    const ms = [[L.filler, "filler"], [L.give_up, "gives up"]];
+    railMarks($("reply-rail"), max, ms.map(x => x[0])); marks($("reply-marks"), max, ms);
+    $("reply-label").textContent = "Since their turn ended";
+    const clock = document.querySelector(".typing .clock"); if (clock) clock.textContent = "thinking " + secs(t, 1);
+  }
+}
+function fmtClock(s) { s = Math.floor(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+/* ---------- banners ---------- */
+const WARNINGS = [
+  [/only zeros for 2 s/, "mic", "The mic is sending silence", "On macOS, allow microphone access for the app that started web.py (System Settings, Privacy & Security, Microphone), then restart web.py."],
+  [/no mic packets/, "robot", "No sound from the robot's mic", "Is Unitree's voice assistant in wake-up mode? Ask the team before switching it."],
+  [/robot's mic has sent only zeros/, "robotzero", "The robot's mic is sending silence", "Some firmware sends only zeros. See context/g1-builtin-apis.md."],
+  [/is missing: README/, "model", "A model is missing", null],
+  [/no LLM at/, "llm", "talk.py couldn't reach the LLM", "Start the LLM server in Setup, then press Start again."],
+  [/Traceback/, "crash", "A program crashed", "See the Log tab for the error."],
+];
+function warnFromLog(text) {
+  for (const [re, key, title, help] of WARNINGS) if (re.test(text) && !S.warnings[key]) S.warnings[key] = [title, help || text];
+}
+function renderBanners() {
+  const box = $("banners"); box.innerHTML = "";
+  const all = Object.entries(S.warnings);
+  if (!S.running && otherListen && mode !== "talk" && $("source").value !== "wav")
+    all.unshift(["other", ["Another listen.py is running", "Something else on " + (serverHost || "the server") + " holds port " + mutePort + ", probably listen.py in a terminal. Stop it there first: this page can't see or reuse it."]]);
+  all.forEach(([key, [title, help]]) => {
+    const b = el("div", "banner"), body = el("div");
+    body.append(el("b", "", title)); body.append(el("div", "", help));
+    b.append(body);
+    if (key !== "other") { const x = el("button", "", "×"); x.title = "Dismiss"; x.onclick = () => { delete S.warnings[key]; render(); }; b.append(x); }
+    box.append(b);
+  });
+}
+
+/* ---------- meters ---------- */
+function level(m) {
+  const pct = db => Math.max(0, Math.min(100, (db + 80) / 80 * 100));
+  $("db-fill").style.width = pct(m.db) + "%"; $("db-text").textContent = m.db.toFixed(0) + " dB" + (m.floor_db !== null && m.floor_db !== undefined ? ", floor " + m.floor_db.toFixed(0) : "");
+  const mark = $("floor-mark");
+  if (m.floor_db !== null && m.floor_db !== undefined) { mark.hidden = false; mark.style.left = pct(m.floor_db) + "%"; } else mark.hidden = true;
+  $("prob-fill").style.width = (m.prob * 100) + "%"; $("prob-text").textContent = m.prob.toFixed(2);
+  $("db-fill").style.background = cssVar(S.listen === "hearing" ? "--hearing" : S.listen === "muted" ? "--muted-state" : "--level");
+  S.levels.push({ t: m.t, db: m.db, prob: m.prob, state: S.listen });
+  const since = m.t - CHART_S; while (S.levels.length && S.levels[0].t < since) S.levels.shift();
+  if (m.speech_s !== undefined) {
+    S.lastSpeech = m.speech_s; S.lastQuiet = m.quiet_s;
+    if (S.live) S.live.querySelector(".text").textContent = "Speaking… " + secs(m.speech_s, 1);
+  }
+  drawSoon(); render();
+}
+let drawQueued = false;
+function drawSoon() { if (!drawQueued) { drawQueued = true; requestAnimationFrame(draw); } }
+function draw() {
+  drawQueued = false;
+  const c = $("chart"), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w) return;
+  if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const band = 5, top = 6, plot = h - band - top - 4, lv = S.levels;
+  const end = lv.length ? lv[lv.length - 1].t : CHART_S;
+  const x = t => w - (end - t) / CHART_S * w, y = v => top + plot * (1 - v);
+  g.strokeStyle = cssVar("--grid"); g.lineWidth = 1;
+  for (const v of [0.25, 0.5, 0.75]) { g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke(); }
+  g.setLineDash([3, 3]); g.strokeStyle = cssVar("--faint");
+  for (const v of [L.end_prob, L.start_prob]) { g.beginPath(); g.moveTo(0, y(v)); g.lineTo(w, y(v)); g.stroke(); }
+  g.setLineDash([]);
+  if (!lv.length) return;
+  const ldb = db => Math.max(0, Math.min(1, (db + 80) / 80));
+  g.beginPath(); g.moveTo(x(lv[0].t), y(0));
+  lv.forEach(p => g.lineTo(x(p.t), y(ldb(p.db))));
+  g.lineTo(x(end), y(0)); g.closePath(); g.globalAlpha = 0.5; g.fillStyle = cssVar("--level"); g.fill(); g.globalAlpha = 1;
+  g.beginPath(); lv.forEach((p, i) => (i ? g.lineTo : g.moveTo).call(g, x(p.t), y(p.prob)));
+  g.strokeStyle = cssVar("--prob"); g.lineWidth = 1.75; g.stroke();
+  const colors = { hearing: "--hearing", transcribing: "--transcribing", muted: "--muted-state" };
+  lv.forEach((p, i) => {
+    if (!colors[p.state]) return;
+    const x0 = x(p.t), x1 = i + 1 < lv.length ? x(lv[i + 1].t) : w;
+    g.fillStyle = cssVar(colors[p.state]); g.fillRect(x0, h - band, Math.max(1, x1 - x0), band);
+  });
+}
+function probTicks() {
+  const bar = $("prob-bar"); bar.querySelectorAll(".tick").forEach(t => t.remove());
+  for (const v of [L.end_prob, L.start_prob]) { const t = el("div", "tick"); t.style.left = (v * 100) + "%"; bar.append(t); }
+  bar.title = "Speech starts at " + L.start_prob + "; a frame under " + L.end_prob + " is silence";
+}
+
+/* ---------- conversation ---------- */
+const conv = () => $("conversation");
+function scrollDown() { const p = $("conversation-pane"); if (p.scrollHeight - p.scrollTop - p.clientHeight < 160) p.scrollTop = p.scrollHeight; }
+function showEmpty() {
+  conv().innerHTML = "";
+  const e = el("div", "empty"); e.append(el("b", "", "No conversation yet"));
+  const ol = el("ol");
+  ["Pick Conversation, Listen only or Typed only in Setup.", "For talking, start the LLM (next to LLM in Setup).", "Press Start. HARP says hello, then answers each thing it hears or you type.",
+   "Watch the top strip and the Now card for what each program is doing."].forEach(t => ol.append(el("li", "", t)));
+  e.append(ol); conv().append(e);
+}
+function add(node) {
+  const empty = conv().querySelector(".empty"); if (empty) empty.remove();
+  const typing = conv().querySelector(".typing");
+  if (typing && node !== typing) conv().insertBefore(node, typing); else conv().append(node);
+  scrollDown(); return node;
+}
+function message(who, text, metaParts, tags) {
+  const m = el("div", "msg " + who), b = el("div", "bubble");
+  m.append(el("div", "avatar", who === "harp" ? "H" : "P"));
+  b.append(el("div", "text", text));
+  const meta = el("div", "meta");
+  b.append(meta); fillMeta(meta, metaParts, tags);
+  m.append(b); return add(m);
+}
+function fillMeta(meta, parts, tags) {
+  meta.innerHTML = "";
+  (tags || []).forEach(t => meta.append(el("span", "tag", t)));
+  (parts || []).filter(Boolean).forEach(t => meta.append(el("span", "num", t)));
+  meta.hidden = !meta.childNodes.length;
+}
+function note(text, cls) { return add(el("div", "note" + (cls ? " " + cls : ""), text)); }
+function divider(text) { return add(el("div", "divider", text)); }
+function setTyping(on) {
+  const t = conv().querySelector(".typing");
+  if (on && !t) {
+    const m = el("div", "msg harp typing"); m.append(el("div", "avatar", "H"));
+    const b = el("div", "bubble"), d = el("span", "dots"); d.append(el("i"), el("i"), el("i"));
+    b.append(d, el("span", "clock num", "thinking")); m.append(b); conv().append(m); scrollDown();
+  }
+  if (!on && t) t.remove();
+}
+function expectReply() { S.pending++; if (S.replyStart === null) S.replyStart = Date.now(); setTyping(true); render(); }
+function replied() { S.pending = Math.max(0, S.pending - 1); if (!S.pending) { setTyping(false); S.replyStart = null; } render(); }
+function clearPlaying() { conv().querySelectorAll(".msg.playing").forEach(m => { m.classList.remove("playing"); const t = m.querySelector(".tag.speaking"); if (t) t.remove(); }); }
+function markPlaying(msg) {
+  clearPlaying(); msg.classList.add("playing");
+  const meta = msg.querySelector(".meta"); meta.hidden = false;
+  if (!meta.querySelector(".tag.speaking")) meta.prepend(el("span", "tag speaking", "speaking"));
+}
+
+function latencyBar(m) {
+  const hear = m.heard_s || 0, think = m.llm_s || 0, voice = Math.max(0, (m.ready_s || 0) - think), wait = Math.max(0, (m.first_sound_s || 0) - (m.ready_s || 0));
+  const total = hear + think + voice + wait;
+  if (!total) return null;
+  const box = el("div", "latency"), segs = el("div", "segs");
+  [[hear, "--seg-hear"], [think, "--seg-think"], [voice, "--seg-voice"], [wait, "--seg-wait"]].forEach(([v, c]) => {
+    if (v <= 0) return; const i = el("i"); i.style.width = (v / total * 100) + "%"; i.style.background = cssVar(c); segs.append(i);
+  });
+  const cap = el("div", "cap num");
+  const parts = [];
+  if (m.heard_s) parts.push(secs(hear, 1) + " to hear them");
+  parts.push(secs(think, 1) + " to think", secs(voice, 1) + " to make the voice");
+  if (wait > 0.05) parts.push(secs(wait, 1) + " waiting to play");
+  cap.innerHTML = "<b>" + secs(total, 1) + "</b> from " + (m.heard_s ? "them going quiet" : "the line") + " to HARP's voice: " + parts.join(", ");
+  box.append(segs, cap); return box;
+}
+
+function median(a) { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), i = s.length >> 1; return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2; }
+function stat(key, value) {
+  if (value !== undefined && value !== null && value > 0) S.stats[key].push(+value);
+  const a = S.stats[key], m = median(a);
+  $("stat-" + key).innerHTML = m === null ? "–" : m.toFixed(2) + "<small> s</small>";
+  $("stat-" + key + "-sub").textContent = a.length ? "last " + a[a.length - 1].toFixed(2) + " s, " + a.length + (a.length === 1 ? " turn" : " turns") : "";
+}
+
+function logLine(source, text, when, error) {
+  const line = el("div", "log-line" + (error ? " error" : ""));
+  line.append(el("span", "when", new Date(when * 1000).toLocaleTimeString([], { hour12: false })));
+  line.append(el("span", "src " + source, source));
+  line.append(el("span", "line", text));
+  const pane = $("log-pane"), atEnd = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 20;
+  $("log").append(line); $("log-count").textContent = ++logCount;
+  if (error) { logErrors++; $("log-count").classList.add("bad"); }
+  if (atEnd) pane.scrollTop = pane.scrollHeight;
+}
+
+const DROPPED = { short: "Ignored a short sound (a cough or click)", empty: "Heard someone, but no words came out", made_up: "Ignored noise heard as words" };
+const DONE = { bye: "HARP said goodbye", goodbye: "they said goodbye", misses: "nothing was heard twice in a row", time: "it reached its turn or time limit", input_ended: "stopped" };
+
+function personLive(on) {
+  if (on && !S.live) {
+    S.live = message("person", "Speaking…", [], []); S.live.classList.add("live");
+    S.live.querySelector(".text").classList.add("pending");
+  }
+  if (!on && S.live) { S.live.remove(); S.live = null; }
+}
+
+function handle(m) {
+  const { source, event } = m;
+  if (event === "hello") { reset(); return; }
+  if (event === "log") {
+    const bad = /error|failed|missing|Traceback|only zeros|no mic packets/i.test(m.text);
+    logLine(source, m.text, m.time, bad); warnFromLog(m.text); if (bad) render(); return;
+  }
+  if (source === "listen" && event === "level") { level(m); return; }
+  if (source === "listen" && event === "state") {
+    const was = S.listen; S.listen = m.state;
+    if (m.state === "hearing") { S.judged = null; S.lastSpeech = 0; S.lastQuiet = 0; personLive(true); }
+    if (m.state === "transcribing" && S.live) S.live.querySelector(".text").textContent = "Transcribing…";
+    if (was === "hearing" && m.state !== "transcribing") personLive(false);   // cut off by the mute
+    if (m.state === "listening" && was === "muted") clearPlaying();
+    render(); return;
+  }
+  if (source === "listen" && event === "judged") {
+    S.judged = m.finished;
+    if (S.live) fillMeta(S.live.querySelector(".meta"), ["Smart Turn: " + Math.round(m.finished * 100) + "% finished"], []);
+    render(); return;
+  }
+  if (event === "exit") {
+    logLine(source, "exited" + (m.code ? " with code " + m.code : ""), m.time, !!m.code && m.code !== -2 && m.code !== 130);
+    if (m.code && m.code !== -2 && m.code !== 130) note((source === "listen" ? "listen.py" : source === "talk" ? "talk.py" : "The LLM server") + " stopped with an error: see the Log tab.", "warn");
+    if (source === "listen") { S.listen = "ended"; personLive(false); }
+    if (source === "talk") S.speaking = null;
+    render(); return;
+  }
+  if (source === "web" && event === "session") {
+    if (m.state === "started") {
+      const keepWarnings = {};
+      Object.assign(S, fresh(), { warnings: keepWarnings });
+      S.running = true; S.config = m.config; S.began = m.time * 1000;
+      ["heard", "llm", "sound"].forEach(k => stat(k));
+      const parts = [];
+      if (m.config.listen) parts.push("listening to " + ({ mic: deviceName("inputs", m.config.device), robot: "the robot's mic", wav: "a recording" })[m.config.source]);
+      if (m.config.talk) parts.push("talking with the " + (m.config.voice === "kokoro" ? "Kokoro" : "Piper") + " voice" + (m.config.play ? "" : ", silent"));
+      divider("Started " + parts.join(", ") + " at " + new Date(m.time * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+      S.listen = m.config.listen ? "starting" : "off";
+    } else {
+      S.running = false; S.pending = 0; S.replyStart = null; S.speaking = null; setTyping(false); clearPlaying(); personLive(false);
+      divider("Stopped");
+      if (S.listen !== "off") S.listen = "ended";
+    }
+    applyMode(); render(); return;
+  }
+  if (source === "web" && event === "listen_held") { S.listen = "held"; render(); return; }
+  if (source === "web" && event === "talk_ready") { S.talkReady = true; render(); return; }
+  if (source === "web" && event === "typed") {
+    message("person", m.text, [], ["typed"]);
+    if (m.forwarded) expectReply(); return;
+  }
+  if (source === "listen" && event === "turn") {
+    const live = S.live; S.live = null;
+    if (m.dropped === "short" || m.dropped === "made_up" || m.dropped === "empty") {
+      if (live) live.remove();
+      note(DROPPED[m.dropped] + (m.text ? ': "' + m.text + '"' : ""));
+      if (m.forwarded && m.dropped === "empty") expectReply();
+      return;
+    }
+    const meta = [secs(m.after_end_s) && "text " + secs(m.after_end_s) + " after they went quiet",
+      "speech-to-text " + secs(m.stt_s), m.finished !== undefined && "Smart Turn " + Math.round(m.finished * 100) + "% finished"];
+    const msg = live || message("person", "", [], []);
+    msg.classList.remove("live"); const t = msg.querySelector(".text"); t.classList.remove("pending"); t.textContent = m.text;
+    fillMeta(msg.querySelector(".meta"), meta, []); msg.dataset.text = m.text;
+    S.lastHeard = m.text; stat("heard", m.after_end_s);
+    if (m.forwarded) { S.replyStart = Date.now(); expectReply(); }
+    else if (S.config && S.config.talk) note("HARP wasn't ready yet, so it won't answer this", "warn");
+    render(); return;
+  }
+  if (source === "talk") {
+    if (event === "speaking") {
+      S.speaking = m.text;
+      clearTimeout(S.speakTimer);   // its sound ends after its length, unless another piece follows
+      S.speakTimer = setTimeout(() => { S.speaking = null; clearPlaying(); render(); }, (m.seconds || 0) * 1000 + 150);
+      const canned = [...conv().querySelectorAll(".msg.harp.canned:not(.spoken)")].find(e => e.dataset.text === m.text);
+      if (canned) { canned.classList.add("spoken"); markPlaying(canned); }
+      else if (m.first || !S.harpLive) {
+        setTyping(false);
+        S.harpLive = message("harp", m.text, [], []); S.harpLive.dataset.reply = "1"; markPlaying(S.harpLive);
+      } else {
+        const t = S.harpLive.querySelector(".text"); t.textContent = (t.textContent + " " + m.text).trim(); markPlaying(S.harpLive);
+      }
+      render(); return;
+    }
+    if (event === "said") {
+      if (m.canned) {
+        const msg = message("harp", m.text, [], [m.filler ? "filler" : "fixed line"]);
+        msg.classList.add("canned"); msg.dataset.text = m.text;
+        if (!m.filler) replied();
+      } else {
+        const msg = S.harpLive || message("harp", m.text, [], []);
+        S.harpLive = null;
+        msg.querySelector(".text").textContent = m.text;
+        fillMeta(msg.querySelector(".meta"), [], []);
+        const bar = latencyBar(m); if (bar) msg.querySelector(".bubble").append(bar);
+        stat("llm", m.llm_s); stat("sound", (m.heard_s || 0) + (m.first_sound_s || 0));
+        S.turns++; clearPlaying(); S.speaking = null; replied();
+      }
+      render(); return;
+    }
+    if (event === "echo") {
+      const mine = [...conv().querySelectorAll(".msg.person")].reverse().find(e => e.dataset.text === m.text);
+      if (mine) { mine.classList.add("faded"); const meta = mine.querySelector(".meta"); meta.hidden = false; meta.append(el("span", "tag", "HARP's own voice: ignored")); }
+      else note('Ignored HARP\'s own voice: "' + m.text + '"');
+      replied(); return;
+    }
+    if (event === "unknown_words") { note("The voice skipped words it can't say: " + m.words.join(", ") + " (the G2P model is missing: see speech/README.md)", "warn"); return; }
+    if (event === "guessed_words") {
+      const list = Object.entries(m.words).map(([w, s]) => w + " /" + s + "/").join(", ");
+      note("Guessed how to say " + list + ". If one sounds wrong, add it to speech/lexicon/.");
+      logLine("talk", "guessed: " + list, m.time); return;
+    }
+    if (event === "ignored_bye") { logLine("talk", "ignored a <bye> on a reply that isn't a goodbye", m.time); return; }
+    if (event === "done") {
+      S.done = DONE[m.reason] || m.reason;
+      divider("Conversation over: " + S.done + ", " + m.turns + (m.turns === 1 ? " turn, " : " turns, ") + m.seconds + " s");
+      render(); return;
+    }
+  }
+}
+
+function reset() {
+  showEmpty(); $("log").innerHTML = ""; logCount = 0; logErrors = 0; $("log-count").textContent = 0; $("log-count").classList.remove("bad");
+  S = fresh(); ["heard", "llm", "sound"].forEach(k => stat(k)); drawSoon(); render();
+}
+function connect() {
+  const source = new EventSource("/events");
+  source.onopen = () => { connected = true; render(); };
+  source.onmessage = e => { try { handle(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  source.onerror = () => { connected = false; render(); };
+}
+
+/* ---------- wiring ---------- */
+document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+SAVED.forEach(id => $(id).addEventListener("change", () => { saveForm(); applyMode(); render(); }));
+$("go").addEventListener("click", async () => {
+  $("go").disabled = true;
+  if (S.running) await post("/api/stop"); else { saveForm(); S.done = null; await post("/api/start", gather()); }
+  $("go").disabled = false; poll();
+});
+$("llm-button").addEventListener("click", async () => {
+  $("llm-button").disabled = true;
+  await post(llm === "down" ? "/api/llm/start" : "/api/llm/stop");
+  $("llm-button").disabled = false; poll();
+});
+$("composer").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = $("say").value.trim(); if (!text) return;
+  if (await post("/api/say", { text })) $("say").value = "";
+  $("say").focus();
+});
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-tab]").forEach(x => x.setAttribute("aria-selected", x === b));
+  $("conversation-pane").hidden = b.dataset.tab !== "conversation";
+  $("log-pane").hidden = b.dataset.tab !== "log";
+  if (b.dataset.tab === "log") $("log-pane").scrollTop = $("log-pane").scrollHeight;
+}));
+window.addEventListener("resize", drawSoon);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawSoon(); render(); });
+
+loadForm(); mode = recall("mode") || "both"; setMode(mode); showEmpty();
+poll().then(probTicks); loadDevices(); setInterval(poll, 3000); setInterval(tick, 100); connect();
+</script>
+</body>
+</html>

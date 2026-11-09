@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-09T00:26:42Z
+  updated: 2026-11-09T00:36:58Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -79,6 +79,8 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - `listen.py` hears nothing until 0.5 s after `false`, or 1 s after the last `true` if `talk.py` dies.
   - Startup: `talk.py` sends `true` with `"loading": true` from its first moment until its greeting is queued, so nobody is heard before it can answer. Without that, lines said during its 10 s of loading queued in the pipe and were answered late, one after another. `listen.py` binds the port before loading its models and stays muted 1.5 s from then, so it catches `talk.py`'s first message; alone, it starts listening after those 1.5 s.
   - It logs its state on stderr for a person talking to it: loading, listening, hearing you, muted.
+  - `--events` adds JSON lines with an `event` key among the turns, for the web page ([[speech-web]]): its state when it changes, a level every 96 ms (loudness, Silero, noise floor, the turn so far) and Smart Turn's judgement. `talk.py --heard` must get only the turns.
+  - A recording gets `PAD` (`WAIT` + 0.5 s) of silence after it, so a last turn Smart Turn calls unfinished still ends; `--realtime` plays it at its own speed, as if live.
   - A turn cut off by it is dropped, and Silero's state is reset after it.
   - On the robot this becomes the `speaking` ROS 2 event.
   - The echo check is in `talk.py` (it knows what it said).

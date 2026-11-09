@@ -3,7 +3,7 @@ name: talking-research
 description: Read when choosing or revisiting the talking half's pieces (the voice, the LLM and its license, the robot's speaker, how a conversation with a stranger should go): options, licenses and what others found
 metadata:
   type: reference
-  updated: 2026-11-03T02:50:21Z
+  updated: 2026-11-09T01:16:05Z
   covers: []
 ---
 
@@ -13,6 +13,13 @@ Research from 2026-11-03, nothing tried by us. Our design: [[talking]]. Speeds o
 - **sherpa-onnx 2.0.0 removed espeak-ng (GPL-3.0)** on 2026-10-20 (PR #4055), so the version we use holds no GPL code. Its English voices now read words from lexicon files. Words not in a lexicon, digits included, are silently dropped (issue #4139), so:
   - spell numbers out first (inflect, MIT; not num2words, which is LGPL)
   - add our own lexicon for names ("HARP", "Unitree")
+- **Words missing from the lexicons: a G2P model (spelling to sounds) for them.** Tried 2026-11-08 on an M1 CPU with 46 words the LLM could say (maths, tech, campus places, names, foods) that a voice's lexicon lacks, Parakeet as the listener ("I said X."):
+  - Kokoro, words heard within 0.7 letter similarity: misaki's G2P 35 of 46, g2p_en 35, none 11 (those 11 were only missing from Piper's list). Piper: misaki 21, g2p_en 13, none 4.
+  - misaki's US G2P (word lists plus a small BART model, `PeterReid/graphemes_to_phonemes_en_us`, Apache-2.0): its symbols are Kokoro's (Kokoro's lexicon is misaki's lists, 174,330 of 174,335 entries identical), 2.2 ms a word, and onnxruntime is all it needs. Used as `nekwo/misaki-en-us-g2p-onnx` (a third party's ONNX export, Apache-2.0), pinned by commit and hash; exporting the official weights ourselves would make each teammate install PyTorch once.
+  - g2p_en (Apache-2.0, CMUdict plus a numpy net): as good on Kokoro, worse on Piper, and it adds nltk, inflect and distance plus nltk data downloads.
+  - Piper needs misaki's symbols turned into espeak-style ones (A to eɪ, ɜɹ to ɜː, and so on): a fixed table matched Piper's own entries with median similarity 1.00.
+  - sherpa-onnx 2.0.1 takes sounds directly: `GenerationConfig.phoneme_codepoints`, one list of code points per sentence, for both voices. Piper got the same token ids either way. On 14 of HARP's usual lines Kokoro's word errors were 1.5% this way against 3.8% from text; Piper's varied between runs (8 to 15%), as its VITS model adds noise.
+  - Still wrong with either model: names from other languages (Nguyen, Saoirse, Siobhan, tteokbokki) and brands spelled as letters (ChatGPT came out "chat"). Those need our lexicon, or a rule that spells capital runs as letters.
 - **Kokoro-82M v1.0** (code, weights and voices Apache-2.0; best English voice `af_heart`): runs as is through sherpa-onnx, since its lexicon comes from misaki's dictionaries (Apache-2.0).
   - Real-time factor (synthesis time over audio length) 3.19 on a Raspberry Pi 4, so likely too heavy for PC2's CPU, but about 0.34 s to first audio on an Orin GPU.
 - **Piper voices through sherpa-onnx:** RTF 0.36 on a Pi 4, light enough for PC2's CPU. They need sherpa-onnx's `lexicon-en-us.txt`, whose origin is unverified (if it was built from espeak-ng's dictionaries, it's a grey area).
