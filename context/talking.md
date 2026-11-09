@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-04T23:51:18Z
+  updated: 2026-11-09T00:26:42Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -71,7 +71,7 @@ Design for the talking half of a conversation, and what both halves share, and w
   - A reply's first piece is cut at the first comma with 4 words before it (later pieces: 10), so its sound starts sooner.
   - The prompt's fixed start is processed once at start, so each turn is cached.
   - Its prompt rules out offering help or going places; without that, it offered to help find food.
-  - Events are JSON lines on stdout.
+  - Events are JSON lines on stdout when it is piped (`talk_bench.py` reads them) or with `--json`. In a terminal it prints the conversation instead: `you:` with each transcript, each reply piece as its sound starts, and the reply's times.
   - Text tests in `speech/tests/test_talk.py`.
 - Words: sherpa-onnx skips any word missing from a voice's lexicon. So `talk.py` writes one combined lexicon at start:
   - our `speech/lexicon/` entries first, then the voice's own list
@@ -85,7 +85,7 @@ Design for the talking half of a conversation, and what both halves share, and w
 - The prompt has the model answer what was said, not always open with a reaction: "Hello" was getting "Oh, nice!". It never repeats a question, and rephrases when they're confused: "What" was getting the same reply again. Its examples for those cases are now often copied word for word.
 - The prompt also gives its height (about 1.3 m) and what HARP stands for (Humanoid Athletic Robotics Project, as the GitHub organisation spells it), keeps it to English (it answered Spanish in Spanish, with words the voice can't say), has it answer "heart" or "hard" as its own name without remarking on it, and has it turn down personal details kindly and keep chatting (it said goodbye when given an address).
 - Joined to listening (2026-11-03): `listen.py --mic | talk.py --heard`.
-  - While it plays audio, and while a reply is being made (`busy`, so the pause between two synthesized sentences doesn't unmute), it sends listening the speaking signal. Measured: on from each reply's start to its last sound, heartbeats at most 0.54 s apart.
+  - While it loads, plays audio, and makes a reply (`busy`, so the pause between two synthesized sentences doesn't unmute), it sends listening the speaking signal (`Mute`; the protocol: [[listening]]). Measured: on from each reply's start to its last sound, heartbeats at most 0.54 s apart.
   - A transcript within 0.75 similarity of one of its last three lines, a piece of one with three or more words, or the last one or two words of its newest line, is dropped as an `echo` event.
   - Ports (a teammate's ask: no common ones; 8080–8082 are taken on PC2 by our lidar, camera and hybrid viewers): `llama-server` on 28731, the speaking signal on 28732. Both are below Linux's temporary-port range (32768–60999).
   - People can't interrupt it: it doesn't listen while it speaks.

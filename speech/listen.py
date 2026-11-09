@@ -27,7 +27,9 @@ Stages:
            {"speaking": true} every 0.5 s while it plays and {"speaking": false} when it
            stops, as UDP to MUTE_PORT on this computer. A mute ends HOLD s after the last
            message anyway, so it can't stay deaf if talk.py stops. A turn cut off by it is
-           dropped.
+           dropped. talk.py also sends them (with "loading": true) from its start until its
+           voice and LLM are ready, so nobody is heard before it can answer; listening
+           waits STARTUP s for its first message before it hears anyone.
 
 Each line: text, start and end (s into the stream), silence_s (the wait for the turn
 to end), stt_s (decoding time) and after_end_s (their sum: from the person going quiet
@@ -74,6 +76,7 @@ MUTE_PORT = 28732   # UDP on this computer: talk.py's speaking messages (its LLM
                     # both below Linux's temporary-port range, and unused by common software)
 TAIL = 0.5          # s still muted after the robot stops speaking (the room's echo)
 HOLD = 1.0          # s a speaking message mutes for, unless another comes
+STARTUP = 1.5       # s muted from the start, for talk.py's first message if it's there
 
 GROUP, PORT = "239.168.123.161", 5555   # the G1's mic stream, from PC1
 PC2 = "192.168.123.164"                  # PC2's address on the robot network
@@ -199,7 +202,9 @@ class Mute:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", port))
         self.sock.setblocking(False)
-        self.until = 0.0
+        self.until = time.monotonic() + STARTUP
+        self.heard = False     # a message has come from talk.py
+        self.loading = False   # talk.py is still loading its voice and LLM
 
     def __call__(self):
         """True while muted; reads every message waiting."""
@@ -210,6 +215,7 @@ class Mute:
                 break
             now = time.monotonic()
             self.until = now + (HOLD if message.get("speaking") else TAIL)
+            self.heard, self.loading = True, bool(message.get("loading"))
         return time.monotonic() < self.until
 
 
@@ -382,6 +388,8 @@ def main():
         print(sounddevice.query_devices())
         return
 
+    # Bound first, so talk.py's messages while it loads are heard while these models load.
+    mute = None if args.wav or args.no_mute else Mute(args.mute_port)
     models = args.models or models_dir()
     needed = [models / SILERO, models / PARAKEET] + ([] if args.fixed_turn else [models / SMART_TURN])
     for path in needed:
@@ -395,21 +403,28 @@ def main():
     log(f"models loaded in {time.perf_counter() - began:.1f} s")
     frames = (wav_frames(args.wav) if args.wav else mic_frames(args.device) if args.mic
               else robot_frames(args.iface))
-    mute = None if args.wav or args.no_mute else Mute(args.mute_port)
-    muted = False
+    live = not args.wav   # say on stderr what it's doing, for a person talking to it
+    state = None          # the last frame's: listening, or why it was muted
+    states = {"loading": "(waiting for talk.py's voice and LLM to load)",
+              "talking": "(muted while HARP talks)", "listening": "(listening)"}
     try:
         for frame in frames:
+            now = "listening"
             if mute and mute():
-                if not muted:
-                    log("muted: the robot is speaking")
-                muted = True
+                now = "loading" if mute.loading else "talking" if mute.heard else "starting"
+            if now != state:
+                if live and now in states:
+                    log(states[now])
+                if state not in (None, "listening") and now == "listening":
+                    voice.reset()
+                state = now
+            if now != "listening":
                 turns.skip()
                 continue
-            if muted:
-                muted = False
-                voice.reset()
-                log("listening")
+            hearing = turns.speaking
             turn = turns.push(frame, voice(frame))
+            if live and turns.speaking and not hearing:
+                log("(hearing you)")
             if turn is None:
                 continue
             start, end, audio = turn

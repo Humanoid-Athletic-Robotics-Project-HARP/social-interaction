@@ -154,9 +154,19 @@ That path is from this repo's main checkout; from a worktree, give the full path
 ```
 
 `--voice piper` picks the other voice. `--no-play --save DIR` stays silent and keeps
-what it said as WAVs. Each thing it says is one JSON line on stdout, with the times
-from the end of your line to the LLM's first sentence, to its audio, and to its first
-sound (which also waits for anything still playing, such as the greeting):
+what it said as WAVs. In a terminal it shows the conversation: what it heard you say,
+each part of its reply as it starts saying it, and how long the reply took:
+
+```
+you:  Pretty good, I just got out of class.
+HARP: Oh, nice!
+      What was the class about?
+      (first sound 1.4 s after you stopped: 0.5 s to hear you, 0.8 s to think, 0.1 s to speak)
+```
+
+Piped, or with `--json`, each thing it says is one JSON line on stdout instead, with the
+times from the end of your line to the LLM's first sentence, to its audio, and to its
+first sound (which also waits for anything still playing, such as the greeting):
 
 ```json
 {"event": "said", "text": "Oh, nice! What was the lecture about?", "llm_s": 0.603, "ready_s": 0.675, "first_sound_s": 0.676}
@@ -169,9 +179,11 @@ running:
 .venv/bin/python listen.py --mic | .venv/bin/python talk.py --heard
 ```
 
-While HARP speaks, and while it works out a reply, listening stops hearing until 0.5 s
-after it has finished, so it doesn't answer itself. You can't interrupt it yet: wait
-until it has finished before you speak. `talk.py` tells `listen.py` over UDP on this
+Listening shows what it is doing on stderr: `(waiting for talk.py's voice and LLM to
+load)`, `(listening)`, `(hearing you)` and `(muted while HARP talks)`. It hears nobody
+until HARP's greeting has played. While HARP speaks, and while it works out a reply,
+listening stops hearing until 0.5 s after it has finished, so it doesn't answer itself.
+You can't interrupt it yet: wait for `(listening)` before you speak. `talk.py` tells `listen.py` over UDP on this
 computer, port 28732; the LLM server is on 28731. Both ports were picked to stay clear
 of common ones (8080–8082 are in use on PC2) and of Linux's temporary ports. Anything
 that still sounds like HARP's own words is dropped as an `echo` event. `--output-device`

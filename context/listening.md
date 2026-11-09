@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-04T23:32:57Z
+  updated: 2026-11-09T00:26:42Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -77,6 +77,8 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
 - The mute (built 2026-11-03, with the mic or the robot's mic):
   - `talk.py` sends `{"speaking": true}` every 0.5 s while it plays or makes a reply, and `false` when done, as UDP to port 28732 on the same computer.
   - `listen.py` hears nothing until 0.5 s after `false`, or 1 s after the last `true` if `talk.py` dies.
+  - Startup: `talk.py` sends `true` with `"loading": true` from its first moment until its greeting is queued, so nobody is heard before it can answer. Without that, lines said during its 10 s of loading queued in the pipe and were answered late, one after another. `listen.py` binds the port before loading its models and stays muted 1.5 s from then, so it catches `talk.py`'s first message; alone, it starts listening after those 1.5 s.
+  - It logs its state on stderr for a person talking to it: loading, listening, hearing you, muted.
   - A turn cut off by it is dropped, and Silero's state is reset after it.
   - On the robot this becomes the `speaking` ROS 2 event.
   - The echo check is in `talk.py` (it knows what it said).

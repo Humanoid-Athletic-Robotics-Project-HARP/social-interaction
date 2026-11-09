@@ -232,13 +232,42 @@ class Voice:
         return np.array(self.tts.generate(text, sid=self.speaker).samples, np.float32)
 
 
+class Mute:
+    """Tells listen.py not to listen, in its own thread: from the start while the voice and
+    the LLM load (loading, so it doesn't hear people before it can answer them), and while
+    the robot plays audio (playing) or makes a reply (busy). {"speaking": true, "loading":
+    ...} as UDP to MUTE_PORT every HEARTBEAT s, then {"speaking": false} once when it stops."""
+
+    def __init__(self, port=MUTE_PORT):
+        self.loading, self.busy = True, False
+        self.playing = lambda: False
+        self.sock, self.port = socket.socket(socket.AF_INET, socket.SOCK_DGRAM), port
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        speaking, last = False, 0.0
+        while True:
+            now = self.loading or self.busy or self.playing()
+            if now and (not speaking or time.monotonic() - last >= HEARTBEAT):
+                self.send({"speaking": True, "loading": self.loading})
+                last = time.monotonic()
+            elif speaking and not now:
+                self.send({"speaking": False})
+            speaking = now
+            time.sleep(0.05)
+
+    def send(self, message):
+        try:
+            self.sock.sendto(json.dumps(message).encode(), ("127.0.0.1", self.port))
+        except OSError:
+            pass   # nobody listening is fine
+
+
 class Speaker:
     """Plays audio in order on this computer, in its own thread, and keeps what it played.
-    While it plays, or while a reply is being made (busy), it tells listen.py the robot is
-    speaking: {"speaking": true} as UDP to MUTE_PORT every HEARTBEAT s, then
-    {"speaking": false} once when it stops."""
+    listen.py stays muted while it plays (mute)."""
 
-    def __init__(self, rate, play, save, device=None, port=MUTE_PORT):
+    def __init__(self, rate, play, save, device=None, mute=None):
         self.rate, self.save, self.count = rate, save, 0
         self.queue = queue.Queue()
         self.stream = None
@@ -251,28 +280,9 @@ class Speaker:
             save.mkdir(parents=True, exist_ok=True)
         self.idle = threading.Event()
         self.idle.set()
-        self.busy = False
-        self.sock, self.port = socket.socket(socket.AF_INET, socket.SOCK_DGRAM), port
+        if mute:
+            mute.playing = lambda: not self.idle.is_set()
         threading.Thread(target=self.run, daemon=True).start()
-        threading.Thread(target=self.announce, daemon=True).start()
-
-    def announce(self):
-        speaking, last = False, 0.0
-        while True:
-            now = (self.busy or not self.idle.is_set())
-            if now and (not speaking or time.monotonic() - last >= HEARTBEAT):
-                self.send(True)
-                last = time.monotonic()
-            elif speaking and not now:
-                self.send(False)
-            speaking = now
-            time.sleep(0.05)
-
-    def send(self, speaking):
-        try:
-            self.sock.sendto(json.dumps({"speaking": speaking}).encode(), ("127.0.0.1", self.port))
-        except OSError:
-            pass   # nobody listening is fine
 
     def say(self, audio, started=None):
         """Queue audio; started(t) is called with the time its sound begins."""
@@ -353,12 +363,23 @@ def pieces(stream):
         yield text.strip()
 
 
+def timing(said):
+    """A reply's times in words, from a said event."""
+    think, sound = said["llm_s"], said["first_sound_s"]
+    if "heard_s" in said:
+        return (f"first sound {said['heard_s'] + sound:.1f} s after you stopped: "
+                f"{said['heard_s']:.1f} s to hear you, {think:.1f} s to think, "
+                f"{sound - think:.1f} s to speak")
+    return f"first sound {sound:.1f} s after your line: {think:.1f} s to think, {sound - think:.1f} s to speak"
+
+
 class Conversation:
-    def __init__(self, args):
+    def __init__(self, args, mute):
         began = time.perf_counter()
+        self.mute, self.json, self.printing = mute, args.json, threading.Lock()
         self.voice = Voice(args.voice, args.provider)
         self.speaker = Speaker(self.voice.rate, not args.no_play, args.save,
-                               args.output_device, args.mute_port)
+                               args.output_device, mute)
         self.said = []   # what it has said, newest last (for the echo check)
         self.canned = {line: self.voice(speakable(line))
                        for line in [GREETING, SORRY, LOST, CLOSE] + FILLERS}
@@ -368,10 +389,35 @@ class Conversation:
                          {"role": "assistant", "content": GREETING}]
         self.turns, self.misses, self.fillers = 0, 0, 0
 
+    def show(self, line):
+        """A line of the readable conversation (stdout is a terminal and not --json)."""
+        if not self.json:
+            with self.printing:
+                print(line, flush=True)
+
     def event(self, name, **values):
         if name == "said":
             self.said.append(values["text"])
-        print(json.dumps({"event": name, **values}), flush=True)
+        if self.json:
+            print(json.dumps({"event": name, **values}), flush=True)
+        elif name == "said" and "first_sound_s" in values:
+            self.show("      (" + timing(values) + ")")
+        elif name == "echo":
+            self.show(f'      (ignored "{values["text"]}": it sounded like my own voice)')
+        elif name == "unknown_words":
+            self.show("      (the voice can't say: " + ", ".join(values["words"]) + ")")
+        elif name == "done":
+            self.show(f"(conversation over: {values['reason']}, {values['turns']} turns, "
+                      f"{values['seconds']} s)")
+
+    def say(self, text, audio, first=True, started=None):
+        """Queue audio; the readable conversation shows its text when its sound starts, and
+        started(t) is called then too."""
+        def begin(t):
+            if started:
+                started(t)
+            self.show(("HARP: " if first else "      ") + text.replace(END_TAG, "").strip())
+        self.speaker.say(audio, begin)
 
     def echo(self, heard):
         """True if what was heard is the robot's own voice, leaked past listening's mute:
@@ -402,27 +448,29 @@ class Conversation:
 
     def start(self):
         self.began = time.perf_counter()
-        self.speaker.say(self.canned[GREETING])
+        self.say(GREETING, self.canned[GREETING])
+        self.mute.loading = False   # after the greeting is queued, so listening stays muted
         self.event("said", text=GREETING, canned=True)
 
-    def turn(self, heard):
-        """One turn; returns why the conversation ended, or None."""
+    def turn(self, heard, heard_s=None):
+        """One turn; returns why the conversation ended, or None. heard_s: listening's time
+        from the person going quiet to the text, for the readable timing."""
         ended = time.perf_counter()
         if not heard.strip():
             self.misses += 1
             if self.misses >= MISSES:
                 return self.close("misses")
-            self.speaker.say(self.canned[SORRY])
+            self.say(SORRY, self.canned[SORRY])
             self.event("said", text=SORRY, canned=True)
             return None
         self.misses, self.turns = 0, self.turns + 1
-        self.speaker.busy = True   # listening stays muted until the whole reply has played
+        self.mute.busy = True   # listening stays muted until the whole reply has played
         try:
-            return self.reply(heard, ended)
+            return self.reply(heard, ended, heard_s)
         finally:
-            self.speaker.busy = False
+            self.mute.busy = False
 
-    def reply(self, heard, ended):
+    def reply(self, heard, ended, heard_s=None):
         self.messages.append({"role": "user", "content": heard.strip()})
         first, reply, spoken = {}, "", []
         filler = threading.Timer(FILLER, self.filler, args=(first,))
@@ -441,13 +489,13 @@ class Conversation:
                     first["llm"] = time.perf_counter() - ended
                 audio = self.voice(say)
                 first.setdefault("ready", time.perf_counter() - ended)
-                self.speaker.say(audio, None if spoken else
-                                 (lambda t: first.setdefault("sound", t - ended)))
+                self.say(text, audio, not spoken, None if spoken else
+                         (lambda t: first.setdefault("sound", t - ended)))
                 spoken.append(say)
         except (OSError, TimeoutError, ValueError) as error:
             log(f"LLM failed: {error}")
             reply = LOST
-            self.speaker.say(self.canned[LOST])
+            self.say(LOST, self.canned[LOST], not spoken)
         finally:
             filler.cancel()
         text = reply.replace(END_TAG, "").strip()
@@ -457,9 +505,10 @@ class Conversation:
         # The history keeps only a goodbye that counts, so the model doesn't think it left.
         self.messages.append({"role": "assistant", "content": text + (" " + END_TAG if end else "")})
         self.speaker.wait()
+        times = {"heard_s": heard_s} if heard_s is not None else {}
         self.event("said", text=text, llm_s=round(first.get("llm", 0), 3),
                    ready_s=round(first.get("ready", 0), 3),
-                   first_sound_s=round(first.get("sound", 0), 3))
+                   first_sound_s=round(first.get("sound", 0), 3), **times)
         if end:
             return end
         if self.turns >= MAX_TURNS or time.perf_counter() - self.began >= MAX_S:
@@ -472,11 +521,11 @@ class Conversation:
         if "llm" not in first and self.speaker.idle.is_set():
             line = FILLERS[self.fillers % len(FILLERS)]
             self.fillers += 1
-            self.speaker.say(self.canned[line])
+            self.say(line, self.canned[line])
             self.event("said", text=line, canned=True, filler=True)
 
     def close(self, reason):
-        self.speaker.say(self.canned[CLOSE])
+        self.say(CLOSE, self.canned[CLOSE])
         self.event("said", text=CLOSE, canned=True)
         return reason
 
@@ -493,26 +542,36 @@ def main():
     parser.add_argument("--save", type=Path, help="keep everything said as WAVs here")
     parser.add_argument("--output-device", help="the speaker's number or name (listen.py --devices)")
     parser.add_argument("--mute-port", type=int, default=MUTE_PORT, help="where listen.py hears it's speaking")
+    parser.add_argument("--json", action="store_true",
+                        help="JSON events on stdout even in a terminal (always when piped)")
     args = parser.parse_args()
     if args.output_device and args.output_device.isdigit():
         args.output_device = int(args.output_device)
+    args.json = args.json or not sys.stdout.isatty()
 
-    talk = Conversation(args)
+    mute = Mute(args.mute_port)   # first, so listen.py doesn't hear anyone while this loads
+    talk = Conversation(args, mute)
     talk.warm()
+    log("ready" + (": say something after the greeting" if args.heard else
+                   ": type what the person says, one line a turn (Ctrl-D to end)"))
     talk.start()
     reason = "input_ended"
     for line in sys.stdin:
+        heard_s = None
         if args.heard:
             turn = json.loads(line)
             if turn.get("dropped") in ("short", "made_up"):   # coughs and noise, not turns
+                talk.show("      (ignored a short sound)" if turn["dropped"] == "short" else
+                          f'      (ignored "{turn.get("text", "")}": noise heard as words)')
                 continue
-            heard = turn.get("text", "")
+            heard, heard_s = turn.get("text", ""), turn.get("after_end_s")
             if talk.echo(heard):
                 talk.event("echo", text=heard)
                 continue
+            talk.show("you:  " + (heard or "(I couldn't make out the words)"))
         else:
             heard = line
-        reason = talk.turn(heard) or reason
+        reason = talk.turn(heard, heard_s) or reason
         if reason != "input_ended":
             break
     talk.speaker.wait()
