@@ -17,6 +17,13 @@ policy.log into the run's view.jsonl. First "world", once: the world's fixed obs
   plan      [[x, y], ...]  Nav2's latest plan in odom (/plan), every PLAN_STEP-th pose
   costmap   every COSTMAP_EVERY frames: Nav2's local costmap in odom (origin [x, y],
             resolution, width, height, cells: OccupancyGrid values as uint8, zlib, base64)
+  tracks    the predictive filter's latest tracks in odom (/harp/obstacle_tracks), when it
+            runs: objects [[id, x, y, vx, vy, radius, uncertainty, credit]], lost (kept for
+            planning though unseen) [[id, x, y, radius]], walls: the static surface tiles'
+            x, y as int16 cm, zlib, base64
+  detections  the person detector's latest /harp/people in base_link, as it sends them:
+            [{id, x, y, seen_by}] (seen_by: lidar, a candidate; camera, a person)
+Pieces that aren't running send nothing: tracks and detections are left out of the frame.
 """
 
 import base64
@@ -38,12 +45,15 @@ from harp import events, lidar_mount
 from harp.leg_odometry import yaw_of
 from harp.lidar import TOPIC as CLOUD
 from harp.movers import Movers
+from harp.obstacle_tracker import STRUCTURE_ID
 
 PERIOD = 0.25        # s (wall) between frames
 VOXEL = 0.1          # m
 MAX_POINTS = 3000
 PLAN_STEP = 5
 COSTMAP_EVERY = 4    # frames (Nav2 publishes the local costmap at 2 Hz)
+TRACKS = "/harp/obstacle_tracks"   # harp/predictive_avoidance.py, each scan
+PEOPLE = "/harp/people"            # the person detector (harp/sim_people.py)
 WORLD = Path("/harp/model/world.xml")
 SHAPES = {mujoco.mjtGeom.mjGEOM_BOX: "box", mujoco.mjtGeom.mjGEOM_CYLINDER: "cylinder",
           mujoco.mjtGeom.mjGEOM_SPHERE: "sphere", mujoco.mjtGeom.mjGEOM_CAPSULE: "capsule"}
@@ -70,10 +80,24 @@ def round_list(values, digits=3):
     return [round(float(v), digits) for v in values]
 
 
+def compact_tracks(record):
+    """The filter's /harp/obstacle_tracks, small: objects and lost ones as lists, the
+    many static wall tiles as packed points."""
+    objects = [t for t in record.get("tracks", []) if t["id"] < STRUCTURE_ID]
+    walls = [(t["x"], t["y"]) for t in record.get("tracks", []) if t["id"] >= STRUCTURE_ID]
+    return {"objects": [[t["id"], *round_list((t["x"], t["y"], t["vx"], t["vy"], t["radius"],
+                                               t["uncertainty"], t.get("credit") or 0), 2)]
+                        for t in objects],
+            "lost": [[t["id"], *round_list((t["x"], t["y"], t["radius"]), 2)]
+                     for t in record.get("unresolved", [])],
+            "walls": packed(np.round(np.array(walls, dtype=np.float64).reshape(-1, 2) * 100), np.int16)}
+
+
 class ViewFeed:
     def __init__(self, node):
         self.node = node
         self.state = self.odom = self.lidar = self.cloud = self.plan = self.costmap = None
+        self.tracks = self.detections = None    # their latest messages, parsed per frame
         self.frames = 0
         self.world = mujoco.MjModel.from_xml_path(str(WORLD)) if WORLD.is_file() else None
         self.world_data = self.world and mujoco.MjData(self.world)
@@ -89,6 +113,8 @@ class ViewFeed:
         node.create_subscription(PointCloud2, CLOUD, self.on_cloud, best_effort)
         node.create_subscription(PlanPath, "/plan", self.on_plan, 10)
         node.create_subscription(OccupancyGrid, "/local_costmap/costmap", self.on_costmap, 1)
+        node.create_subscription(String, TRACKS, self.on_tracks, 1)
+        node.create_subscription(String, PEOPLE, self.on_detections, 1)
         node.create_timer(PERIOD, self.on_timer)
         if self.world:
             events.emit("view", "world", geoms=self.fixed_geoms())
@@ -144,6 +170,12 @@ class ViewFeed:
                         "height": info.height, "cells": packed(np.array(msg.data, dtype=np.int8)
                                                                .view(np.uint8), np.uint8)}
 
+    def on_tracks(self, msg):
+        self.tracks = msg.data
+
+    def on_detections(self, msg):
+        self.detections = msg.data
+
     def on_timer(self):
         if self.state is None:
             return
@@ -167,6 +199,11 @@ class ViewFeed:
                                for name, m in zip(self.movers.names, self.movers.mocap)}
         if self.plan is not None:
             frame["plan"], self.plan = self.plan, None
+        if self.tracks is not None:
+            frame["tracks"], self.tracks = compact_tracks(json.loads(self.tracks)), None
+        if self.detections is not None:
+            frame["detections"] = json.loads(self.detections).get("people", [])
+            self.detections = None
         if self.costmap is not None and self.frames % COSTMAP_EVERY == 0:
             frame["costmap"], self.costmap = self.costmap, None
         self.frames += 1
