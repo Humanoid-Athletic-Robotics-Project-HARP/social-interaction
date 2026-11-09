@@ -8,6 +8,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -103,7 +104,8 @@ class DashboardTests(unittest.TestCase):
     def test_source_validation(self):
         for sources in ([{"id": "bad/path", "kind": "speech", "url": "http://localhost"}],
                         [{"id": "a", "kind": "speech", "url": "file:///etc/passwd"}],
-                        [{"id": "a", "kind": "speech", "url": "http://localhost"}] * 2):
+                        [{"id": "a", "kind": "speech", "url": "http://localhost"}] * 2,
+                        [{"id": "a", "kind": "speech", "url": "http://localhost", "controls": "false"}]):
             with self.assertRaises(ValueError):
                 validate({"sources": sources})
 
@@ -148,6 +150,36 @@ class DashboardTests(unittest.TestCase):
         a.set_status({}, session="restarted")
         self.assertEqual(len(a.events), 0)
         self.assertEqual(len(b.events), 1)
+
+    def test_sensor_endpoint_failure_does_not_hide_other_sensor(self):
+        source = Source({"id": "a", "kind": "sensors", "url": "http://localhost"})
+        def metadata(url):
+            if "/camera/" in url:
+                raise OSError("camera endpoint unavailable")
+            return {"connected": True}
+        with patch("feeds.get_json", side_effect=metadata):
+            source.start()
+            try:
+                eventually(lambda: source.status()["reachable"])
+                self.assertTrue(source.status()["feeds"]["lidar"]["online"])
+                self.assertFalse(source.status()["feeds"]["depth"]["online"])
+            finally:
+                source.close()
+
+    def test_speech_service_restart_replaces_history(self):
+        with serving(Producer) as url:
+            source = Source({"id": "a", "kind": "speech", "url": url})
+            Producer.instance = "first"
+            source.start()
+            try:
+                eventually(lambda: bool(source.events))
+                self.assertEqual(source.events[-1][1]["text"], "first")
+                Producer.instance = "second"
+                eventually(lambda: source.session == "second" and bool(source.events) and source.events[-1][1]["text"] == "second")
+                self.assertTrue(all(event["text"] == "second" for _, event in source.events))
+            finally:
+                source.close()
+                Producer.instance = "first"
 
     def test_frozen_transport_expires_and_http_proxy_is_bounded(self):
         source = Source({"id": "a", "kind": "sensors", "url": "http://localhost"})

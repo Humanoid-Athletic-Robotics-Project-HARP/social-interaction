@@ -92,7 +92,9 @@ function render() {
     } else {
       const body = card.querySelector('.view-body'), overlay = body.querySelector('.offline');
       const ready = canShow(s); overlay.hidden = ready; overlay.querySelector('p').textContent = reason(s); body.classList.toggle('stale',!ready);
-      if (ready && !body.querySelector('iframe')) {
+      // A reachable sensor service may start colour lazily on the first image
+      // request. Load its page behind the offline cover even before data arrives.
+      if (s.reachable && !body.querySelector('iframe')) {
         const frame = node('iframe'); frame.title = `${tabs[active][0]} · ${s.label}`;
         frame.src = active === 'diagnostics' || active === 'recordings' ? s.detail.viewer : `/source/${encodeURIComponent(s.id)}/${active}/`;
         body.prepend(frame);

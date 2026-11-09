@@ -56,14 +56,20 @@ def validate(config):
         if not isinstance(key, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,60}", key) or key in seen:
             raise ValueError("source IDs must be unique letters, numbers, underscores or hyphens")
         seen.add(key)
+        if "controls" in item and not isinstance(item["controls"], bool):
+            raise ValueError("controls must be a JSON boolean")
         if item.get("kind") not in ("sensors", "speech", "simulation", "recording"):
             raise ValueError("unknown source kind for " + key)
         if item["kind"] in ("sensors", "speech"):
+            if not isinstance(item.get("url"), str):
+                raise ValueError("source URL must be a string")
             url = urllib.parse.urlsplit(item.get("url", ""))
             if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
                 raise ValueError("source URL must be an HTTP(S) service address without credentials or query")
             if item["kind"] == "sensors" and item.get("layout", "hybrid") not in ("hybrid", "lidar", "camera"):
                 raise ValueError("sensor layout must be hybrid, lidar or camera")
+        if item["kind"] == "recording" and not isinstance(item.get("path"), str):
+            raise ValueError("recording source needs a path to a run folder or .rrd")
     return config["sources"]
 
 
@@ -155,6 +161,10 @@ class Source:
             return 404, "application/json", b'{"error":"unknown feed endpoint"}'
         if data is not None and (self.kind != "speech" or not self.config.get("controls", False)):
             return 403, "application/json", b'{"error":"speech controls are disabled for this source"}'
+        if self.kind == "sensors" and parsed.path.endswith("points"):
+            health = self.status()
+            if not health["reachable"] or not any(v["online"] for v in health["feeds"].values()):
+                return 200, "application/octet-stream", b""
         if parsed.query:
             if not parsed.path.endswith("measure"):
                 # Existing pages append cache busters. Do not multiply the shared cache.
@@ -172,6 +182,16 @@ class Source:
             if cached and time.monotonic() - cached[0] < 0.09:
                 return cached[1]
             result = fetch(self.url + "/" + path)
+            if self.kind == "sensors" and parsed.path == "hybrid/points" and result[0] == 200:
+                # Existing producers may retain their last cloud after a device stops.
+                # Remove only the offline layer while a different sensor stays live.
+                health = self.status()["feeds"]
+                body = result[2]
+                if len(body) % 8:
+                    raise ValueError("invalid hybrid point record length")
+                live = {0: health.get("lidar", {}).get("online", False), 1: health.get("depth", {}).get("online", False)}
+                body = b"".join(body[i:i+8] for i in range(0, len(body), 8) if live.get(body[i+6], False))
+                result = result[0], result[1], body
             with self.lock:
                 self.cache[path] = time.monotonic(), result
             return result
@@ -187,16 +207,27 @@ class Source:
                                      {"online": False, "reason": "waiting for speech event stream"}}, value, value.get("instance"))
                 else:
                     layout = self.config.get("layout", "hybrid")
-                    feeds, detail = {}, {}
+                    feeds, detail, errors = {}, {}, []
                     if layout != "camera":
-                        s = get_json(self.url + ("/lidar/calib" if layout == "hybrid" else "/calib"))
-                        feeds["lidar"] = {"online": bool(s.get("connected")), "reason": s.get("why")}
-                        detail["lidar"] = s
+                        try:
+                            s = get_json(self.url + ("/lidar/calib" if layout == "hybrid" else "/calib"))
+                            feeds["lidar"] = {"online": bool(s.get("connected")), "reason": s.get("why")}
+                            detail["lidar"] = s
+                        except (OSError, ValueError, TypeError) as error:
+                            feeds["lidar"] = {"online": False, "reason": str(error)}
+                            errors.append(str(error))
                     if layout != "lidar":
-                        s = get_json(self.url + ("/camera/stats" if layout == "hybrid" else "/stats"))
-                        for key in ("depth", "colour"):
-                            feeds[key] = {"online": bool(s.get(key + "_connected")), "reason": s.get(key + "_why")}
-                        detail["camera"] = s
+                        try:
+                            s = get_json(self.url + ("/camera/stats" if layout == "hybrid" else "/stats"))
+                            for key in ("depth", "colour"):
+                                feeds[key] = {"online": bool(s.get(key + "_connected")), "reason": s.get(key + "_why")}
+                            detail["camera"] = s
+                        except (OSError, ValueError, TypeError) as error:
+                            for key in ("depth", "colour"):
+                                feeds[key] = {"online": False, "reason": str(error)}
+                            errors.append(str(error))
+                    if not detail:
+                        raise ValueError("; ".join(errors))
                     self.set_status(feeds, detail)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.failed(error)

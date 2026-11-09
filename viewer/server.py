@@ -14,6 +14,7 @@ from feeds import MAX_BODY, Source, validate
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 DEFAULT = {"sources": [
+    {"id": "mac-sim", "kind": "simulation", "label": "Laptop simulation", "machine": "MacBook"},
     {"id": "mac-speech", "kind": "speech", "label": "Laptop speech", "machine": "MacBook", "url": "http://127.0.0.1:28733", "controls": True},
 ]}
 
@@ -28,7 +29,7 @@ def page(source, view):
         html = html.replace('serverHost = here ? "this computer" : (s.host || location.hostname);',
                             'serverHost = s.host || ' + json.dumps(source.config.get("machine", source.id)) + ';')
         if not source.config.get("controls", False):
-            html = html.replace('<script>', '<script>document.addEventListener("DOMContentLoaded", () => { document.querySelectorAll("button,input,select").forEach(e => e.disabled = true); });', 1)
+            html = html.replace('</head>', '<style>#go,#llm-button,#composer{display:none!important}#setup{pointer-events:none;opacity:.6}</style></head>', 1)
         return html
     paths = {"lidar": "testground/lidar/lidar_viewer.py", "camera": "testground/camera/camera_viewer.py",
              "hybrid": "testground/hybrid/hybrid_viewer.py"}
@@ -50,7 +51,9 @@ def page(source, view):
 
 class Dashboard:
     def __init__(self, config):
-        self.sources = {item["id"]: Source(item) for item in validate(config)}
+        from simulation import Simulation
+        self.sources = {item["id"]: (Simulation(item) if item["kind"] in ("simulation", "recording") else Source(item))
+                        for item in validate(config)}
         self.stop = threading.Event()
 
     def start(self):
@@ -111,6 +114,8 @@ def handler(dashboard):
 
         def route(self, data=None):
             url = urllib.parse.urlsplit(self.path)
+            if data is None and url.path == "/favicon.ico":
+                return self.reply(204, b"", "image/x-icon")
             if data is None and url.path == "/api/state":
                 return self.reply(200, dashboard.state())
             if data is None and url.path == "/events":
@@ -121,6 +126,9 @@ def handler(dashboard):
                 if source is None or len(parts) != 4:
                     return self.reply(404, {"error": "unknown source"})
                 path = parts[3]
+                if source.kind in ("simulation", "recording"):
+                    from diagnostics import serve
+                    return serve(self, source, path, url.query, data, dashboard.stop)
                 if data is None and path == "events" and source.kind == "speech":
                     return self.sse(source)
                 views = {"speech/": "speech", "lidar/": "lidar", "camera/": "camera", "hybrid/": "hybrid"}
@@ -161,6 +169,13 @@ def handler(dashboard):
                 host = self.headers.get("Host")
                 if origin and urllib.parse.urlsplit(origin).netloc != host:
                     return self.reply(403, {"error": "cross-origin commands are disabled"})
+                if self.path.startswith("/source/") and "/grpc/" in self.path:
+                    size = int(self.headers.get("Content-Length", "0"))
+                    if not 0 <= size <= MAX_BODY:
+                        self.close_connection = True
+                        return self.reply(413, {"error": "request too large"})
+                    self.connection.settimeout(5)
+                    return self.route(self.rfile.read(size))
                 if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                     return self.reply(415, {"error": "send JSON"})
                 size = int(self.headers.get("Content-Length", "0"))

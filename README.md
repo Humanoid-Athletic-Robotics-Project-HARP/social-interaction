@@ -48,7 +48,7 @@ the robot.
 | `submission/worlds/`, `routes/` | Test courses with their pass criteria, and waypoint routes. |
 | `submission/tests/` | Unit tests. |
 | `speech/` | Listening and talking ([speech/README.md](speech/README.md)). |
-| `viewer/` | One web dashboard for simultaneous laptop speech and PC2 sensor feeds ([viewer/README.md](viewer/README.md)). |
+| `viewer/` | One web dashboard for simultaneous simulation, speech, PC2 sensors and saved diagnostics ([viewer/README.md](viewer/README.md)). |
 | `testground/` | Read-only tests on the real robot, and tools to analyse their recordings ([testground/README.md](testground/README.md)). |
 | `third_party/` | Pinned forks of Ultralytics (YOLO26) and BoT-SORT, for choosing a person detector ([third_party/README.md](third_party/README.md)). |
 | `context/` | Notes for Claude and Codex: measured results, limits and the reasons behind our design. |
@@ -220,7 +220,7 @@ Start the dashboard on the laptop or PC2, then open http://127.0.0.1:28734:
 python3 viewer/server.py
 ```
 
-It connects to the local speech service by default. Configure PC2 sensors and more
+It follows our simulation container and connects to local speech by default. Configure PC2 sensors and more
 speech services in a JSON file; all connect independently. Tabs show offline when
 their feeds stop. Setup and source configuration: [viewer/README.md](viewer/README.md).
 
@@ -507,6 +507,7 @@ In `viewer/` (installed separately for offline sensor views):
 | Project | License |
 |---|---|
 | [Three.js 0.160.0](https://github.com/mrdoob/three.js/tree/r160) | MIT |
+| [Rerun 0.41.0](https://github.com/rerun-io/rerun) (from `testground/requirements.txt`) | MIT OR Apache-2.0 |
 
 In our image:
 
