@@ -136,7 +136,13 @@ Rerun starts when data arrives. It runs in a separate analysis process with a
 The browser uses the dashboard address for assets and data, including from another
 computer. Closing the dashboard stops its renderer processes and log readers.
 
-To add a saved run as a replay button on Home, append an entry to the source list:
+Saved runs, the first row on Home (`#runs`), lists every run folder in the main
+checkout's `runs/` (or `HARP_RUNS_DIR`), newest first, with its world, tag, outcome,
+HIM's stop reason and the pieces it had. Type to filter. Replay opens one run; tick two
+and Compare shows them side by side. Two runs stay open at most, since each holds a
+Rerun worker: opening a third closes the oldest, and Close frees one.
+
+To keep a saved run on Home as its own row, append an entry to the source list:
 
 ```json
 {"id": "saved-course", "kind": "recording", "label": "Saved course", "machine": "MacBook", "path": "runs/RUN_FOLDER"}

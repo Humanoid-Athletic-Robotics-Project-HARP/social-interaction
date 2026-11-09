@@ -3,7 +3,7 @@ name: viewer-implementation
 description: Read before changing dashboard collectors, source configuration, embedded pages, Rerun routing or process cleanup
 metadata:
   type: reference
-  updated: 2026-11-09T07:01:23Z
+  updated: 2026-11-09T07:14:01Z
   covers: [viewer/**]
 ---
 
@@ -14,6 +14,7 @@ Viewing policy and links: [[unified-viewer]]. Implementation is in `viewer/`; us
 - Sensor pages are extracted as literals from our existing scripts, without importing their hardware dependencies. Three.js is an external pinned/hash-checked dependency installed locally by `setup_assets.py`, not copied into tracked source. Preserve single ownership of sensor devices; use shared topic readers when another node owns them.
 - `simulation.py` reads our Docker JSON stdout because HIM's sim container has no network. Fresh view frames determine live status. Container ID and start time distinguish runs; a bounded nonblocking queue keeps rendering out of the control path. Home's diagnostics row names the run's avoidance filter, person detector and loop from their `started` events, forgotten on each new run. Log/data formats: [[sim-run-logs]].
 - `rerun_worker.py` runs in the testground environment and reuses `submission/lidar_view.py`'s `Recording`, with bounded trails and a 200 MB server buffer. It starts on data arrival, uses dynamic loopback ports and stops with the hub. `recording` sources read saved run JSON lines (frames and events interleaved by wall time) or `.rrd` exports and stay Replay when paused or complete.
+- `runs.py` lists the main checkout's `runs/` (`HARP_RUNS_DIR`) newest first from `run.json`, `summary.json` and `events.jsonl` started events, cached by file times (175 runs: 0.07 s cold). The Runs page opens a run by folder name only (matched to the run-name pattern, never a path) as a `recording` source with id `run-` plus a hash; at most `MAX_OPEN` (2) at once, the oldest closing first, since each holds a Rerun worker. Configured sources are never closed from that page. Its list redraws only when it changes, so focus and pointer stay put.
 - `diagnostics.py` proxies Rerun assets and gRPC-web through the hub. Rerun 0.41 accepts only the root `/proxy` URI, so the embedded page scopes fetches to its source route. Buffer rewritten POST bodies into ArrayBuffers: a Request body stream makes Chrome require HTTP/2 and fail on this HTTP/1 server. Quiet streams have no data timeout; cancel them on client disconnect/shutdown and handle incomplete HTTP reads normally.
 - `him` checks the existing local viewer's HTML, not frame activity; paused pages stay Ready. The iframe talks directly to HIM's loopback server. Discovery sends no Start request, and hub shutdown does not stop HIM. This source has no remote proxy.
 - `app.js` owns hash routes and availability ordering. Reorder existing Home rows without losing keyboard focus. Closed views stop browser image polling, not collectors. After a hub restart, open the view in a new tab: a reloaded tab kept showing the previous Rerun recording (Chrome-based pane, 2026-11-09). Full-window views retain Home navigation and offline covers; one dead source must not disable other sources.

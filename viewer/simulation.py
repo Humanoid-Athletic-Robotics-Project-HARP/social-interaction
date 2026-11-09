@@ -26,6 +26,21 @@ def record(line):
     return value if isinstance(value, dict) and "event" in value else None
 
 
+PIECES = ("avoidance", "detector", "behavior")
+
+
+def piece_of(value):
+    """(kind, name) of the optional piece an event announces as it starts, or None."""
+    source, kind = value.get("source"), value.get("event")
+    if kind == "started" and source in ("predictive", "approach"):
+        return "avoidance", "predictive avoidance" if source == "predictive" else "approach stop"
+    if kind == "started" and source == "people":
+        return "detector", str(value.get("detector", "person detector"))
+    if kind == "loop_start" and source == "behavior":
+        return "behavior", "behavior loop"
+    return None
+
+
 class Simulation(Source):
     def __init__(self, config):
         super().__init__(config)
@@ -46,18 +61,14 @@ class Simulation(Source):
 
     def note_piece(self, value):
         """Which optional pieces this run has, from their started events (lidar_view.py
-        shows the details)."""
-        source, kind = value.get("source"), value.get("event")
-        if source == "policy" and kind == "late_state":
+        shows the details), and its late states."""
+        if value.get("source") == "policy" and value.get("event") == "late_state":
             # A state our node got late: HIM stops the run past 0.2 s (sim-deadline-stops).
             self.late += 1
             self.late_max = max(self.late_max, float(value.get("age") or 0))
-        elif kind == "started" and source in ("predictive", "approach"):
-            self.pieces["avoidance"] = "predictive avoidance" if source == "predictive" else "approach stop"
-        elif kind == "started" and source == "people":
-            self.pieces["detector"] = str(value.get("detector", "person detector"))
-        elif kind == "loop_start" and source == "behavior":
-            self.pieces["behavior"] = "behavior loop"
+        piece = piece_of(value)
+        if piece:
+            self.pieces[piece[0]] = piece[1]
 
     def start(self):
         self.start_thread(self.render)
@@ -133,8 +144,7 @@ class Simulation(Source):
                            "finished": self.finished, "dropped": self.render_dropped,
                            "rrd": self.kind == "recording" and self.config.get("path", "").lower().endswith(".rrd"),
                            "events": list(self.recent)[-30:],
-                           "pieces": [self.pieces[k] for k in ("avoidance", "detector", "behavior")
-                                      if k in self.pieces],
+                           "pieces": [self.pieces[k] for k in PIECES if k in self.pieces],
                            "late_states": self.late, "max_late_s": round(self.late_max, 3),
                            "stopped": self.stopped}
             # Replay remains available after EOF; live freshness is based on frames, not process existence.
