@@ -54,8 +54,8 @@ from listen import MUTE_PORT, log, models_dir
 HERE = Path(__file__).resolve().parent
 FILLER = 1.2       # s after the turn ends with nothing to say yet: a filler
 GIVE_UP = 5.0      # s without a first sentence: a fixed line instead
-MAX_TURNS = 8      # turns before it says goodbye itself
-MAX_S = 90.0       # s before it says goodbye itself
+MAX_TURNS = 10     # turns before it says goodbye itself
+MAX_S = 180.0      # s before it says goodbye itself (checked after each reply)
 MISSES = 2         # empty turns in a row before it says goodbye
 MAX_TOKENS = 60    # the LLM's reply, at most (two short sentences)
 HEARTBEAT = 0.5    # s between speaking messages to listen.py (it unmutes 1 s after the last)

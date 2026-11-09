@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-09T01:16:05Z
+  updated: 2026-11-09T22:48:19Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -42,7 +42,7 @@ Design for the talking half of a conversation, and what both halves share, and w
    - the model ends a goodbye reply with a `<bye>` tag, checked in code (more reliable than tool calls for small models)
    - the person says goodbye and the reply is a goodbye too (the person's words alone end too much: "I have to go to the dentist tomorrow")
    - listening reports about 8 s of silence
-   - about 90 s in all
+   - after 10 turns, or the first reply past 180 s (a teammate's ask, 2026-11-09)
    - `behavior.py`'s stop
 5. Speech: sherpa-onnx's TTS, the package listening already uses, with no espeak-ng (GPL) anywhere. Never Piper's C++ binary or the `piper-tts` package: both carry GPL code ([[talking-research]]).
    - Voice (**decided**, 2026-11-03: compare both by ear and speed, then pick one): Kokoro v1.0 `af_heart` (Apache-2.0; on PC2's GPU about 0.35 s to first audio) and Piper `ljspeech` through sherpa-onnx (public domain; light on the CPU).

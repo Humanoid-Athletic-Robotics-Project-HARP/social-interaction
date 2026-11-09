@@ -392,7 +392,7 @@ const SAVED = ["source", "device", "wav", "realtime", "iface", "turn", "voice", 
 const CHART_S = 12;
 // Listening's and talking's settings; web.py sends the real ones (its LIMITS).
 let L = { start_prob: 0.6, end_prob: 0.45, check: 0.2, finished: 0.5, wait: 1.5, silence: 0.7,
-          short_turn: 1.0, max_speech: 15, filler: 1.2, give_up: 5, max_turns: 8, max_s: 90 };
+          short_turn: 1.0, max_speech: 15, filler: 1.2, give_up: 5, max_turns: 10, max_s: 180 };
 const LISTEN = {
   off: ["Off", "--idle"], held: ["Starts after the greeting", "--idle"], starting: ["Loading models", "--idle"], waiting: ["Waiting for talk.py", "--idle"],
   listening: ["Listening", "--listening"], hearing: ["Hearing someone", "--hearing"],
