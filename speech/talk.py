@@ -22,7 +22,7 @@ is cut into sentences, each spoken as soon as it is ready while the LLM goes on.
 Events, one JSON line each on stdout: said (text, and from the turn's end: llm_s to the
 first sentence, ready_s to its audio, first_sound_s to its sound, which also waits for
 anything still playing; sent once the whole line has played), speaking (each piece's
-text as its sound starts, first for a line's first piece), unknown_words, ignored_bye (a
+text and seconds as its sound starts, first for a line's first piece), unknown_words, ignored_bye (a
 <bye> on a reply that wasn't a goodbye), echo, and done (reason). --save DIR keeps everything said as WAVs; --no-play
 stays silent; --output-device picks the speaker.
 
@@ -419,7 +419,8 @@ class Conversation:
             if started:
                 started(t)
             if self.json:
-                self.event("speaking", text=text.replace(END_TAG, "").strip(), first=first)
+                self.event("speaking", text=text.replace(END_TAG, "").strip(), first=first,
+                           seconds=round(len(audio) / self.voice.rate, 2))
             self.show(("HARP: " if first else "      ") + text.replace(END_TAG, "").strip())
         self.speaker.say(audio, begin)
 

@@ -158,6 +158,7 @@ class Session:
         self.lock = threading.Lock()
         self.listen = self.talk = None
         self.ready = False   # talk.py has said its greeting, so it's reading turns
+        self.later = None    # listen.py's command, held back until the greeting has played
         self.over = False
 
     def command(self, script, *args):
@@ -187,7 +188,13 @@ class Session:
                 args.append("--fixed-turn")
             if not c["talk"]:
                 args.append("--no-mute")
-            self.listen = self.spawn("listen", self.command("listen.py", *args))
+            if c["talk"] and c["source"] == "wav":
+                # A recording can't wait the way a person does (listen.py's mute while talk.py
+                # loads doesn't apply to it): start it once the greeting has played.
+                self.later = self.command("listen.py", *args)
+                self.hub.publish("web", "listen_held")
+            else:
+                self.listen = self.spawn("listen", self.command("listen.py", *args))
         self.hub.publish("web", "session", state="started", config=c)
 
     def spawn(self, name, command, stdin=False):
@@ -233,7 +240,17 @@ class Session:
         if event == "said" and not self.ready:
             self.ready = True
             self.hub.publish("web", "talk_ready")
+        if event == "speaking" and self.later:
+            command, self.later = self.later, None
+            timer = threading.Timer(message.get("seconds", 0) + 0.5, self.start_later, args=(command,))
+            timer.daemon = True
+            timer.start()
         self.hub.publish("talk", event, **message)
+
+    def start_later(self, command):
+        with self.lock:
+            if not self.over:
+                self.listen = self.spawn("listen", command)
 
     def send(self, line):
         """A turn to talk.py; False when there is no talking, or it isn't ready yet."""
@@ -263,6 +280,7 @@ class Session:
             if self.over:
                 return
             self.over = True
+            self.later = None
             if self.talk and self.talk.poll() is None:
                 try:
                     self.talk.stdin.close()   # talk.py finishes what it's saying, then ends
@@ -362,8 +380,9 @@ class Server:
         return 200, {"ok": True}
 
     def read_llm(self, process):
-        for line in process.stdout:   # llama-server is chatty: only what matters
-            if any(word in line for word in ("error", "listening", "loaded", "failed")):
+        for line in process.stdout:   # llama-server is chatty, and its Metal errors on an M1 harmless
+            if any(words in line for words in ("listening on", "model loaded", "error loading",
+                                               "failed to load", "exiting")):
                 self.hub.publish("llm", "log", text=line.rstrip())
         self.hub.publish("llm", "exit", code=process.wait())
 
