@@ -138,12 +138,16 @@ switching its mode changes the robot for everyone, so ask first.
 ```
 
 Each turn is one JSON line on stdout, with how long it waited after the person went
-quiet (`silence_s`), and Smart Turn's probability that they had finished and its time
-(`turn_s`, part of `after_end_s`):
+quiet (`silence_s`), Smart Turn's probability that they had finished and its time
+(`turn_s`, part of `after_end_s`), and the turn's loudness (`level_db`):
 
 ```json
-{"text": "Hi there, are you the robot from Stanford?", "start": 0.54, "end": 2.5, "silence_s": 0.22, "stt_s": 0.142, "after_end_s": 0.452, "finished": 0.97, "turn_s": 0.09}
+{"text": "Hi there, are you the robot from Stanford?", "start": 0.54, "end": 2.5, "silence_s": 0.22, "stt_s": 0.142, "after_end_s": 0.452, "finished": 0.97, "turn_s": 0.09, "level_db": -24.1}
 ```
+
+Once someone has spoken, it hears only voices within 15 dB of theirs, so people talking
+further off don't start a turn or hold one open; after 60 s without a turn it hears anyone
+again.
 
 `--fixed-turn` ends every turn after 0.7 s of silence instead, without Smart Turn.
 

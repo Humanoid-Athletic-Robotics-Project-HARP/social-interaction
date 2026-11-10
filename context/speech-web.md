@@ -3,7 +3,7 @@ name: speech-web
 description: Read before changing the speech supervisor, its embedded UI, event stream or listen.py/talk.py handshake; use unified-viewer for viewing
 metadata:
   type: project
-  updated: 2026-11-09T22:48:07Z
+  updated: 2026-11-10T04:30:58Z
   covers: [speech/web.py, speech/web.html]
 ---
 

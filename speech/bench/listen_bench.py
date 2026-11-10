@@ -5,10 +5,9 @@ errors, false starts and how long after the person stops each turn ends.
 
 Silero runs once per clip, then each config runs listen.py's turn rules on its
 probabilities (Smart Turn's answers are kept per clip too), so a sweep takes minutes. A
-config is {NAME: value} for listen.py's settings (SILENCE, WAIT, FLOOR_MARGIN, ...), plus:
+config is {NAME: value} for listen.py's settings (SILENCE, WAIT, FLOOR_MARGIN, its lock's
+MIN_DB, LOCK_DB, REL_DB and DUCK_DB, ...), plus:
   FIXED     true: end every turn after SILENCE s, as listen.py --fixed-turn
-  MIN_DB    frames quieter than this (dBFS) are never voice: other people further away
-  REL_END   during a turn, a frame this many dB quieter than the person counts as silence
 Per group: word errors, clips with the right number of turns, L mean lag from the end of
 speech to the turn's end, and s split, m missed, h never ended (only the clip's end did).
 Noise-only clips: false starts (turns passed on) per minutes of noise. Writes out/listen.json.
@@ -32,11 +31,13 @@ from talk import number_words  # noqa: E402
 CLIPS = HERE / "out" / "clips"
 SETTINGS = {k: getattr(listen, k) for k in
             ["START_PROB", "END_PROB", "START", "SILENCE", "MIN_SPEECH", "MAX_SPEECH", "PREROLL",
-             "FLOOR_MARGIN", "CHECK", "FINISHED", "WAIT", "SHORT_TURN"]}
+             "FLOOR_MARGIN", "CHECK", "FINISHED", "WAIT", "SHORT_TURN", "MIN_DB", "LOCK_DB",
+             "LOCK_S", "REL_DB", "DUCK_DB", "LEVEL_PCT"]}
 SWEEP = {"SILENCE": [0.5, 0.9], "WAIT": [1.0, 1.5, 2.0], "FINISHED": [0.3, 0.7],
          "CHECK": [0.1, 0.3], "SHORT_TURN": [0.0, 1.5], "START_PROB": [0.5, 0.7],
          "END_PROB": [0.35, 0.55], "START": [0.15, 0.35], "FLOOR_MARGIN": [1.5, 2.0],
-         "PREROLL": [0.5, 1.0], "FIXED": [True]}
+         "PREROLL": [0.5, 1.0], "FIXED": [True], "LOCK_DB": [10, 12, 20, 100], "REL_DB": [15, 25, 100],
+         "DUCK_DB": [20], "MIN_DB": [-50, -100]}
 SAME = {"ok": "okay", "yep": "yeah"}
 FRAME_KEY = 64   # samples that, with the length, tell turns of one clip apart
 
@@ -57,31 +58,10 @@ def errors(ref, hyp):
     return row[len(h)], max(len(r), 1)
 
 
-class Trial(listen.Turns):
-    """listen.Turns with MIN_DB and REL_END (see the docstring)."""
-
-    def __init__(self, finished=None, min_db=None, rel_end=None):
-        super().__init__(finished)
-        self.min_db, self.rel_end, self.levels = min_db, rel_end, []
-
-    def push(self, frame, prob):
-        rms = float(np.sqrt(np.mean(frame ** 2)))
-        if not self.speaking and self.min_db is not None and 20 * np.log10(rms + 1e-12) < self.min_db:
-            prob = min(prob, listen.START_PROB - 1e-3)   # not voice, but the floor still follows it
-        if self.speaking and self.rel_end is not None:
-            if prob >= listen.START_PROB:
-                self.levels.append(rms)
-            if len(self.levels) >= 8 and rms < np.percentile(self.levels, 70) * 10 ** (-self.rel_end / 20):
-                prob = 0.0
-        elif not self.speaking:
-            self.levels = []
-        return super().push(frame, prob)
-
-
 def find_turns(frames, probs, config, finished):
     for name, value in SETTINGS.items():
         setattr(listen, name, config.get(name, value))
-    turns = Trial(None if config.get("FIXED") else finished, config.get("MIN_DB"), config.get("REL_END"))
+    turns = listen.Turns(None if config.get("FIXED") else finished)
     found = []
     for i, (frame, prob) in enumerate(zip(frames, probs)):
         turn = turns.push(frame, prob)
@@ -133,7 +113,7 @@ def main():
                 return judged[key]
 
             for start, end, audio, ended in find_turns(frames, probs, config, finished):
-                key = (name, round(start, 3), round(end, 3), len(audio))
+                key = (name, round(start, 3), round(end, 3), len(audio), float(np.abs(audio).sum()))
                 if key not in heard:
                     began = time.perf_counter()
                     heard[key] = text(audio) if end - start >= listen.MIN_SPEECH else ""

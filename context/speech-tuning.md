@@ -3,7 +3,7 @@ name: speech-tuning
 description: Read before changing listen.py's turn settings, talk.py's prompt, grammar, goodbye rules or fillers, or choosing the voice — what synthetic tests found and the changes they point to
 metadata:
   type: project
-  updated: 2026-11-09T23:39:22Z
+  updated: 2026-11-10T04:30:58Z
   covers: [speech/listen.py, speech/talk.py, speech/bench/*]
 ---
 
@@ -15,7 +15,14 @@ Synthetic tests on an M1 MacBook Air's CPU (2026-11-03/04), with no mic or speak
   - A pause after "um" or "uh" holds the turn: never split, even at 1.6 s (the fixed silence splits every pause of 0.8 s or more).
   - A fragment that Kokoro reads with a falling, finished-sounding end ("I went to the library,", "Well, I think") is cut at a 0.5 s pause. A real person pausing mid-thought usually doesn't sound finished, so only recordings of people can settle this.
   - The 1.5 s fallback caps a misjudged finished line (2 of 60) at 1.55 s; 2.5 s cut fewer 1.6 s pauses but made those lines wait 2.6 s. Judging after 0.1 s instead of 0.2 s split 17 of 80 lines in noise.
-- Background talk: Silero hears other people's voices as speech, so with talkers nearby the turn starts on their voices and doesn't end until `MAX_SPEECH`. A fixed minimum level (about -35 dBFS when the person is at -22) together with "quieter than the person by 15 dB counts as silence" fixed talk 20 dB below the person, not 10 dB. The level must be set from the robot's mic recordings: it drops quiet speakers.
+- Background talk: Silero hears other people's voices as speech, so with talkers nearby the turn starts on their voices and doesn't end until `MAX_SPEECH`. `listen.py`'s lock handles it ([[listening]]). Its clip groups (`clips.py`): `others` (someone 6, 10, 15 or 20 dB quieter talks in the 0.4 s pause between the person's two lines, or straight after their one; 16 clips) and `softer` (the person's own second line 4, 8 or 12 dB quieter, which must still be heard; 6 clips). Results (2026-11-09), against the lock off:
+  - Off: every other voice was heard, 0 of 16 `others` right.
+  - `LOCK_DB` 10 (the first try) rejected others 10 dB down but one fragment, and lost both 12 dB softer lines. 11 still lost them; 12 and 13 kept 8 dB softer and rejected all at 15 dB, not 10.
+  - `LOCK_DB` 15 (chosen): every `softer` clip kept; others rejected at 20 dB (4 of 4), mostly at 15 (3 of 4: "The problem set yet." slipped through after one line), none at 10 or 6. 20: only half at 20 dB.
+  - `REL_DB` 15 split 4 noisy clips (quiet syllables in noise counted as silence): 71 of 80 right, against 75 with the lock off. 20 (chosen) gives 75 again; 25, 76; none (100), 78, and 28 of 30 clean against 27, with the same `others` results. These clips have the other voice after a pause, so they don't test what `REL_DB` is for: talk going on right through the end of the person's line, which held turns open to `MAX_SPEECH` before (fixed by 15 dB, 2026-11-04). 10 split more and lost reverb clips. With 20, 4 `say` pause clips with "um" split where 15 held them; Kokoro's `end_pause` is the same either way.
+  - `LEVEL_PCT` 90 rejected others at 15 dB fully but split 4 more noisy clips, 4 pause clips and a reverb one.
+  - Quiet speakers (`level`, down to -50 dBFS): word errors 19% with the lock off, 33% with `MIN_DB` -50 and `DUCK_DB` 20. `MIN_DB` -60 (chosen) and `DUCK_DB` 0 (chosen; ducking also cut the person's soft sounds) bring it back to 19%, and noise-only false starts back to 2 in 9 min.
+  - With the chosen settings, against the lock off: short, reverb, robot-mic and `two` the same, clean 27 of 30 against 28 (one line split, from `REL_DB`).
 - Parakeet hears "HARP" as heart, hard or Hart in about half of lines. sherpa-onnx hotwords didn't help (weight 3 added wrong words). Handle it in talk.py's prompt instead.
 - STT time: about 0.11 s for a 1–3 s turn, 0.2 s for 3–6 s.
 

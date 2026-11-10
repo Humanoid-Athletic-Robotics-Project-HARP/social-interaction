@@ -283,6 +283,35 @@ def main():
         first, second = (at_db(say(LINES[k], "Daniel", 185), PERSON_DB) for k in (0, 2))
         add(f"two_{gap}", np.concatenate([first, silence(gap), second]), "two", [LINES[0], LINES[2]], gap=gap)
 
+    # Someone further off, talking in the pause between the person's two lines, or straight
+    # after their only one: listen.py's lock should hear only the person (below_db: how much
+    # quieter the other voice is; at 1 m against 2, 3, 4 m, about 6, 10, 12 dB)
+    quiet = lambda n: colored(n, 1) * 10 ** (-60 / 20)
+    for below in [6, 10, 15, 20]:
+        for i, (k, voice, other) in enumerate([(0, "Daniel", "Karen"), (5, "Samantha", "Ralph")]):
+            first, second = (at_db(say(LINES[j], voice, 185), PERSON_DB) for j in (k, k + 2))
+            them = at_db(say(OTHERS[i], other, 190), PERSON_DB - below)
+            for kind, parts, expect in [("gap", [first, silence(0.4), them, silence(0.4), second],
+                                         [LINES[k], LINES[k + 2]]),
+                                        ("after", [first, silence(0.4), them], [LINES[k]])]:
+                speech = np.concatenate([silence(1.0)] + parts)
+                last = parts[-1] if kind == "gap" else first
+                ends = len(speech) / RATE if kind == "gap" else 1.0 + len(first) / RATE
+                audio = np.concatenate([speech, silence(2.5)])
+                add(f"others_{kind}_{below}_{i}", audio + quiet(len(audio)), "others", expect,
+                    [1.0, round(ends, 3)], below_db=below, kind=kind)
+
+    # The person alone, their second line quieter than their first (a voice varies by 5 to 10
+    # dB between turns): the lock must still hear them
+    for softer in [4, 8, 12]:
+        for i, (k, voice) in enumerate([(1, "Moira"), (6, "Rishi")]):
+            first = at_db(say(LINES[k], voice, 185), PERSON_DB)
+            second = at_db(say(LINES[k + 1], voice, 185), PERSON_DB - softer)
+            speech = np.concatenate([silence(1.0), first, silence(1.2), second])
+            audio = np.concatenate([speech, silence(2.5)])
+            add(f"softer_{softer}_{i}", audio + quiet(len(audio)), "softer", [LINES[k], LINES[k + 1]],
+                [1.0, round(len(speech) / RATE, 3)], softer_db=softer)
+
     room = lambda n: colored(n, 1) * 10 ** (-60 / 20)   # a quiet room under the end_ clips
     for i, line in enumerate(WHOLE):   # when a turn ends, in Kokoro's voices
         for speaker in KOKORO:

@@ -12,6 +12,12 @@ Stages:
            as UDP multicast from PC1 (context/g1-builtin-apis.md), only while Unitree's
            voice assistant is in wake-up mode; other programs can read it too.
   voice    Silero VAD on each frame, plus a loudness check against the room's noise floor.
+  lock     only the person close by: other voices are quieter. A turn starts only on voice
+           of at least MIN_DB; once a turn has been heard, only on voice within LOCK_DB of
+           that person's level (until LOCK_S s without a turn: they've gone). During a turn,
+           a frame REL_DB quieter than the turn's own level is silence, so someone talking
+           further off doesn't hold the turn open, and those frames are turned down DUCK_DB
+           before speech-to-text.
   turn     speech starts after START s of voice (a frame without voice takes one frame
            off, so a quiet syllable doesn't start the count over). After CHECK s without
            voice, Smart Turn judges from the sound of the turn so far whether the person
@@ -35,7 +41,8 @@ Stages:
 Each line: text, start and end (s into the stream), silence_s (the wait for the turn
 to end), stt_s (decoding time) and after_end_s (their sum: from the person going quiet
 to the text being ready), and where Smart Turn judged, finished (its probability) and
-turn_s (its time, included in after_end_s); dropped turns carry "dropped" and the reason.
+turn_s (its time, included in after_end_s), level_db (the turn's loudness, which the lock
+follows); dropped turns carry "dropped" and the reason.
 
 Each line on stdin (Enter, in a terminal; web.py's "Done talking" button) ends the turn
 being heard at once, without waiting for the silence or Smart Turn; its line carries
@@ -85,6 +92,17 @@ MIN_SPEECH = 0.3    # s: shorter turns are dropped (coughs, clicks)
 MAX_SPEECH = 15.0   # s: longer turns are cut and sent as they are
 PREROLL = 0.8       # s kept before speech starts (a short "Not much," before it is kept)
 FLOOR_MARGIN = 1.0  # a voiced frame is louder than the noise floor (more lost quiet syllables in noise)
+# The lock on the person's voice (set MIN_DB from the robot mic's recordings of someone at 1 m)
+MIN_DB = -60.0      # dBFS: quieter voice never starts a turn (-50 lost a speaker at -50)
+LOCK_DB = 15.0      # dB: after a turn, voice this much quieter than the person's doesn't start one
+                    # (one person's turns vary by about 9 dB; 10 dropped their 12 dB softer lines)
+LOCK_S = 60.0       # s without a turn before the lock is forgotten (the person has gone)
+REL_DB = 20.0       # dB: during a turn, a frame this much quieter than the turn is silence
+                    # (15 split lines in noise 15 dB below the voice)
+DUCK_DB = 0.0       # dB those frames are turned down before speech-to-text (0: not at all;
+                    # 20 turned down quiet speakers' own soft sounds: more word errors)
+LEVEL_FRAMES = 8    # voiced frames before a turn's own level is trusted
+LEVEL_PCT = 70      # a turn's level: this percentile of its voiced frames' loudness
 MADE_UP = {"thank you for watching.", "thanks for watching."}   # Whisper-style; not "Bye." or "Thank you."
 MUTE_PORT = 28732   # UDP on this computer: talk.py's speaking messages (its LLM server is on 28731;
                     # both below Linux's temporary-port range, and unused by common software)
@@ -269,6 +287,20 @@ class Turns:
         self.quiet = 0            # frames of silence in a row (during speech)
         self.floor = None         # the room's loudness without speech (RMS)
         self.count = 0            # frames seen
+        self.levels = []          # the turn's voiced frames' loudness (RMS)
+        self.person = None        # the person's level (dBFS), from their turns, for the lock
+        self.person_at = 0.0      # s into the stream of their last turn
+        self.level = None         # the last turn's level (dBFS)
+
+    def start_db(self):
+        """The quietest voice that starts a turn now (dBFS): MIN_DB, or near the person's."""
+        if self.person is None or self.count * self.frame_s - self.person_at > LOCK_S:
+            return MIN_DB
+        return max(MIN_DB, self.person - LOCK_DB)
+
+    def turn_level(self):
+        """The turn's loudness so far (RMS of its louder voiced frames), or None too early."""
+        return float(np.percentile(self.levels, LEVEL_PCT)) if len(self.levels) >= LEVEL_FRAMES else None
 
     def push(self, frame, prob):
         """One frame; returns a finished turn as (start s, end s, audio) or None."""
@@ -277,6 +309,14 @@ class Turns:
         loud = self.floor is None or rms > FLOOR_MARGIN * self.floor
         if prob < END_PROB:       # the floor follows the room while nobody speaks
             self.floor = rms if self.floor is None else 0.95 * self.floor + 0.05 * rms
+        if not self.speaking and decibels(rms) < self.start_db():
+            prob = min(prob, START_PROB - 1e-3)   # someone further off: not the start of a turn
+        if self.speaking:
+            if prob >= START_PROB:
+                self.levels.append(rms)
+            level = self.turn_level()
+            if level is not None and rms < level * 10 ** (-REL_DB / 20):
+                prob = 0.0                         # much quieter than the person: silence
         voice = prob >= START_PROB and loud
         if not self.speaking:
             self.preroll.append(frame)
@@ -307,10 +347,21 @@ class Turns:
         return None
 
     def close(self):
-        """The turn being heard, as (start s, end s, audio), and ready for the next."""
+        """The turn being heard, as (start s, end s, audio), and ready for the next. Its
+        quiet frames (other voices) are turned down, and its level sets the person's."""
         end = (self.count - self.quiet) * self.frame_s
         audio = np.concatenate(self.frames)
-        self.speaking, self.voiced, self.frames = False, 0, []
+        level = self.turn_level()
+        if level is not None and DUCK_DB:
+            loudness = np.sqrt(np.mean(np.stack(self.frames) ** 2, axis=1))
+            gains = np.where(loudness < level * 10 ** (-REL_DB / 20), 10 ** (-DUCK_DB / 20), 1.0)
+            centres = (np.arange(len(gains)) + 0.5) * FRAME   # ramps between frames, no clicks
+            audio = (audio * np.interp(np.arange(len(audio)), centres, gains)).astype(np.float32)
+        self.level = decibels(level) if level is not None else None
+        if self.level is not None and end - self.start >= SHORT_TURN:   # not a cough or a bang
+            self.person = self.level if self.person is None else (self.person + self.level) / 2
+            self.person_at = self.count * self.frame_s
+        self.speaking, self.voiced, self.frames, self.levels = False, 0, [], []
         self.preroll.clear()
         return self.start, end, audio
 
@@ -322,7 +373,7 @@ class Turns:
         """A frame not heard (muted): drop any turn in progress, keep the clock and the
         room's noise floor."""
         self.count += 1
-        self.speaking, self.voiced, self.quiet, self.frames = False, 0, 0, []
+        self.speaking, self.voiced, self.quiet, self.frames, self.levels = False, 0, 0, [], []
         self.judged = None
         self.preroll.clear()
 
@@ -534,6 +585,8 @@ def main():
             if turns.judged is not None:
                 line["finished"] = round(turns.judged, 2)
                 line["turn_s"] = round(judging, 3)
+            if turns.level is not None:
+                line["level_db"] = turns.level
             if early:
                 line["ended_early"] = True
             reason = dropped(said, start, end)
