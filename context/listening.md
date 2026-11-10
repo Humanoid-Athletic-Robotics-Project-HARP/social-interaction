@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-10T04:30:58Z
+  updated: 2026-11-10T06:31:07Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -90,7 +90,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - A turn cut off by it is dropped, and Silero's state is reset after it.
   - On the robot this becomes the `speaking` ROS 2 event.
   - The echo check is in `talk.py` (it knows what it said).
-- Tested on a laptop (2026-11-03), on the stand-in robot mic stream: person speech, then HARP's own greeting, then person speech. Without the mute the greeting was transcribed; with it, only the person's two lines, the second caught whole 1 s after HARP stopped. Not yet tried with a live person through real speakers and mic.
+- Tested on a laptop (2026-11-03), on the stand-in robot mic stream: person speech, then HARP's own greeting, then person speech. Without the mute the greeting was transcribed; with it, only the person's two lines, the second caught whole 1 s after HARP stopped. Live through the MacBook Air's own speakers and mic (2026-11-09, three conversations, one person): HARP never heard itself; listening came back about 0.55 s after each reply.
 - Not built yet: ROS 2 output, a USB mic, and installing it on PC2. How `speech/` gets to PC2 is open: `sync.sh` pushes only `testground/`.
 - Measured on an M1 MacBook Air's CPU (2026-11-03), with macOS `say` voices, which are easier than a person at 1 m:
   - two sentences 1.5 s apart gave two turns; a 0.4 s pause stayed inside one turn
@@ -100,7 +100,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - the same clips gave the same turns from a stand-in robot mic stream over loopback multicast
 
 **First steps**
-1. Laptop: real voices through `--mic`, and recordings of people and rooms for tuning.
+1. Laptop: real voices through `--mic` (done for one person, 2026-11-09), and recordings of people, bystanders and rooms for tuning.
 2. Robot, listening only (`testground/audio/`): read the voice mode (1007), record the multicast mic standing and walking, note the firmware. Switching the mode changes the robot for everyone: ask first.
 3. From those recordings, choose the mic and the STT provider.
 

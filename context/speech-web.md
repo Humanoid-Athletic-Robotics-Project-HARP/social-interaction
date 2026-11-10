@@ -3,7 +3,7 @@ name: speech-web
 description: Read before changing the speech supervisor, its embedded UI, event stream or listen.py/talk.py handshake; use unified-viewer for viewing
 metadata:
   type: project
-  updated: 2026-11-10T04:30:58Z
+  updated: 2026-11-10T06:31:07Z
   covers: [speech/web.py, speech/web.html]
 ---
 
@@ -21,4 +21,4 @@ Use [[unified-viewer]] to show speech and listening. `speech/web.py` is the unde
 
 The supervisor binds loopback by default; explicit network binding enables a remote source. Commands require JSON. It uses the existing LLM and mute ports; the authoritative defaults are in the scripts and README. The page is self-contained for offline robot networks.
 
-Validated with recordings and typed conversations on an M1 Mac, including dashboard embedding. Live microphone/speaker conversations and deployment on PC2 remain unverified.
+Validated with recordings and typed conversations on an M1 Mac, including dashboard embedding, and live mic and speaker conversations through it (2026-11-09). Deployment on PC2 remains unverified.
