@@ -145,6 +145,7 @@ fieldset { border: none; margin: 0; padding: 0; min-width: 0; }
 .marks span { position: absolute; transform: translateX(-50%); white-space: nowrap; top: 2px; }
 .verdict { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .verdict b { color: var(--text); }
+#end-turn { margin-top: 10px; width: 100%; }
 .limits { display: flex; gap: 14px; margin-top: 12px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
 .limits b { color: var(--text); font-weight: 600; }
 
@@ -323,13 +324,15 @@ canvas { width: 100%; height: 92px; display: block; border-radius: 8px; backgrou
           <div class="marks" id="quiet-marks"></div>
         </div>
         <div class="verdict" id="verdict"></div>
+        <button class="small" id="end-turn" aria-label="Done talking: answer now" title="Ends their turn now, without waiting for the silence or Smart Turn, and sends what was heard to HARP">Done talking: answer now</button>
       </div>
       <div id="reply-track" hidden>
         <div class="track">
-          <div class="track-top"><span id="reply-label">HARP is thinking</span><span class="num" id="reply-s">0.0 s</span></div>
-          <div class="rail" id="reply-rail"><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
+          <div class="track-top"><span id="reply-label">Waiting for HARP's answer</span><span class="num" id="reply-s">0.0 s</span></div>
+          <div class="rail" id="reply-rail" title="From the end of their turn to HARP's first sound. A filler plays at the first mark unless the answer is about to start; a fixed line at the second if the LLM sends nothing for that long."><div class="fill" id="reply-fill" style="background: var(--thinking)"></div></div>
           <div class="marks" id="reply-marks"></div>
         </div>
+        <div class="verdict" id="reply-verdict"></div>
       </div>
       <div class="limits" id="limits" hidden><span>Turns <b class="num" id="turns">0</b><span id="turns-max"></span></span><span>Time <b class="num" id="elapsed">0 s</b><span id="elapsed-max"></span></span></div>
     </section>
@@ -389,7 +392,7 @@ const SAVED = ["source", "device", "wav", "realtime", "iface", "turn", "voice", 
 const CHART_S = 12;
 // Listening's and talking's settings; web.py sends the real ones (its LIMITS).
 let L = { start_prob: 0.6, end_prob: 0.45, check: 0.2, finished: 0.5, wait: 1.5, silence: 0.7,
-          short_turn: 1.0, max_speech: 15, filler: 1.2, give_up: 5, max_turns: 8, max_s: 90 };
+          short_turn: 1.0, max_speech: 15, filler: 1.2, give_up: 5, max_turns: 10, max_s: 180 };
 const LISTEN = {
   off: ["Off", "--idle"], held: ["Starts after the greeting", "--idle"], starting: ["Loading models", "--idle"], waiting: ["Waiting for talk.py", "--idle"],
   listening: ["Listening", "--listening"], hearing: ["Hearing someone", "--hearing"],
@@ -398,13 +401,17 @@ const LISTEN = {
 
 let S = {};   // the page's view of the session, rebuilt from the events
 function fresh() {
-  return { running: false, config: null, talkReady: false, listen: "off", pending: 0, replyStart: null,
+  return { running: false, config: null, talkReady: false, listen: "off", pending: 0, replyStart: null, answered: null, filler: null,
     speaking: null, lastSpeech: 0, lastQuiet: 0, judged: null, live: null, harpLive: null, levels: [],
-    stats: { heard: [], llm: [], sound: [] }, turns: 0, began: null, done: null, warnings: {}, lastHeard: null };
+    stats: { heard: [], llm: [], sound: [] }, turns: 0, started: null, began: null, over: null, done: null, warnings: {}, lastHeard: null };
 }
 S = fresh();
 let mode = "both", llm = "unknown", llmHere = false, llmUrl = "", serverHost = "", otherListen = false, mutePort = 28732;
 let devicesInfo = { inputs: [], outputs: [] }, logCount = 0, logErrors = 0, connected = false;
+// This browser's clock less web.py's: the smallest gap seen between an event's time and its
+// arrival (history replayed to a new page arrives late, live events at once).
+let skew = Infinity;
+function serverNow() { return Date.now() - (isFinite(skew) ? skew : 0); }
 
 function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function store(key, value) { try { localStorage.setItem("harp-speech-" + key, JSON.stringify(value)); } catch (e) {} }
@@ -506,7 +513,7 @@ function guide() {
   if (S.speaking) return ["--muted-state", "HARP is talking", c.listen ? "Wait until it has finished before you speak." : "Type the next line when it's done."];
   if (S.pending > 0) return ["--thinking", "HARP is thinking", "Working out its reply."];
   if (!c.listen) return ["--ok", "Your turn", "Type what the person says below."];
-  if (S.listen === "hearing") return ["--hearing", "Hearing you", "Keep talking; it ends the turn when you've finished."];
+  if (S.listen === "hearing") return ["--hearing", "Hearing you", "Keep talking; it ends the turn when you've finished, or press Done talking."];
   if (S.listen === "transcribing") return ["--transcribing", "Transcribing", "Turning that turn into text."];
   if (S.listen === "muted") return ["--muted-state", "HARP is talking", "Listening is muted until it has finished."];
   if (S.listen === "listening") return ["--ok", c.talk ? "Your turn: speak now" : "Listening", c.source === "wav" ? "Playing the recording into listening." : "Say something to HARP" + (c.talk ? " (or type it below)." : ".")];
@@ -569,8 +576,9 @@ function render() {
   $("reply-track").hidden = !(running && c.talk && S.pending > 0 && S.replyStart !== null);
   $("limits").hidden = !(running && c.talk);
   $("turns").textContent = S.turns; $("turns-max").textContent = " of " + L.max_turns;
-  $("turns-max").title = "HARP says goodbye itself after " + L.max_turns + " turns or " + L.max_s + " s";
+  $("turns-max").title = "HARP says goodbye itself after " + L.max_turns + " turns, or after the first reply past " + L.max_s + " s";
   $("elapsed-max").textContent = " of " + L.max_s + " s";
+  $("elapsed-max").title = "From HARP's greeting, as talk.py counts it (not while it loads). It says goodbye after the first reply past " + L.max_s + " s.";
   updateTurnTrack();
 
   // composer
@@ -610,21 +618,39 @@ function updateTurnTrack() {
   else if (S.judged >= L.finished) v = "Smart Turn: <b>" + Math.round(S.judged * 100) + "% finished</b>, so the turn ends now.";
   else v = "Smart Turn: <b>" + Math.round(S.judged * 100) + "% finished</b>, so it waits up to " + L.wait + " s in case they go on.";
   $("verdict").innerHTML = v;
+  $("end-turn").disabled = S.listen !== "hearing";
 }
 function tick() {   // timers that run between events
   if (S.running && S.began) {
-    $("elapsed").textContent = Math.round((Date.now() - S.began) / 1000) + " s";
-    $("now-clock").textContent = "running " + fmtClock((Date.now() - S.began) / 1000);
+    const t = S.over !== null ? S.over : (serverNow() - S.began) / 1000;
+    $("elapsed").textContent = Math.round(t) + " s";
+    $("now-clock").textContent = (S.over !== null ? "talked " : "talking ") + fmtClock(t);
+  } else if (S.running && S.started) {
+    $("elapsed").textContent = "0 s";
+    $("now-clock").textContent = "loading " + fmtClock((serverNow() - S.started) / 1000);
   } else $("now-clock").textContent = "";
-  if (S.pending > 0 && S.replyStart !== null) {
-    const t = (Date.now() - S.replyStart) / 1000, max = L.give_up + 0.5;
-    $("reply-s").textContent = secs(t, 1);
-    $("reply-fill").style.width = Math.min(100, t / max * 100) + "%";
-    const ms = [[L.filler, "filler"], [L.give_up, "gives up"]];
-    railMarks($("reply-rail"), max, ms.map(x => x[0])); marks($("reply-marks"), max, ms);
-    $("reply-label").textContent = "Since their turn ended";
-    const clock = document.querySelector(".typing .clock"); if (clock) clock.textContent = "thinking " + secs(t, 1);
-  }
+  if (S.pending > 0 && S.replyStart !== null) replyTrack();
+}
+// From the end of their turn to HARP's first sound, then frozen there while it speaks.
+function replyTrack() {
+  const now = (Date.now() - S.replyStart) / 1000, done = S.answered !== null;
+  const t = done ? S.answered : now, max = Math.max(L.give_up, t) + 0.5;
+  $("reply-s").textContent = secs(t, 1);
+  $("reply-fill").style.width = Math.min(100, t / max * 100) + "%";
+  $("reply-fill").style.background = cssVar(done ? "--muted-state" : "--thinking");
+  const ms = [[L.filler, "filler"], [L.give_up, "fixed line"]];
+  railMarks($("reply-rail"), max, ms.map(x => x[0])); marks($("reply-marks"), max, ms);
+  $("reply-label").textContent = done ? "HARP's answer started after" : "Waiting for HARP's answer";
+  const f = S.filler, said = f && f.text ? 'HARP said <b>"' + f.text + '"</b> at ' + secs(f.at_s, 1) + " to fill the pause" : "";
+  const why = f && !f.text ? { soon: "no filler: the answer was about to start", unfit: "no filler: one doesn't fit after a greeting, a goodbye or \u201cwhat?\u201d", playing: "no filler: HARP was still speaking" }[f.reason] : "";
+  let v;
+  if (done) v = "<b>Answered " + secs(t, 1) + "</b> after their turn ended" + (said ? "; before that, " + said : why ? " (" + why + ")" : "") + ". The rest plays as it's ready.";
+  else if (said) v = "The answer wasn't about to start at " + secs(L.filler, 1) + (f.expected_s !== undefined ? " (about " + secs(f.expected_s, 1) + " more)" : "") + ", so " + said + ". The answer follows as soon as its voice is ready.";
+  else if (why) v = why[0].toUpperCase() + why.slice(1) + ". It speaks as soon as the first part's voice is ready.";
+  else if (now >= L.give_up) v = "The LLM sent nothing for " + secs(L.give_up, 0) + ", so HARP says a fixed line instead.";
+  else v = "The LLM is writing the reply. If the answer isn't about to start by <b>" + secs(L.filler, 1) + "</b>, HARP fills the pause; if the LLM sends nothing for " + secs(L.give_up, 0) + ", HARP says a fixed line.";
+  $("reply-verdict").innerHTML = v;
+  const clock = document.querySelector(".typing .clock"); if (clock) clock.textContent = "thinking " + secs(now, 1);
 }
 function fmtClock(s) { s = Math.floor(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
 
@@ -749,7 +775,7 @@ function setTyping(on) {
   if (!on && t) t.remove();
 }
 function expectReply() { S.pending++; if (S.replyStart === null) S.replyStart = Date.now(); setTyping(true); render(); }
-function replied() { S.pending = Math.max(0, S.pending - 1); if (!S.pending) { setTyping(false); S.replyStart = null; } render(); }
+function replied() { S.pending = Math.max(0, S.pending - 1); if (!S.pending) { setTyping(false); S.replyStart = null; S.answered = null; S.filler = null; } render(); }
 function clearPlaying() { conv().querySelectorAll(".msg.playing").forEach(m => { m.classList.remove("playing"); const t = m.querySelector(".tag.speaking"); if (t) t.remove(); }); }
 function markPlaying(msg) {
   clearPlaying(); msg.classList.add("playing");
@@ -806,6 +832,7 @@ function personLive(on) {
 
 function handle(m) {
   const { source, event } = m;
+  if (m.time) skew = Math.min(skew, Date.now() - m.time * 1000);
   if (event === "hello") { reset(); return; }
   if (event === "log") {
     const bad = /error|failed|missing|Traceback|only zeros|no mic packets/i.test(m.text);
@@ -836,7 +863,7 @@ function handle(m) {
     if (m.state === "started") {
       const keepWarnings = {};
       Object.assign(S, fresh(), { warnings: keepWarnings });
-      S.running = true; S.config = m.config; S.began = m.time * 1000;
+      S.running = true; S.config = m.config; S.started = m.time * 1000;
       ["heard", "llm", "sound"].forEach(k => stat(k));
       const parts = [];
       if (m.config.listen) parts.push("listening to " + ({ mic: deviceName("inputs", m.config.device), robot: "the robot's mic", wav: "a recording" })[m.config.source]);
@@ -844,14 +871,15 @@ function handle(m) {
       divider("Started " + parts.join(", ") + " at " + new Date(m.time * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
       S.listen = m.config.listen ? "starting" : "off";
     } else {
-      S.running = false; S.pending = 0; S.replyStart = null; S.speaking = null; setTyping(false); clearPlaying(); personLive(false);
+      S.running = false; S.pending = 0; S.replyStart = null; S.answered = null; S.filler = null; S.speaking = null; setTyping(false); clearPlaying(); personLive(false);
       divider("Stopped");
       if (S.listen !== "off") S.listen = "ended";
     }
     applyMode(); render(); return;
   }
   if (source === "web" && event === "listen_held") { S.listen = "held"; render(); return; }
-  if (source === "web" && event === "talk_ready") { S.talkReady = true; render(); return; }
+  // talk.py's own clock for its time limit starts as it says its greeting, after loading
+  if (source === "web" && event === "talk_ready") { S.talkReady = true; S.began = m.time * 1000; render(); return; }
   if (source === "web" && event === "typed") {
     message("person", m.text, [], ["typed"]);
     if (m.forwarded) expectReply(); return;
@@ -864,11 +892,11 @@ function handle(m) {
       if (m.forwarded && m.dropped === "empty") expectReply();
       return;
     }
-    const meta = [secs(m.after_end_s) && "text " + secs(m.after_end_s) + " after they went quiet",
+    const meta = [secs(m.after_end_s) && "text " + secs(m.after_end_s) + " after " + (m.ended_early ? "Done talking" : "they went quiet"),
       "speech-to-text " + secs(m.stt_s), m.finished !== undefined && "Smart Turn " + Math.round(m.finished * 100) + "% finished"];
     const msg = live || message("person", "", [], []);
     msg.classList.remove("live"); const t = msg.querySelector(".text"); t.classList.remove("pending"); t.textContent = m.text;
-    fillMeta(msg.querySelector(".meta"), meta, []); msg.dataset.text = m.text;
+    fillMeta(msg.querySelector(".meta"), meta, m.ended_early ? ["ended with Done talking"] : []); msg.dataset.text = m.text;
     S.lastHeard = m.text; stat("heard", m.after_end_s);
     if (m.forwarded) { S.replyStart = Date.now(); expectReply(); }
     else if (S.config && S.config.talk) note("HARP wasn't ready yet, so it won't answer this", "warn");
@@ -883,6 +911,7 @@ function handle(m) {
       if (canned) { canned.classList.add("spoken"); markPlaying(canned); }
       else if (m.first || !S.harpLive) {
         setTyping(false);
+        if (S.replyStart !== null && S.answered === null) S.answered = (Date.now() - S.replyStart) / 1000;
         S.harpLive = message("harp", m.text, [], []); S.harpLive.dataset.reply = "1"; markPlaying(S.harpLive);
       } else {
         const t = S.harpLive.querySelector(".text"); t.textContent = (t.textContent + " " + m.text).trim(); markPlaying(S.harpLive);
@@ -905,6 +934,7 @@ function handle(m) {
       }
       render(); return;
     }
+    if (event === "filler") { S.filler = m; render(); return; }
     if (event === "echo") {
       const mine = [...conv().querySelectorAll(".msg.person")].reverse().find(e => e.dataset.text === m.text);
       if (mine) { mine.classList.add("faded"); const meta = mine.querySelector(".meta"); meta.hidden = false; meta.append(el("span", "tag", "HARP's own voice: ignored")); }
@@ -919,7 +949,7 @@ function handle(m) {
     }
     if (event === "ignored_bye") { logLine("talk", "ignored a <bye> on a reply that isn't a goodbye", m.time); return; }
     if (event === "done") {
-      S.done = DONE[m.reason] || m.reason;
+      S.done = DONE[m.reason] || m.reason; S.over = m.seconds;
       divider("Conversation over: " + S.done + ", " + m.turns + (m.turns === 1 ? " turn, " : " turns, ") + m.seconds + " s");
       render(); return;
     }
@@ -949,6 +979,10 @@ $("llm-button").addEventListener("click", async () => {
   $("llm-button").disabled = true;
   await post(llm === "down" ? "/api/llm/start" : "/api/llm/stop");
   $("llm-button").disabled = false; poll();
+});
+$("end-turn").addEventListener("click", async () => {
+  $("end-turn").disabled = true;
+  await post("/api/end_turn");
 });
 $("composer").addEventListener("submit", async e => {
   e.preventDefault();

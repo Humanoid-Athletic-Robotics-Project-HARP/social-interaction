@@ -122,7 +122,8 @@ From recordings (16-bit WAV, any rate):
 ```
 
 From this computer's microphone (Ctrl-C to stop). `--devices` lists the microphones and
-`--device N` picks one. On macOS, allow your terminal app under System Settings >
+`--device N` picks one. Press Enter to end your turn at once instead of waiting for it to
+notice you've finished. On macOS, allow your terminal app under System Settings >
 Privacy & Security > Microphone; without it the mic sends silence.
 
 ```bash
@@ -137,12 +138,16 @@ switching its mode changes the robot for everyone, so ask first.
 ```
 
 Each turn is one JSON line on stdout, with how long it waited after the person went
-quiet (`silence_s`), and Smart Turn's probability that they had finished and its time
-(`turn_s`, part of `after_end_s`):
+quiet (`silence_s`), Smart Turn's probability that they had finished and its time
+(`turn_s`, part of `after_end_s`), and the turn's loudness (`level_db`):
 
 ```json
-{"text": "Hi there, are you the robot from Stanford?", "start": 0.54, "end": 2.5, "silence_s": 0.22, "stt_s": 0.142, "after_end_s": 0.452, "finished": 0.97, "turn_s": 0.09}
+{"text": "Hi there, are you the robot from Stanford?", "start": 0.54, "end": 2.5, "silence_s": 0.22, "stt_s": 0.142, "after_end_s": 0.452, "finished": 0.97, "turn_s": 0.09, "level_db": -24.1}
 ```
+
+Once someone has spoken, it hears only voices within 15 dB of theirs, so people talking
+further off don't start a turn or hold one open; after 60 s without a turn it hears anyone
+again.
 
 `--fixed-turn` ends every turn after 0.7 s of silence instead, without Smart Turn.
 
@@ -150,10 +155,11 @@ quiet (`silence_s`), and Smart Turn's probability that they had finished and its
 
 Start the LLM server in its own terminal and leave it running (about 3 GB of memory). On
 an M1 Mac its GPU code fails, so run it on the CPU as here; on newer Macs, try `-ngl 99`
-without `--device none` for the GPU.
+without `--device none` for the GPU. `-np 1` keeps one conversation's slot, so each turn reuses
+what it has already read.
 
 ```bash
-llama-server -m ../../models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --device none -ngl 0 -c 4096 -t 4 --port 28731
+llama-server -m ../../models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf --device none -ngl 0 -c 4096 -t 4 -np 1 --port 28731
 ```
 
 That path is from this repo's main checkout; from a worktree, give the full path to
@@ -225,6 +231,13 @@ terminal at the same time. The mic and speakers are this computer's, not the bro
 
 Then open http://127.0.0.1:28733. The page can start the LLM server too. `--host 0.0.0.0`
 opens it to other computers (on PC2, to watch from a laptop on the robot network).
+
+While it hears someone, **Done talking: answer now** ends their turn at once, without
+waiting for the silence or Smart Turn. After a turn, the Now card follows the wait for
+HARP's answer until its first sound. If the answer isn't about to start by the first
+mark, HARP says a short filler. If the LLM sends nothing for 5 s, HARP says a fixed line
+instead. The line below says which happened. Turns and Time count from HARP's greeting,
+as `talk.py` does, not while the models load.
 
 ## Bench
 

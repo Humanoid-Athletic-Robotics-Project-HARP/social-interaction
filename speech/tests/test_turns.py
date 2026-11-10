@@ -33,6 +33,27 @@ LOUD = 0.1      # a voice's
 
 
 class TestTurns(unittest.TestCase):
+    def test_cut_ends_the_turn_at_once(self):
+        t = listen.Turns()
+        for frame, prob in frames(10, 0.0, QUIET) + frames(30, 0.9, LOUD) + frames(3, 0.0, QUIET):
+            self.assertIsNone(t.push(frame, prob))
+        start, end, audio = t.cut()
+        self.assertAlmostEqual(start, 10 * FRAME_S)
+        self.assertAlmostEqual(end, 40 * FRAME_S)   # where the voice stopped, not the cut
+        self.assertFalse(t.speaking)
+        self.assertIsNone(t.cut())                  # nothing being heard now
+
+    def test_cut_before_speech_is_nothing(self):
+        t = listen.Turns()
+        for frame, prob in frames(10, 0.0, QUIET):
+            t.push(frame, prob)
+        self.assertIsNone(t.cut())
+
+    def test_ending_lines(self):
+        import io
+        now = listen.ending_lines(io.StringIO("\n"))
+        self.assertTrue(now.wait(1))
+
     def test_one_turn(self):
         (start, end, audio), = turns(frames(10, 0.0, QUIET), frames(30, 0.9, LOUD),
                                      frames(30, 0.0, QUIET))
@@ -115,6 +136,77 @@ class TestSmartTurn(unittest.TestCase):
         pause = frames(int(listen.WAIT / 2 / FRAME_S), 0.0, QUIET) + frames(30, 0.9, LOUD)
         _, asked = self.silence_before_end(50, 0.1, pause)
         self.assertEqual(asked, 2)
+
+
+
+def run(t, *parts):
+    """Push parts through one Turns; the turns found."""
+    found = []
+    for part in parts:
+        for frame, prob in part:
+            turn = t.push(frame, prob)
+            if turn:
+                found.append(turn)
+    return found
+
+
+NEAR = 0.1     # the person, -20 dBFS
+OFF = NEAR * 10 ** (-(max(listen.LOCK_DB, listen.REL_DB) + 3) / 20)   # someone further off: past both
+SOFTER = NEAR * 10 ** (-(listen.LOCK_DB - 3) / 20)   # the person, quieter this turn: inside the lock
+FAR = 10 ** ((listen.MIN_DB - 6) / 20)               # under MIN_DB
+
+
+class TestLock(unittest.TestCase):
+    def setUp(self):
+        self.t = listen.Turns()
+        # the person's first turn: over SHORT_TURN of speech, so it sets their level
+        self.assertEqual(len(run(self.t, frames(10, 0.0, QUIET), frames(40, 0.9, NEAR),
+                                 frames(30, 0.0, QUIET))), 1)
+
+    def test_the_persons_level_is_kept(self):
+        self.assertAlmostEqual(self.t.person, -20, delta=1)
+        self.assertAlmostEqual(self.t.start_db(), -20 - listen.LOCK_DB, delta=1)
+
+    def test_a_quieter_voice_doesnt_start_a_turn(self):
+        self.assertEqual(run(self.t, frames(60, 0.9, OFF), frames(30, 0.0, QUIET)), [])
+
+    def test_the_person_again_does(self):
+        self.assertEqual(len(run(self.t, frames(40, 0.9, NEAR * 0.7), frames(30, 0.0, QUIET))), 1)
+
+    def test_the_person_quieter_still_does(self):
+        self.assertEqual(len(run(self.t, frames(40, 0.9, SOFTER), frames(30, 0.0, QUIET))), 1)
+
+    def test_a_quieter_voice_doesnt_hold_the_turn_open(self):
+        # the person stops; someone further off keeps talking: the turn still ends on time
+        found = run(self.t, frames(40, 0.9, NEAR), frames(40, 0.9, OFF))
+        self.assertEqual(len(found), 1)
+        start, end, audio = found[0]
+        self.assertAlmostEqual(end - start, 40 * FRAME_S, delta=2 * FRAME_S)
+
+    def test_quiet_frames_are_turned_down(self):
+        duck, listen.DUCK_DB = listen.DUCK_DB, 20.0   # off by default
+        self.addCleanup(setattr, listen, "DUCK_DB", duck)
+        (start, end, audio), = run(self.t, frames(30, 0.9, NEAR), frames(6, 0.9, OFF),
+                                   frames(30, 0.9, NEAR), frames(30, 0.0, QUIET))
+        level = np.sqrt(np.mean(audio.reshape(-1, listen.FRAME) ** 2, axis=1))
+        ducked = OFF * 10 ** (-listen.DUCK_DB / 20)
+        self.assertGreaterEqual(np.sum(np.abs(level - ducked) < ducked * 0.2), 3)   # the middle ones
+        self.assertFalse(np.any(np.abs(level - OFF) < OFF * 0.1))                   # none left as it was
+        self.assertGreater(np.sum(np.abs(level - NEAR) < 0.001), 50)                # the person's kept
+
+    def test_the_lock_is_forgotten_after_lock_s(self):
+        gone = int(listen.LOCK_S / FRAME_S) + 1
+        self.assertEqual(len(run(self.t, frames(gone, 0.0, QUIET), frames(40, 0.9, OFF),
+                                 frames(30, 0.0, QUIET))), 1)
+
+    def test_a_cough_doesnt_set_the_level(self):
+        run(self.t, frames(12, 0.9, 0.5), frames(30, 0.0, QUIET))   # short and loud
+        self.assertAlmostEqual(self.t.person, -20, delta=1)
+
+    def test_too_quiet_never_starts_one(self):
+        t = listen.Turns()
+        self.assertEqual(run(t, frames(10, 0.0, QUIET * 0.1), frames(40, 0.9, FAR),
+                             frames(30, 0.0, QUIET * 0.1)), [])
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ name: listening
 description: Read before working on how the robot hears people (the README's "Microphone" milestone): the mic, telling when someone has finished, speech-to-text, and the transcript it hands to talking
 metadata:
   type: project
-  updated: 2026-11-09T00:36:58Z
+  updated: 2026-11-10T06:31:07Z
   covers: [speech/listen.py, speech/requirements.txt, speech/tests/test_turns.py]
 ---
 
@@ -23,6 +23,11 @@ Design for the listening half of a conversation, and what of it is built (**Buil
    - A WAV file, for tests and tuning.
 2. **Gate:** listen only during a conversation, which [[talking]] opens once the robot has walked up to someone (on a laptop, from the start). The walk up is the opener, so there's no wake word or button. Mute while the robot speaks and for 0.5 s after (talking's `speaking` events). A 0.8 s ring buffer keeps the audio just before speech starts, so first syllables survive (0.5 s lost a short "Not much," in noise: [[speech-tuning]]).
 3. **Voice detection:** Silero VAD v6 (`silero_vad.onnx`, MIT; fetched at setup from a pinned release and checked against its hash, not committed), on onnxruntime with one thread. Speech starts after 0.25 s of frames whose probability is at or above 0.6 and whose RMS is above the measured noise floor; a frame without voice takes one frame off the count rather than resetting it ([[speech-tuning]] has why). It ends when the probability falls below 0.45. Utterances under 0.3 s are dropped; ones over 15 s are cut.
+3b. **Lock on the person** (built 2026-11-09 in `Turns`; a teammate's ask: hear only the loudest, closest voice):
+   - A turn starts only on voice of at least `MIN_DB` (-60 dBFS for now, since -50 lost a quiet speaker; to be set from robot recordings of someone at 1 m). After a turn of 1 s or more, only on voice within `LOCK_DB` (15 dB) of that person's level (`Turns.person`, the average of their turns' levels), until `LOCK_S` (60 s) without one.
+   - During a turn, a frame `REL_DB` (20 dB) quieter than the turn's own level (`LEVEL_PCT`, the 70th percentile of its voiced frames' loudness) counts as silence, so someone further off doesn't hold it open. `DUCK_DB` can turn those frames down before speech-to-text, but it is off (0): at 20 dB it also turned down quiet speakers' own soft sounds. Each turn's line has `level_db`.
+   - Why these numbers (bench results: [[speech-tuning]]): one person's own turns vary by about 9 dB (live, 2026-11-09: -32.4, -41.6, -33.9 dBFS on a MacBook Air's mic), so the lock must be wider than that; at 15 dB it keeps them, and rejects someone 20 dB quieter, mostly 15 dB, not 10 dB.
+   - Loudness separates far voices only: at 1 m against 2, 3, 4 m, about 6, 10, 12 dB, less in an echoing room. So a bystander 2–3 m off still gets through, and no loudness setting can both hear the person 12 dB softer and reject them. Next, if bystanders get through on the robot: a speaker check from the first turn's voiceprint (sherpa-onnx's speaker embedding, 3D-Speaker CAM++ or ERes2Net, Apache-2.0 per their model cards: check), then a directional mic or a ReSpeaker XVF3000/XVF3800 array with its own beamforming and direction (a hardware change for the team).
 4. **Turn end:**
    - Pipecat's Smart Turn v3.2 (a BSD-2 int8 ONNX model, used on its own without Pipecat). After 0.2 s of silence it judges the last 8 s of the turn. If it says finished (0.5 or more), the turn ends; otherwise after 1.5 s of silence (2.5 s left people waiting when it misjudged a finished line).
    - Turns with under 1 s of speech end after 0.7 s of silence without asking it: it calls one-word answers ("Yeah.", "Bye!") unfinished. `--fixed-turn` does that for every turn.
@@ -73,6 +78,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - Parakeet on CPU (`--provider cuda` on PC2)
   - the filter's short, empty and made-up checks
   - one JSON line per turn on stdout
+  - each line on stdin (Enter in a terminal, the speech page's Done talking) ends the turn being heard at once (`Turns.cut`, `ended_early` on its line); a line while nobody is heard is dropped
 - The turn rules (`Turns`) are tested in `speech/tests/` without models. The settings were tuned on made-up clips with `speech/bench/` ([[speech-tuning]] has the results).
 - The mute (built 2026-11-03, with the mic or the robot's mic):
   - `talk.py` sends `{"speaking": true}` every 0.5 s while it plays or makes a reply, and `false` when done, as UDP to port 28732 on the same computer.
@@ -84,7 +90,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - A turn cut off by it is dropped, and Silero's state is reset after it.
   - On the robot this becomes the `speaking` ROS 2 event.
   - The echo check is in `talk.py` (it knows what it said).
-- Tested on a laptop (2026-11-03), on the stand-in robot mic stream: person speech, then HARP's own greeting, then person speech. Without the mute the greeting was transcribed; with it, only the person's two lines, the second caught whole 1 s after HARP stopped. Not yet tried with a live person through real speakers and mic.
+- Tested on a laptop (2026-11-03), on the stand-in robot mic stream: person speech, then HARP's own greeting, then person speech. Without the mute the greeting was transcribed; with it, only the person's two lines, the second caught whole 1 s after HARP stopped. Live through the MacBook Air's own speakers and mic (2026-11-09, three conversations, one person): HARP never heard itself; listening came back about 0.55 s after each reply.
 - Not built yet: ROS 2 output, a USB mic, and installing it on PC2. How `speech/` gets to PC2 is open: `sync.sh` pushes only `testground/`.
 - Measured on an M1 MacBook Air's CPU (2026-11-03), with macOS `say` voices, which are easier than a person at 1 m:
   - two sentences 1.5 s apart gave two turns; a 0.4 s pause stayed inside one turn
@@ -94,7 +100,7 @@ While testing, keep each utterance's WAV and transcript with the run. Record str
   - the same clips gave the same turns from a stand-in robot mic stream over loopback multicast
 
 **First steps**
-1. Laptop: real voices through `--mic`, and recordings of people and rooms for tuning.
+1. Laptop: real voices through `--mic` (done for one person, 2026-11-09), and recordings of people, bystanders and rooms for tuning.
 2. Robot, listening only (`testground/audio/`): read the voice mode (1007), record the multicast mic standing and walking, note the firmware. Switching the mode changes the robot for everyone: ask first.
 3. From those recordings, choose the mic and the STT provider.
 
