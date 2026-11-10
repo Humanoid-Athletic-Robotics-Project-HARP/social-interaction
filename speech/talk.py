@@ -93,16 +93,33 @@ SPOKEN = {"G1": "gee one"}     # said as letters, not read as a word
 SORRY = "Sorry, I didn't catch that."
 LOST = "Sorry, I lost my train of thought. What were you saying?"
 CLOSE = "I should let you go. It was lovely talking with you, have a great day!"
-GOODBYE = re.compile(r"\b(bye|goodbye|see you|see ya|gotta go|got to go|have to go|need to go|"
-                     r"have to run|gotta run|i'm off|get going|head out|heading out|catch you later|"
-                     r"take care|(nice|good|great) (meeting|talking|chatting)( with| to)? you)\b", re.I)
+GOODBYE = re.compile(r"\b(bye|goodbye|bye-bye|farewell|so long|ciao|adios|cheerio|peace out|see you|see ya|"
+                     r"gotta go|got to go|have to go|need to go|have to run|gotta run|"
+                     r"(have to|need to|got to|gotta) (leave|head off|take off)|"
+                     r"(i|we) (should|better|'d better) (go|leave|run|head off|get going)|"
+                     r"i'm off|i'm leaving|(i'll|i should|i'd better|i better) let you go|"
+                     r"get going|head out|heading out|"
+                     r"catch you later|talk (to you )?(soon|later)|until next time|"
+                     r"take care|take it easy|good ?night|(going|off|headed) to (bed|sleep)|"
+                     r"(nice|good|great|lovely) (meeting|talking|chatting)( with| to)? you|"
+                     r"(it was|it's been) a pleasure)\b", re.I)
 END_TAG = "<bye>"
 # The reply must sound like a goodbye for its END_TAG to count: a small model sometimes tags
 # a reply that isn't one.
-# "bye" only as said to someone (at a sentence's start or after a comma), not "hard to say goodbye"
-FAREWELL = re.compile(r"(?:^|[.!?,]\s*)(?:good)?bye\b|\b(see you|take care|have a (good|great|nice|lovely|wonderful)|"
-                      r"have an? \w+ (day|night|evening|weekend|one|time|class|meeting|lunch)|"
-                      r"(nice|lovely|great|good) (meeting|talking|chatting|to meet)|enjoy (your|the))\b",
+# Words that also come up mid-conversation only as said to someone (at a sentence's start or
+# after a comma): not "hard to say goodbye", "did you sleep well?", "later, I'll...", "did you
+# have fun?" or "it might be well worth it"
+FAREWELL = re.compile(r"(?:^|[.!?,]\s*)(?:(?:good)?bye|bye-bye|good ?night|night night|sleep well|sweet dreams|"
+                      r"farewell|so long|ciao|adios|cheerio|later(?=\s*[.!])|have fun|be well|"
+                      r"all the best|good luck)\b|"
+                      r"\b(see you|see ya|catch you later|talk (to you )?(soon|later)|until next time|"
+                      r"take care|take it easy|stay safe|safe travels|get home safe|"
+                      r"best of luck|have a (good|great|nice|lovely|wonderful)|"
+                      r"have an? \w+ (day|night|evening|weekend|one|time|class|meeting|lunch|trip)|"
+                      r"(nice|lovely|great|good|fun) (meeting|talking|chatting|to meet)|"
+                      r"(was|been) a pleasure|pleasure (meeting|talking|chatting)|"
+                      r"glad (we|i) (got to )?(talk|chat|meet|met)|enjoy (your|the)|"
+                      r"come (back|say hi) (anytime|soon|again))\b",
                       re.I)
 
 SYSTEM = f"""You are HARP, a humanoid robot made by students on Stanford's HARP robotics \

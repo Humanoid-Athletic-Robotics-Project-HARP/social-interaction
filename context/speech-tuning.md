@@ -3,7 +3,7 @@ name: speech-tuning
 description: Read before changing listen.py's turn settings, talk.py's prompt, grammar, goodbye rules or fillers, or choosing the voice — what synthetic tests found and the changes they point to
 metadata:
   type: project
-  updated: 2026-11-10T04:30:58Z
+  updated: 2026-11-10T06:22:45Z
   covers: [speech/listen.py, speech/talk.py, speech/bench/*]
 ---
 
@@ -25,6 +25,7 @@ Synthetic tests on an M1 MacBook Air's CPU (2026-11-03/04), with no mic or speak
   - With the chosen settings, against the lock off: short, reverb, robot-mic and `two` the same, clean 27 of 30 against 28 (one line split, from `REL_DB`).
 - Parakeet hears "HARP" as heart, hard or Hart in about half of lines. sherpa-onnx hotwords didn't help (weight 3 added wrong words). Handle it in talk.py's prompt instead.
 - STT time: about 0.11 s for a 1–3 s turn, 0.2 s for 3–6 s.
+- Live (2026-11-09, second test, MacBook Air mic, one person): six turns between -37.0 and -32.4 dBFS, none dropped by the lock; text 0.46–0.81 s after they stopped, except a long goodbye line Smart Turn called unfinished (0.21), which waited for the 1.5 s fallback (1.97 s).
 
 **Talking** (`bench/talk_bench.py`: 17 scripts, and 6 of open small talk since 2026-11-09)
 - Made in `talk.py` from these tests (what each does: [[talking]]): the conversation ends only on a goodbye reply, digits and letters split for the voice, times in words, a "." after a digit not cut as a sentence end while streaming ("about 1. 3 metres"), the short-echo check, and the prompt's facts and rules. Right endings went from 26 to 32 of 34 (the other two said goodbye to someone answering only "No." and "I don't know.", which the prompt asks for).
@@ -33,6 +34,6 @@ Synthetic tests on an M1 MacBook Air's CPU (2026-11-03/04), with no mic or speak
 - Free text needs a length cap: with "one or two sentences" in the prompt alone, the median reply was 23 words and half had three sentences or more. `MAX_SENTENCES` 2 brings it to 13–18 words, none over two sentences.
 - With the free prompt (8 scripts, Kokoro): every ending right, 5 of 30 replies asked a question, 24 of 30 opened differently, no copies of the examples, no ignored `<bye>`. It picks favourites and opinions lightly ("I'd pick The Grand Budapest Hotel").
 - Still wrong: asked "Huh?" then "Sorry, what did you say?", it gives the same rephrasing twice; when insulted it stays kind but no longer says goodbye.
-- Speed on an M1's CPU, free text with Kokoro: LLM's first text 0.6–1.7 s (3.7 s after a 40-word turn), first sentence a median 2.2 s, its audio a median 4.1 s and up to 9.8 s: Kokoro synthesises while the LLM still writes, both on the CPU. Live, through the mic (2026-11-09): first sound 2.9–5.5 s after the person stopped. Test live on a laptop with Piper; Kokoro needs PC2's GPU.
+- Speed on an M1's CPU, free text with Kokoro: LLM's first text 0.6–1.7 s (3.7 s after a 40-word turn), first sentence a median 2.2 s, its audio a median 4.1 s and up to 9.8 s: Kokoro synthesises while the LLM still writes, both on the CPU. Live, through the mic (2026-11-09, two tests with Kokoro): first sound 2.4–5.5 s after the person stopped (median about 2.8 s in the second); fillers came about 1.7 s after. Test live on a laptop with Piper; Kokoro needs PC2's GPU.
 - Fillers, scored as they would sound (`talk_bench.py`): keyed on no first sentence by 1.2 s, one came before 89 of 153 replies, and mostly "Let me think." just ahead of an answer that needed none. Keyed on the reply's expected sound (`expected()`), one comes only with at least 0.6 s of wait ahead: on the M1 with Kokoro, 26 of 30 replies, since its waits are long, none of them hardly needed or delaying the reply; with Piper, 2 of 20.
 - Voices, judged by Parakeet as the listener (`bench/voice_bench.py`): Kokoro 6% word errors (7% through room and robot mic), real-time factor 0.56; Piper 14.5% (18%), factor 0.06. Kokoro, if it reaches its estimated 0.35 s on PC2's GPU.

@@ -86,7 +86,14 @@ class TestFarewell(unittest.TestCase):
     def test_replies_that_end_a_conversation(self):
         for reply in ("No problem, it was lovely meeting you. Have a great day!", "Okay, bye for now!",
                       "Enjoy your lunch!", "Take care!",
-                      "You too! Have a smooth day, and maybe don't spill coffee on your laptop again."):
+                      "You too! Have a smooth day, and maybe don't spill coffee on your laptop again.",
+                      # live, 2026-11-09: neither ended the conversation
+                      "Good night, Sam! Sleep well, and maybe dream of robots and students having fun.",
+                      "Oh right! Good night, Sam!", "Goodnight!", "Sleep well!", "Sweet dreams!",
+                      "Bye-bye!", "Later!", "So long, and good luck with your exam!", "Be well!", "Have fun!", "Talk to you soon!",
+                      "It was a pleasure chatting with you.", "Safe travels!", "Come back anytime!",
+                      "Glad we got to chat. Have fun at the game!", "All the best with the project.",
+                      "Until next time!", "Take it easy!"):
             self.assertTrue(talk.FAREWELL.search(reply), reply)
 
     def test_replies_that_dont(self):
@@ -94,7 +101,11 @@ class TestFarewell(unittest.TestCase):
         for reply in ("I know that because I was taught math facts by the team that built me. "
                       "It's like how you learn basic rules in school.",
                       "I'm HARP! A robot from Stanford.",
-                      "That's sweet. It's always hard when you say goodbye to people you care about."):
+                      "That's sweet. It's always hard when you say goodbye to people you care about.",
+                      "That sounds like a good night out!", "Did you sleep well last night?",
+                      "Later, I'll walk over to the quad.", "I could talk about robots all day!",
+                      "Was it fun?", "Did you have fun?", "It might be well worth it.",
+                      "I wish we had all the best parts.", "That was a treat, wasn't it?"):
             self.assertFalse(talk.FAREWELL.search(reply), reply)
 
 
@@ -125,6 +136,8 @@ class TestEnding(unittest.TestCase):
     def test_a_goodbye_reply_ends_it(self):
         self.assertEqual(talk.ending("Enjoy your lunch! <bye>", "I'm getting lunch now."), "bye")
         self.assertEqual(talk.ending("Okay, bye for now!", "Okay, bye!"), "goodbye")
+        self.assertEqual(talk.ending("Good night, Sam! Sleep well.",
+                                     "I need to go to sleep now, so I'm gonna say bye."), "goodbye")
 
     def test_the_persons_words_alone_dont(self):
         self.assertIsNone(talk.ending("Oh, that sounds stressful! Have you been before?",
@@ -170,9 +183,13 @@ class TestGoodbye(unittest.TestCase):
     def test_goodbyes(self):
         for said in ("Okay, bye!", "I gotta go", "See you later", "I have to run now",
                      "Anyway, I should get going, nice meeting you.", "Okay, okay, I'm heading out",
-                     "Great talking to you"):
+                     "Great talking to you", "Good night!", "Okay, I'm off to bed", "Bye-bye",
+                     "I should let you go", "I better get going", "I have to leave now",
+                     "Talk to you later", "It was a pleasure", "Peace out", "Alright, I'm leaving"):
             self.assertTrue(talk.GOODBYE.search(said), said)
-        for said in ("Nice to meet you", "Hi there", "I'm going to the library later"):
+        for said in ("Nice to meet you", "Hi there", "I'm going to the library later",
+                     "I'll talk about it later", "I left my bag at home", "It was fun!",
+                     "It was great, we went hiking", "You should go see it", "Should I run for office?"):
             self.assertFalse(talk.GOODBYE.search(said), said)
 
 

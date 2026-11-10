@@ -3,7 +3,7 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-09T23:39:22Z
+  updated: 2026-11-10T06:22:45Z
   covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
 ---
 
@@ -86,7 +86,7 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Only `MAX_SENTENCES` (2) sentences are spoken, then the request is closed, so llama-server stops writing. Left open until the reply had played, llama-server went on writing, and the next turn waited about 15 s for the whole prompt to be read again on another slot (an M1's CPU reads about 47 tokens a second), so it timed out to "Sorry, I lost my train of thought".
   - `llama-server` runs with `-np 1` (README, web.py's Start): with 4 slots, a turn sent while a cut reply was still being cancelled went to an empty slot and read the whole prompt.
   - The history keeps what the model wrote, as written and cut where the reply was cut, so llama.cpp reuses it all from its cache; cleaned or prefixed text made it read the last reply again.
-  - A conversation ends only on a reply that sounds like a goodbye (`FAREWELL`, `ending()`), with `<bye>` or after the person's goodbye (`GOODBYE`, which also has "get going" and "nice meeting you"). "Bye" counts only at a sentence's start or after a comma: "it's hard to say goodbye to people" ended one. A `<bye>` on any other reply is an `ignored_bye` event and is kept out of the history.
+  - A conversation ends only on a reply that sounds like a goodbye (`FAREWELL`, `ending()`), with `<bye>` or after the person's goodbye (`GOODBYE`, which also has "get going", "nice meeting you", "good night" and "off to bed"). Words that also come up mid-conversation ("bye", "good night", "sleep well", "later", "have fun", "be well", "good luck") count only at a sentence's start or after a comma: "it's hard to say goodbye to people" ended one. In a live test (2026-11-09) "Good night! Sleep well…" twice didn't end it, since neither was in `FAREWELL`; both lists now also have farewell, so long, see ya, talk to you soon, until next time, take it easy, safe travels, come back anytime, glad we got to talk and it was a pleasure. A `<bye>` on any other reply is an `ignored_bye` event and is kept out of the history.
 - The prompt has the model answer what was said, react to its particulars in its own words and join in on any topic, with tastes and opinions of its own when asked. It asks a question only when curious, never one it has asked, and says what it meant in other words when they're confused. After three or more short answers in a row it says goodbye. Its three examples are marked as examples only.
 - The prompt also gives its height (about 1.3 m) and what HARP stands for (Humanoid Athletic Robotics Project, as the GitHub organisation spells it), keeps it to English (it answered Spanish in Spanish, with words the voice can't say), has it answer "heart" or "hard" as its own name without remarking on it, and has it turn down personal details kindly and keep chatting (it said goodbye when given an address).
 - Joined to listening (2026-11-03): `listen.py --mic | talk.py --heard`.
