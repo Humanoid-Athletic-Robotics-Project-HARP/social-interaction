@@ -469,13 +469,17 @@ class Speaker:
             save.mkdir(parents=True, exist_ok=True)
         self.idle = threading.Event()
         self.idle.set()
+        self.lock = threading.Lock()   # pending and idle change together
+        self.pending = 0               # pieces said and not yet played
         if mute:
             mute.playing = lambda: not self.idle.is_set()
         threading.Thread(target=self.run, daemon=True).start()
 
     def say(self, audio, started=None):
         """Queue audio; started(t) is called with the time its sound begins."""
-        self.idle.clear()
+        with self.lock:
+            self.pending += 1
+            self.idle.clear()
         self.queue.put((audio, started))
 
     def run(self):
@@ -492,8 +496,12 @@ class Speaker:
                     f.setsampwidth(2)
                     f.setframerate(self.rate)
                     f.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
-            if self.queue.empty():
-                self.idle.set()
+            # Not queue.empty() then idle.set(): a say() between the two left idle set while
+            # its audio waited, so listen.py unmuted and heard HARP.
+            with self.lock:
+                self.pending -= 1
+                if not self.pending:
+                    self.idle.set()
 
     def wait(self):
         self.idle.wait()
