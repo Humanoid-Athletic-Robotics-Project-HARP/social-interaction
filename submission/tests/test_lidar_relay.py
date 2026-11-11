@@ -105,6 +105,13 @@ class WithoutBody(unittest.TestCase):
         self.assertGreaterEqual(max(ages), 0.17)
         self.assertLessEqual(max(np.diff(sorted(ages))), 0.041)   # as close as with 0.15 s and 4
 
+    def test_rows_leave_out_each_rows_padding(self):
+        cloud = np.zeros(4, POINT)
+        cloud["x"], cloud["ring"] = (1.0, 2.0, 3.0, 4.0), (1, 2, 3, 4)
+        two_rows = cloud[:2].tobytes() + bytes(6) + cloud[2:4].tobytes() + bytes(6)   # row_step 50
+        out = np.frombuffer(point_rows(two_rows, 22, width=2, height=2, row_step=50).tobytes(), POINT)
+        np.testing.assert_array_equal(out, cloud[:4])
+
     def test_xyz_reads_the_layout(self):
         points = xyz(point_rows(self.cloud().tobytes(), 22), FIELDS, False)
         np.testing.assert_allclose(points[:, 0], self.cloud()["x"])

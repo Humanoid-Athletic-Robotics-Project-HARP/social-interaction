@@ -3,7 +3,7 @@ name: self-filter
 description: Read before changing how the robot's own body is cut out of the lidar (harp/self_filter.py), its margin, or the radii other code still uses to skip the body
 metadata:
   type: project
-  updated: 2026-11-11T18:46:42Z
+  updated: 2026-11-11T18:26:38Z
   covers: [submission/harp/self_filter.py, submission/harp/lidar.py, submission/harp/lidar_relay.py, submission/tests/test_self_filter.py, submission/tests/test_lidar_relay.py, testground/lidar/self_filter_check.py]
 ---
 

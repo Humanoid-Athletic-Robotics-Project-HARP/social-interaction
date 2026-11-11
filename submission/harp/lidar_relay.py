@@ -49,9 +49,13 @@ QUIET = 5.0   # s without a cloud before warning
 JOINT_TIMEOUT = 0.5   # s without /joint_states before clouds go out with the body in them
 
 
-def point_rows(data, point_step):
-    """A cloud's point bytes as one row of point_step bytes per point."""
+def point_rows(data, point_step, width=None, height=1, row_step=None):
+    """A cloud's point bytes as one row of point_step bytes per point. With the cloud's
+    width, height and row_step, each of its rows' padding past width points is left out;
+    without them (or if the data is too short for them), the bytes are taken as packed."""
     points = np.frombuffer(bytes(data), np.uint8)
+    if width is not None and row_step and len(points) >= height * row_step >= height * width * point_step:
+        return points[:height * row_step].reshape(height, row_step)[:, :width * point_step].reshape(-1, point_step)
     return points[:len(points) - len(points) % point_step].reshape(-1, point_step)
 
 
@@ -138,7 +142,7 @@ class LidarRelay(Node):
         out.fields = [PointField(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count)
                       for f in msg.fields]
         out.is_bigendian, out.is_dense = msg.is_bigendian, msg.is_dense
-        data = self.without_body(out, point_rows(msg.data, msg.point_step)).tobytes()
+        data = self.without_body(out, point_rows(msg.data, msg.point_step, msg.width, msg.height, msg.row_step)).tobytes()
         out.height, out.width = 1, len(data) // msg.point_step
         out.point_step, out.row_step = msg.point_step, len(data)
         # array.array, not bytes: Foxy's rclpy checks bytes one by one (about 70 ms a cloud)
