@@ -3,8 +3,8 @@ name: talking
 description: Read before working on what the robot says and how (the README's "Speaker" and LLM milestones), or on where the speech processes run and how they meet behavior.py
 metadata:
   type: project
-  updated: 2026-11-11T18:47:07Z
-  covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*]
+  updated: 2026-11-11T23:31:24Z
+  covers: [testground/speech/*, speech/talk.py, speech/tests/test_talk.py, speech/lexicon/*, speech/bridge.py, speech/tests/test_bridge.py]
 ---
 
 Design for the talking half of a conversation, and what both halves share, and what of it is built (**Built**, below). Every choice is **proposed** unless marked **decided**, and decisions are recorded here as they are made. The listening half: [[listening]]. Options, licenses and research behind the choices: [[talking-research]], speeds on PC2: [[speech-research]]. The robot's audio calls: [[g1-builtin-apis]].
@@ -23,7 +23,7 @@ Design for the talking half of a conversation, and what both halves share, and w
   - Parakeet: 0.08 s per sentence on Kokoro's audio
   - Silero: 0.12 ms a chunk
 - The core is plain Python. A thin ROS 2 adapter connects it on the robot; on a laptop (no ROS 2) it uses the terminal.
-- The handshake with `behavior.py` ([[behavior-loop]]): on reaching someone, it sends `{"start": person, "distance": m}` on `/harp/talk` and waits for a `talk_done` event, which replaces its fixed wait. If nothing answers (the sim has no speech) it keeps the fixed wait, so the courses still pass. It sends `{"stop": person}` when the person leaves.
+- The handshake with `behavior.py` ([[behavior-loop]]), **built** 2026-11-11 (`speech/bridge.py`, below): JSON on `/harp/talk`, each with a talk id. `{"prepare": person}` once the camera confirms the person it walks up to, so the voice and LLM load on the way (rendering the fixed lines takes seconds); `{"start": person, "distance": m}` on arriving; `{"stop": person, "reason": r}` when they leave, after `LONGEST` (240 s), or when the walk up fails (`cancelled`). It waits for speech's `talk_done`, which replaces its fixed wait. Until speech answers with `talk_start` (never in the sim: no speech) it keeps the fixed wait, so the courses still pass.
 
 **Pipeline**
 1. Opening: a fixed greeting, pre-rendered as audio, plays the moment the robot arrives, with no LLM wait.
@@ -57,10 +57,7 @@ Design for the talking half of a conversation, and what both halves share, and w
    - Unitree's TtsMaker (`speaker_id` 1) needs nothing installed, for the very first speaker test.
 7. LED (1010): one colour each for listening, thinking and speaking.
 
-**Publishes** (events on `/harp/events`, source `talk`):
-- `said`: text, time to first sound, each stage's time
-- `speaking`: on or off, for listening's mute. On a laptop it goes as UDP to port 28732 instead ([[listening]] has the protocol).
-- `talk_done`: the reason
+**Publishes** (events on `/harp/events`, source `speech`, from `speech/bridge.py`): `talk_start` (talk, person, prepared), `greeting` (talk, `after_s` from behavior's start to its first sound), `talk_done` (talk, person, reason: talk.py's `bye`, `goodbye`, `time` or `misses`, `stopped` or `failed` with `error`), `prepare_failed`. talk.py's own `said`, `speaking` and the rest stay on web.py's event stream; the speaking signal for listening's mute is UDP to port 28732 ([[listening]] has the protocol).
 
 **Measuring:** time from listening's turn end to first sound; target 1–1.5 s ([[speech-research]]). Keep each whole conversation's text in the run's log.
 
@@ -94,9 +91,15 @@ Design for the talking half of a conversation, and what both halves share, and w
   - A transcript within 0.75 similarity of one of its last three lines, a piece of one with three or more words, or the last one or two words of its newest line, is dropped as an `echo` event.
   - Ports (a teammate's ask: no common ones; 8080–8082 are taken on PC2 by our lidar, camera and hybrid viewers): `llama-server` on 28731, the speaking signal on 28732. Both are below Linux's temporary-port range (32768–60999).
   - People can't interrupt it: it doesn't listen while it speaks.
+- Joined to `behavior.py` (2026-11-11): `speech/bridge.py`, a ROS 2 node with only rclpy and the standard library (PC2's Python 3.8, ROS's own Python, not speech's venv), between `/harp/talk` and web.py's HTTP API and event stream ([[speech-web]]). It runs where ROS reaches our image (on the robot, PC2 with the harness's three ROS settings); web.py can be on PC2 or on a laptop (`--web http://LAPTOP:28733`, web.py `--host 0.0.0.0`), which settles where speech runs per test.
+  - prepare: web.py's Start with `wait`, so `talk.py --wait` loads, sends `loaded` and holds its greeting; start: `/api/go` (held by web.py until loaded), or a plain Start if nothing was prepared or its session ended. A prepared session not started within 300 s is stopped.
+  - One conversation at a time: a new talk stops one of ours first (waits up to 15 s for it to end); a 409 "still stopping" is retried for 15 s. A session someone started from the page is never stopped: the start fails instead.
+  - A Stop closes talk.py's stdin, so its `input_ended` (or `not_started`) is reported as `stopped`; a session that ends with talk.py failing as `failed`.
+  - A dropped event stream (Wi-Fi to a laptop) is reconnected, and web.py replays the session's events; only after 10 s without it, or a web.py that restarted (a new `instance`), is the talk `failed` (it posts Stop first). A stop that arrives while the bridge is busy cancels a start still queued, so it doesn't greet someone who left. Ctrl-C stops our session.
+  - `behavior.py` ignores a `talk_done` that came before the talk's `talk_start` (its prepared session ending on the way, then a fresh one started on arrival), and the bridge sends a talk's `talk_done` before the next `talk_start` (an independent review's findings, 2026-11-11).
+  - Tests: `speech/tests/test_bridge.py`, against a real web.py with stand-in programs, and once over ROS 2 (needs rclpy); `submission/tests/test_behavior.py`'s `Talk` on a fake clock. Not yet run with the real models, on PC2 or with a person.
 - Not built yet:
   - the robot's PlayStream player and the LED
-  - ROS 2 and the `behavior.py` handshake
   - the silence ending
   - a guard model
 - Measured on an M1 MacBook Air's CPU (2026-11-03), on a scripted conversation of five turns:
@@ -107,7 +110,7 @@ Design for the talking half of a conversation, and what both halves share, and w
 **First steps**
 1. Laptop: a live conversation through speakers and the mic (done 2026-11-09, three conversations; findings in [[speech-tuning]]). Scripted ones run with `speech/bench/talk_bench.py` (results: [[speech-tuning]]).
 2. Robot: a WAV through PlayStream, and a TtsMaker line; check the volume. Ask first: both make sound and use the voice service.
-3. The handshake in `behavior.py`, with the sim keeping its fixed wait.
+3. The handshake in `behavior.py`, with the sim keeping its fixed wait (built 2026-11-11; the loop isn't started on the robot yet: [[behavior-loop]]).
 
 **Voice (decided, 2026-11-09, the user's call after a live test):** Kokoro. Piper is quicker but sounded too unclear live; it stays only as `--voice piper`. Kokoro's speed on PC2's GPU is still to be measured.
 
