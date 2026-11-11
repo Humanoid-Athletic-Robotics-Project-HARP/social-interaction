@@ -9,6 +9,7 @@ timing() reads one run's state timing (harp_node.py's timing and late_state line
 the host's memory each second (run.json host_memory) for the Runs page's timing chart.
 """
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -128,7 +129,9 @@ class Runs:
         self.folder = Path(folder)
         self.lock = threading.Lock()
         self.cache = {}          # name -> (file stamps, description)
-        self.listed = (0.0, [])  # (monotonic s, newest first)
+        # (monotonic s, newest first). -inf, not 0: a process's monotonic clock can start near
+        # 0 (Python on macOS), and then the empty listing looked fresh for its first FRESH s.
+        self.listed = (-math.inf, [])
 
     def path(self, name):
         """The folder of a listed run, or None: names come from browsers, never paths."""

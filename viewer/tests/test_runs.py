@@ -52,10 +52,14 @@ class Listing(unittest.TestCase):
         for name in ("../" + NAMES[0], "not-a-run", NAMES[0] + "/view.jsonl", None, 7):
             self.assertIsNone(self.runs.path(name))
 
+    def test_a_new_process_lists_runs_at_once(self):
+        with patch.object(runs.time, "monotonic", return_value=0.5):   # its clock just started
+            self.assertEqual(len(runs.Runs(self.folder).list()), 3)
+
     def test_a_rescored_run_is_read_again(self):
         self.runs.list()
         (Path(self.folder) / NAMES[2] / "summary.json").write_text(json.dumps({"outcome": "violation"}))
-        self.runs.listed = (0.0, [])
+        self.runs.listed = (float("-inf"), [])
         self.assertEqual(self.runs.list()[2]["outcome"], "violation")
 
 
