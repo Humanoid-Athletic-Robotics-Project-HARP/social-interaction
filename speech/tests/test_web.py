@@ -65,6 +65,74 @@ class Sessions(unittest.TestCase):
         self.assertLess(order.index(("talk", "exit", None)), order.index(("web", "session", "stopped")))
 
 
+# talk.py --wait: loads, says loaded, greets once a go line comes.
+WAITING = """import json, sys, time
+time.sleep(0.3)
+print(json.dumps({"event": "loaded"}), flush=True)
+for line in sys.stdin:
+    if json.loads(line).get("go"):
+        print(json.dumps({"event": "said", "text": "Hi", "canned": True}), flush=True)
+        break
+for line in sys.stdin:
+    pass
+"""
+
+
+class Waiting(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        script = Path(folder.name) / "talk.py"
+        script.write_text(WAITING)
+        self.commands = []
+
+        def command(session, name, *args):
+            self.commands.append(args)
+            return [sys.executable, str(script)]
+        for target in (patch.object(web, "llm_status", return_value="ok"),
+                       patch.object(web.Session, "command", command)):
+            target.start()
+            self.addCleanup(target.stop)
+        self.server = web.Server()
+        self.addCleanup(self.server.close)
+
+    def seen(self, source, event, timeout=5):
+        import time
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if any((e["source"], e["event"]) == (source, event)
+                   for e in (json.loads(m) for m in list(self.server.hub.history))):
+                return True
+            time.sleep(0.02)
+        return False
+
+    def test_go_before_it_has_loaded_is_sent_once_it_has(self):
+        self.assertEqual(self.server.start({"listen": False, "wait": True})[0], 200)
+        self.assertIn("--wait", self.commands[-1])
+        self.assertTrue(self.server.status()["waiting"])
+        self.assertEqual(self.server.go()[0], 200)   # still loading
+        self.assertTrue(self.seen("talk", "said"))
+        self.assertTrue(self.server.session.ready)
+        self.assertFalse(self.server.status()["waiting"])
+        self.assertEqual(self.server.go()[0], 200)   # again: already sent, nothing more
+
+    def test_go_once_it_has_loaded_is_sent_at_once(self):
+        self.server.start({"listen": False, "wait": True})
+        self.assertTrue(self.seen("talk", "loaded"))
+        self.assertEqual(self.server.go()[0], 200)
+        self.assertTrue(self.seen("talk", "said"))
+        self.assertFalse(self.server.session.go_asked)
+
+    def test_go_needs_a_waiting_session(self):
+        self.assertEqual(self.server.go()[0], 409)
+        self.assertEqual(self.server.start({"listen": False})[0], 200)
+        self.assertNotIn("--wait", self.commands[-1])
+        self.assertEqual(self.server.go()[0], 409)
+
+    def test_only_talking_waits(self):
+        self.assertEqual(self.server.start({"talk": False, "wait": True})[0], 400)
+
+
 class Hosts(unittest.TestCase):
     def test_a_page_reaching_it_under_another_name_is_refused(self):
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.handler(web.Server()))
