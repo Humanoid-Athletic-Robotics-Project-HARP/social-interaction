@@ -156,6 +156,18 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(len(a.events), 0)
         self.assertEqual(len(b.events), 1)
 
+    def test_voice_levels_do_not_push_a_conversation_out_of_history(self):
+        a = Source({"id": "a", "kind": "speech", "url": "http://localhost"})
+        for turn in range(3):
+            a.append({"source": "listen", "event": "turn", "text": str(turn)})
+            for n in range(1000):   # about 100 s of levels
+                a.append({"source": "listen", "event": "level", "rms": n})
+        gap, events = a.since(None)
+        self.assertEqual([e["text"] for _, e in events if e["event"] == "turn"], ["0", "1", "2"])
+        self.assertEqual(len(events), 6)
+        self.assertEqual(events[-1][1]["rms"], 999)    # the newest level
+        self.assertEqual(a.since(events[-2][0]), (False, events[-1:]))   # a page following along
+
     def test_sensor_endpoint_failure_does_not_hide_other_sensor(self):
         source = Source({"id": "a", "kind": "sensors", "url": "http://localhost"})
         def metadata(url):
