@@ -2,6 +2,8 @@
 # Build HARP's submission image (linux/arm64) and save it as submission/submission.tar.
 # Usage: submission/build.sh [TAG]   (default: harp-submission:local, or in a git worktree
 #                                     harp-submission-NAME:local: submission/checkout.py)
+# HARP_PLATFORM=linux/amd64 builds it for an x86 computer's sim instead (a cloud session,
+# submission/cloud_setup.sh). That image can't run on the robot, so it isn't saved.
 # HIM_REPO is the him-sim2real-management checkout (default: beside the main checkout). It
 # is only read: its walker example is staged into submission/.build, never into git.
 # It waits for any build or sim running on this machine first (checkout.py's lock).
@@ -32,7 +34,12 @@ mkdir -p "$stage"
 cp "$here/Dockerfile" "$here/entrypoint.sh" "$here/harp_node.py" "$stage/"
 cp -R "$here/harp" "$here/nav2" "$here/nav2_graceful_controller" "$stage/"
 
-docker build --platform linux/arm64 -t "$tag" "$stage"
+platform="${HARP_PLATFORM:-linux/arm64}"
+docker build --platform "$platform" -t "$tag" "$stage"
+if [[ "$platform" != linux/arm64 ]]; then
+  echo "Built $tag for $platform, for the sim only (not saved: the robot needs linux/arm64)"
+  exit 0
+fi
 docker save "$tag" -o "$here/submission.tar"
 # The walker's joint profile, which HIM's setup.sh needs on the robot (--profile).
 cp "$stage/him/container/project/joint_profile.json" "$here/joint_profile.json"

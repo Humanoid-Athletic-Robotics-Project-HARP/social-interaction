@@ -6,7 +6,8 @@
 # the page afterwards. --world NAME loads submission/worlds/NAME.xml: its
 # scene into HIM's sim, and the world with its movers into an image layer
 # (harp-submission:NAME, or harp-submission-WORKTREE:NAME in a git worktree) for our lidar.
-# Build first with submission/build.sh. Uses desktop_sim.sh on macOS and sim.sh on Linux.
+# Build first with submission/build.sh. Uses HIM's Docker Compose launcher (desktop_sim.sh)
+# on every OS: on Linux it needs no sudo or network namespaces.
 # One run at a time on this machine: it waits for any build or sim running first
 # (submission/checkout.py's lock), and holds the lock until HIM's viewer is closed.
 set -euo pipefail
@@ -72,8 +73,6 @@ if ((${#view[@]})); then
     sleep 1
   done
 fi
-launcher="sim.sh"
-[[ "$(uname)" == Darwin ]] && launcher="desktop_sim.sh"
 # With --output, the run folder keeps how the run was made (run.json, and its scene in
 # scene/, so a stripped trace can be replayed with its obstacles: course.py --replay), and
 # is pruned once HIM's sim and viewer have finished (course.py --prune).
@@ -101,7 +100,7 @@ if ((${#view[@]})); then
     done
     rm -f "$started" ) 9>&- &
 fi
-"$him/$launcher" --image "$image" ${args[@]+"${args[@]}"} 9>&- || status=$?
+"$him/desktop_sim.sh" --image "$image" ${args[@]+"${args[@]}"} 9>&- || status=$?
 trap - INT
 [[ -z "$out" ]] || python3 "$here/course.py" --prune "$out" || true
 exit "$status"

@@ -3,7 +3,7 @@ name: worktrees
 description: Read before making, using or removing a git worktree of this repo, or when two sessions build or run the sim on one computer — how we set them up, what is shared, the sim lock, cleaning up
 metadata:
   type: reference
-  updated: 2026-11-08T23:09:43Z
+  updated: 2026-11-11T01:15:23Z
   covers: [submission/checkout.py, submission/build.sh, submission/sim.sh, .gitignore]
 ---
 
