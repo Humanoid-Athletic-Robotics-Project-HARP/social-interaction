@@ -206,6 +206,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('/source/mac/api/status', html)
         self.assertIn('/source/mac/events', html)
         self.assertNotIn('new EventSource("/events")', html)
+        self.assertIn("#end-turn{display:none", html)
+        source.config["controls"] = True
+        self.assertNotIn("display:none!important", page(source, "speech"))
 
     def test_commands_require_enabled_source_and_same_origin(self):
         with serving(Producer) as upstream:
@@ -219,6 +222,8 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(denied.exception.code, 403)
                 dashboard.sources["a"].config["controls"] = True
                 self.assertEqual(json.load(urllib.request.urlopen(request))["accepted"]["text"], "hello")
+                end_turn = urllib.request.Request(url + "/source/a/api/end_turn", data=b"{}", headers={"Content-Type": "application/json"})
+                self.assertEqual(json.load(urllib.request.urlopen(end_turn)), {"accepted": {}})
                 request.add_header("Origin", "https://elsewhere.example")
                 with self.assertRaises(urllib.error.HTTPError) as denied:
                     urllib.request.urlopen(request)

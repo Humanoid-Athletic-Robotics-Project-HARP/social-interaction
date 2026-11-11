@@ -183,7 +183,7 @@ class Source:
     def request(self, path, data=None):
         """Fixed paths on configured origins only. Share short-lived binary snapshots."""
         parsed = urllib.parse.urlsplit(path)
-        commands = {"api/start", "api/stop", "api/say", "api/llm/start", "api/llm/stop"}
+        commands = {"api/start", "api/stop", "api/say", "api/end_turn", "api/llm/start", "api/llm/stop"}
         if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path not in (commands if data is not None else self.paths()):
             return 404, "application/json", b'{"error":"unknown feed endpoint"}'
         if data is not None and (self.kind != "speech" or not self.config.get("controls", False)):

@@ -33,7 +33,7 @@ def page(source, view):
         html = html.replace('serverHost = here ? "this computer" : (s.host || location.hostname);',
                             'serverHost = s.host || ' + json.dumps(source.config.get("machine", source.id)) + ';')
         if not source.config.get("controls", False):
-            html = html.replace('</head>', '<style>#go,#llm-button,#composer{display:none!important}#setup{pointer-events:none;opacity:.6}</style></head>', 1)
+            html = html.replace('</head>', '<style>#go,#llm-button,#composer,#end-turn{display:none!important}#setup{pointer-events:none;opacity:.6}</style></head>', 1)
         return html
     paths = {"lidar": "testground/lidar/lidar_viewer.py", "camera": "testground/camera/camera_viewer.py",
              "hybrid": "testground/hybrid/hybrid_viewer.py"}

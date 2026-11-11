@@ -3,7 +3,7 @@ name: robot-status
 description: Read before running or changing testground/robot/status_server.py or the dashboard's Robot status view, or when reading the G1's battery, motor temperatures or HARP's harness state
 metadata:
   type: reference
-  updated: 2026-11-09T20:18:47Z
+  updated: 2026-11-11T18:23:16Z
   covers: [testground/robot/**, viewer/robot.js, viewer/feeds.py]
 ---
 
