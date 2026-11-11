@@ -116,6 +116,26 @@ class Opening(unittest.TestCase):
             dashboard.open_run("../etc")
         dashboard.close()
 
+    def test_a_run_reopened_while_it_is_being_closed(self):
+        folder = tempfile.mkdtemp()
+        for name in NAMES:
+            make(folder, name)
+        with patch.object(runs, "runs_folder", return_value=Path(folder)):
+            dashboard = Dashboard({"sources": []})
+        first, second = dashboard.open_run(NAMES[0]), dashboard.open_run(NAMES[1])
+        reopened = []
+        def reopen_first():   # another page asks for the first run as it is evicted
+            if not reopened:
+                reopened.append(dashboard.open_run(NAMES[0]))
+        real_close_run, real_close = dashboard.close_run, dashboard.sources[first].close
+        dashboard.close_run = lambda key: (reopen_first(), real_close_run(key))
+        dashboard.sources[first].close = lambda: (reopen_first(), real_close())
+        dashboard.open_run(NAMES[2])
+        self.assertEqual(reopened, [first])
+        self.assertIn(first, dashboard.sources)
+        self.assertEqual(len(dashboard.opened), 2)
+        dashboard.close()
+
 
 if __name__ == "__main__":
     unittest.main()

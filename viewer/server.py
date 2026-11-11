@@ -105,8 +105,12 @@ class Dashboard:
             self.opened.append(key)
             closing = self.opened[:-MAX_OPEN]
             del self.opened[:-MAX_OPEN]
-        for old in closing:
-            self.close_run(old)
+            # Out of sources as it leaves opened, in one step: reopened in between, it was in
+            # sources but not opened, and opened.remove raised.
+            closed = [self.sources.pop(k) for k in closing if k in self.made]
+            self.made.difference_update(closing)
+        for old in closed:
+            old.close()
         if self.started:
             source.start()
         return key
