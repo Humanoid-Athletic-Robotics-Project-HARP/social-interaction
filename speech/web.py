@@ -19,6 +19,7 @@ another site can't send here without the browser asking first.
 
 import argparse
 import collections
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -161,6 +162,8 @@ class Session:
         self.ready = False   # talk.py has said its greeting, so it's reading turns
         self.later = None    # listen.py's command, held back until the greeting has played
         self.over = False
+        self.readers = []    # the threads reading each program's output
+        self.done = threading.Event()   # stopped: programs ended, their last events published
 
     def command(self, script, *args):
         return [sys.executable, "-u", str(HERE / script)] + [str(a) for a in args]
@@ -204,8 +207,10 @@ class Session:
         process = subprocess.Popen(command, cwd=str(HERE), stdin=subprocess.PIPE if stdin else
                                    subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, universal_newlines=True, bufsize=1)
-        threading.Thread(target=self.read_out, args=(name, process), daemon=True).start()
-        threading.Thread(target=self.read_err, args=(name, process), daemon=True).start()
+        for read in (self.read_out, self.read_err):
+            reader = threading.Thread(target=read, args=(name, process), daemon=True)
+            reader.start()
+            self.readers.append(reader)
         return process
 
     def read_err(self, name, process):
@@ -305,7 +310,11 @@ class Session:
                 self.talk.wait(STOP_S)
             except subprocess.TimeoutExpired:
                 end(self.talk, interrupt=False)
+        for reader in self.readers:   # their exit events before "stopped", not in the next session
+            if reader is not threading.current_thread():
+                reader.join(STOP_S)
         self.hub.publish("web", "session", state="stopped")
+        self.done.set()
 
     @property
     def running(self):
@@ -356,6 +365,10 @@ class Server:
         with self.lock:
             if self.session and self.session.running:
                 return 409, {"error": "Already running: stop it first."}
+            if self.session and not self.session.done.is_set() and (self.session.over or self.session.readers):
+                # Stopping (asked to, or its programs ended): its talk.py may still be
+                # finishing a line, and two would speak at once.
+                return 409, {"error": "Still stopping: HARP is finishing what it was saying."}
             self.hub.clear()
             self.session = Session(self.hub, config, self.llm_url, self.mute_port)
             self.session.start()
@@ -415,7 +428,21 @@ class Server:
     def close(self):
         if self.session:
             self.session.stop()
+            if self.session.readers:   # a Stop already under way returned at once: wait for it
+                self.session.done.wait(3 * STOP_S)
         self.stop_llm()
+
+
+def loopback_host(host):
+    """Whether a request's Host header names this computer's loopback. A page on another
+    site whose name it re-resolves to 127.0.0.1 (DNS rebinding) sends its own name here."""
+    name = urllib.parse.urlsplit("//" + host).hostname or ""
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
 
 
 def handler(server):
@@ -434,7 +461,21 @@ def handler(server):
             self.end_headers()
             self.wfile.write(data)
 
+        def foreign_host(self):
+            """Bound to loopback (the default), a request must name it: see loopback_host."""
+            host = self.headers.get("Host")
+            try:
+                bound = ipaddress.ip_address(self.server.server_address[0]).is_loopback
+            except ValueError:
+                bound = False
+            foreign = bound and host is not None and not loopback_host(host)
+            if foreign:
+                self.close_connection = True   # its body, if any, is left unread
+            return foreign
+
         def do_GET(self):
+            if self.foreign_host():
+                return self.reply(403, {"error": "unexpected Host: open this page at 127.0.0.1 or localhost"})
             path = self.path.split("?")[0]
             if path == "/":
                 self.reply(200, (HERE / "web.html").read_bytes(), "text/html; charset=utf-8")
@@ -448,6 +489,8 @@ def handler(server):
                 self.reply(404, {"error": "not found"})
 
         def do_POST(self):
+            if self.foreign_host():
+                return self.reply(403, {"error": "unexpected Host: open this page at 127.0.0.1 or localhost"})
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 return self.reply(415, {"error": "send JSON"})   # so other sites' forms can't
             try:
@@ -496,6 +539,14 @@ def main():
     server = Server(args.llm, args.mute_port)
     httpd = ThreadingHTTPServer((args.host, args.port), handler(server))
     httpd.daemon_threads = True
+
+    def interrupt(*_):
+        raise KeyboardInterrupt
+    # A closed terminal or SSH session (SIGHUP) or a kill (SIGTERM) ends it like Ctrl-C, so
+    # its session and an LLM it started stop too, not stay holding the mic and the LLM's port.
+    hangups = [getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    for sig in hangups:   # Windows has no SIGHUP
+        signal.signal(sig, interrupt)
     log(f"speech page at http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}"
         " (Ctrl-C to stop)")
     try:
@@ -503,6 +554,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        for sig in hangups:   # a second one mustn't cut the clean-up short
+            signal.signal(sig, signal.SIG_IGN)
         server.close()
         httpd.server_close()
 

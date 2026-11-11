@@ -235,9 +235,12 @@ class SimLidarCrowd(unittest.TestCase):
             scene = Path(folder) / "scene.xml"
             scene.write_text(world())
             out = io.StringIO()
-            with patch.dict(os.environ, {"G1_TASK_COMMAND": task}), redirect_stdout(out):
+            # Not the rays (the image's MuJoCo 3.2.3 casts them) or the self-filter, which
+            # needs HIM's G1 model (/harp/model in the image): the movers and the log.
+            keep_all = Mock(keep=lambda points, poses: np.ones(len(points), bool))
+            with patch.dict(os.environ, {"G1_TASK_COMMAND": task}), redirect_stdout(out), \
+                    patch("harp.lidar.SelfFilter", return_value=keep_all):
                 lidar = SimLidar(node, scene)
-                # Not the rays (the image's MuJoCo 3.2.3 casts them): the movers and the log.
                 lidar.camera = Mock()
                 with patch.object(SimLidar, "cast", return_value=np.zeros((0, 3))), \
                         patch.object(SimLidar, "publish"):

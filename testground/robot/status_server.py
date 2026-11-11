@@ -102,10 +102,10 @@ def read_robot(latest, interface, domain):
 
 def read_harness(latest, stop):
     """/safety/hardware_status on the harness's ROS 2 network, in its own thread."""
-    # The harness's network (context/robot-services.md); set before rclpy starts.
-    os.environ.setdefault("ROS_DOMAIN_ID", "97")
-    os.environ.setdefault("ROS_LOCALHOST_ONLY", "1")
-    os.environ.setdefault("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
+    # The harness's network (context/robot-services.md); set before rclpy starts. Always
+    # these: a shell that sourced Unitree's setup.sh (CycloneDDS) would otherwise put the
+    # reader on another network, where the harness's status never arrives.
+    os.environ.update(ROS_DOMAIN_ID="97", ROS_LOCALHOST_ONLY="1", RMW_IMPLEMENTATION="rmw_fastrtps_cpp")
     try:
         import rclpy
         from std_msgs.msg import String

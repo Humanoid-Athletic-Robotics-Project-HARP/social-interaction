@@ -244,5 +244,54 @@ class TestFillers(unittest.TestCase):
         self.assertEqual(len(lines), len(set(lines)))
 
 
+class SpeakerIdle(unittest.TestCase):
+    def test_idle_only_once_every_piece_said_has_played(self):
+        import threading
+        import numpy as np
+        speaker = talk.Speaker(16000, play=False, save=None)
+        playing, release = threading.Event(), threading.Event()
+        def first_starts(t):
+            playing.set()
+            release.wait(2)
+        speaker.say(np.zeros(160, np.float32), started=first_starts)
+        self.assertTrue(playing.wait(2))
+        speaker.say(np.zeros(160, np.float32))   # the next piece, synthesized while one plays
+        self.assertFalse(speaker.idle.is_set())
+        release.set()
+        self.assertTrue(speaker.idle.wait(2))
+        self.assertEqual((speaker.pending, speaker.queue.empty()), (0, True))
+
+    def test_a_piece_said_as_the_last_one_ends_keeps_it_busy(self):
+        # A say() landing just as a piece finishes playing, staged where the speaker once
+        # checked for an empty queue before setting idle.
+        import threading
+        import numpy as np
+        speaker = talk.Speaker(16000, play=False, save=None)
+        second_plays, release = threading.Event(), threading.Event()
+        def second_starts(t):
+            second_plays.set()
+            release.wait(2)
+        def say_second():
+            speaker.say(np.zeros(160, np.float32), started=second_starts)
+        empty = speaker.queue.empty
+        def empty_with_a_say_racing_in():
+            was = empty()
+            if not second_plays.is_set() and not speaker.queue.qsize() and not said:
+                said.append(True)
+                say_second()
+            return was
+        said = []
+        speaker.queue.empty = empty_with_a_say_racing_in
+        speaker.say(np.zeros(160, np.float32))
+        self.assertTrue(speaker.idle.wait(2) or second_plays.wait(2))
+        if not said:   # the speaker never asked whether its queue was empty: say it now
+            said.append(True)
+            say_second()
+        self.assertTrue(second_plays.wait(2))
+        self.assertFalse(speaker.idle.is_set())   # listen.py must stay muted while it plays
+        release.set()
+        self.assertTrue(speaker.idle.wait(2))
+
+
 if __name__ == "__main__":
     unittest.main()

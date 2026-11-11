@@ -96,7 +96,8 @@ def health():
                                      f"{COMPRESSED_MB / 1000:.1f} GB or less)")
         if level in ("warning", "critical"):
             result["reasons"].append(f"macOS reports {level} memory pressure")
-        result["ready"] = free is not None and not result["reasons"]
+        # Unmeasured (sysctl failed) is unknown, not a failure with no reason given.
+        result["ready"] = False if result["reasons"] else (None if free is None else True)
     elif up:
         result["ready"] = False
     return result

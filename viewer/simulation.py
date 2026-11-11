@@ -91,7 +91,9 @@ class Simulation(Source):
         if value.get("source") == "policy" and value.get("event") == "late_state":
             # A state our node got late: HIM stops the run past 0.2 s (sim-deadline-stops).
             self.late += 1
-            self.late_max = max(self.late_max, float(value.get("age") or 0))
+            age = value.get("age")
+            if isinstance(age, (int, float)) and not isinstance(age, bool):
+                self.late_max = max(self.late_max, float(age))
         piece = piece_of(value)
         if piece:
             self.pieces[piece[0]] = piece[1]
@@ -105,7 +107,15 @@ class Simulation(Source):
         self.stop.set()
         if self.logs and self.logs.poll() is None:
             self.logs.terminate()
-        worker = self.worker
+        super().close()
+        self.end_worker()
+
+    def end_worker(self):
+        """Stops the Rerun renderer, if it started: from close(), and from render() when the
+        run was closed while the renderer was starting (close() then saw no worker yet).
+        Whichever comes first takes it, so its pipes are closed once."""
+        with self.lock:
+            worker, self.worker = self.worker, None
         if worker and worker.poll() is None:
             try:
                 os.killpg(worker.pid, signal.SIGTERM)
@@ -115,7 +125,6 @@ class Simulation(Source):
                     os.killpg(worker.pid, signal.SIGKILL)
                 except OSError:
                     pass
-        super().close()
         if worker:
             for stream in (worker.stdin, worker.stdout):
                 if stream:
@@ -217,7 +226,10 @@ class Simulation(Source):
                         continue
                     value = record(line)
                     if value:
-                        self.ingest(value)
+                        try:
+                            self.ingest(value)
+                        except (TypeError, ValueError, KeyError, AttributeError):
+                            continue   # one malformed event must not stop following the run
                     elif "Policy abort:" in line:   # HIM stopped the run (plain text, not JSON)
                         with self.lock:
                             self.stopped = line.split("Policy abort:", 1)[1].strip()[:80]
@@ -231,6 +243,14 @@ class Simulation(Source):
                 self.seen = None
             except (OSError, ValueError, KeyError, IndexError, subprocess.TimeoutExpired) as error:
                 self.failed(error)
+                # Follow this container again on the next pass, not wait on it for good.
+                if self.logs and self.logs.poll() is None:
+                    self.logs.terminate()
+                    try:
+                        self.logs.wait(2)
+                    except subprocess.TimeoutExpired:
+                        self.logs.kill()
+                self.seen = None
             self.stop.wait(1)
 
     def replay(self):
@@ -300,11 +320,11 @@ class Simulation(Source):
             self.worker_error = "Install testground/requirements.txt in testground/.venv (see viewer/README.md)"
             return
         try:
-            self.worker = subprocess.Popen([str(python), str(Path(__file__).with_name("rerun_worker.py"))],
+            worker = self.worker = subprocess.Popen([str(python), str(Path(__file__).with_name("rerun_worker.py"))],
                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                            text=True, bufsize=1, start_new_session=True)
             def output():
-                for line in self.worker.stdout:
+                for line in worker.stdout:
                     try:
                         value = json.loads(line)
                         with self.lock:
@@ -321,11 +341,14 @@ class Simulation(Source):
             value = first
             while not self.stop.is_set():
                 if value is not None:
-                    self.worker.stdin.write(json.dumps(value) + "\n")
-                    self.worker.stdin.flush()
+                    worker.stdin.write(json.dumps(value) + "\n")
+                    worker.stdin.flush()
                 try:
                     value = self.render_queue.get(timeout=.2)
                 except queue.Empty:
                     value = None
         except (OSError, ValueError) as error:
             self.worker_error = str(error)
+        finally:
+            if self.stop.is_set():
+                self.end_worker()

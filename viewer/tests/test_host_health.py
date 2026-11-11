@@ -31,6 +31,10 @@ class Verdict(unittest.TestCase):
         self.assertIsNone(self.health(None, None, platform="linux")["ready"])
         self.assertFalse(self.health(None, None, viewers=["1"], platform="linux")["ready"])
 
+    def test_a_mac_without_a_free_reading_is_unmeasured_unless_something_else_is_short(self):
+        self.assertEqual((self.health(None, 1800)["ready"], self.health(None, 1800)["reasons"]), (None, []))
+        self.assertFalse(self.health(None, 3300)["ready"])
+
 
 if __name__ == "__main__":
     unittest.main()

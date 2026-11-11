@@ -3,7 +3,7 @@ name: speech-tuning
 description: Read before changing listen.py's turn settings, talk.py's prompt, grammar, goodbye rules or fillers, or choosing the voice — what synthetic tests found and the changes they point to
 metadata:
   type: project
-  updated: 2026-11-10T06:31:07Z
+  updated: 2026-11-11T18:33:35Z
   covers: [speech/listen.py, speech/talk.py, speech/bench/*]
 ---
 

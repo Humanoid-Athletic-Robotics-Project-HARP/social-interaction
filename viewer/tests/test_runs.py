@@ -52,10 +52,14 @@ class Listing(unittest.TestCase):
         for name in ("../" + NAMES[0], "not-a-run", NAMES[0] + "/view.jsonl", None, 7):
             self.assertIsNone(self.runs.path(name))
 
+    def test_a_new_process_lists_runs_at_once(self):
+        with patch.object(runs.time, "monotonic", return_value=0.5):   # its clock just started
+            self.assertEqual(len(runs.Runs(self.folder).list()), 3)
+
     def test_a_rescored_run_is_read_again(self):
         self.runs.list()
         (Path(self.folder) / NAMES[2] / "summary.json").write_text(json.dumps({"outcome": "violation"}))
-        self.runs.listed = (0.0, [])
+        self.runs.listed = (float("-inf"), [])
         self.assertEqual(self.runs.list()[2]["outcome"], "violation")
 
 
@@ -114,6 +118,26 @@ class Opening(unittest.TestCase):
         self.assertEqual(dashboard.opened, [ids[1]])
         with self.assertRaises(KeyError):
             dashboard.open_run("../etc")
+        dashboard.close()
+
+    def test_a_run_reopened_while_it_is_being_closed(self):
+        folder = tempfile.mkdtemp()
+        for name in NAMES:
+            make(folder, name)
+        with patch.object(runs, "runs_folder", return_value=Path(folder)):
+            dashboard = Dashboard({"sources": []})
+        first, second = dashboard.open_run(NAMES[0]), dashboard.open_run(NAMES[1])
+        reopened = []
+        def reopen_first():   # another page asks for the first run as it is evicted
+            if not reopened:
+                reopened.append(dashboard.open_run(NAMES[0]))
+        real_close_run, real_close = dashboard.close_run, dashboard.sources[first].close
+        dashboard.close_run = lambda key: (reopen_first(), real_close_run(key))
+        dashboard.sources[first].close = lambda: (reopen_first(), real_close())
+        dashboard.open_run(NAMES[2])
+        self.assertEqual(reopened, [first])
+        self.assertIn(first, dashboard.sources)
+        self.assertEqual(len(dashboard.opened), 2)
         dashboard.close()
 
 

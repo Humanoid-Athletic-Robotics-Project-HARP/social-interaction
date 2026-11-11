@@ -3,6 +3,7 @@
 import argparse
 import ast
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import signal
@@ -33,7 +34,7 @@ def page(source, view):
         html = html.replace('serverHost = here ? "this computer" : (s.host || location.hostname);',
                             'serverHost = s.host || ' + json.dumps(source.config.get("machine", source.id)) + ';')
         if not source.config.get("controls", False):
-            html = html.replace('</head>', '<style>#go,#llm-button,#composer{display:none!important}#setup{pointer-events:none;opacity:.6}</style></head>', 1)
+            html = html.replace('</head>', '<style>#go,#llm-button,#composer,#end-turn{display:none!important}#setup{pointer-events:none;opacity:.6}</style></head>', 1)
         return html
     paths = {"lidar": "testground/lidar/lidar_viewer.py", "camera": "testground/camera/camera_viewer.py",
              "hybrid": "testground/hybrid/hybrid_viewer.py"}
@@ -104,8 +105,12 @@ class Dashboard:
             self.opened.append(key)
             closing = self.opened[:-MAX_OPEN]
             del self.opened[:-MAX_OPEN]
-        for old in closing:
-            self.close_run(old)
+            # Out of sources as it leaves opened, in one step: reopened in between, it was in
+            # sources but not opened, and opened.remove raised.
+            closed = [self.sources.pop(k) for k in closing if k in self.made]
+            self.made.difference_update(closing)
+        for old in closed:
+            old.close()
         if self.started:
             source.start()
         return key
@@ -142,6 +147,18 @@ class Dashboard:
             source.close()
 
 
+def loopback_host(host):
+    """Whether a request's Host header names this computer's loopback. A page on another
+    site whose name it re-resolves to 127.0.0.1 (DNS rebinding) sends its own name here."""
+    name = urllib.parse.urlsplit("//" + host).hostname or ""
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
 def handler(dashboard):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -161,6 +178,18 @@ def handler(dashboard):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
+
+        def foreign_host(self):
+            """Bound to loopback (the default), a request must name it: see loopback_host."""
+            host = self.headers.get("Host")
+            try:
+                bound = ipaddress.ip_address(self.server.server_address[0]).is_loopback
+            except ValueError:
+                bound = False
+            foreign = bound and host is not None and not loopback_host(host)
+            if foreign:
+                self.close_connection = True   # its body, if any, is left unread
+            return foreign
 
         def sse(self, source=None):
             self.send_response(200)
@@ -247,6 +276,8 @@ def handler(dashboard):
             self.reply(404, {"error": "not found"})
 
         def do_GET(self):
+            if self.foreign_host():
+                return self.reply(403, {"error": "unexpected Host: open this page at 127.0.0.1 or localhost"})
             try:
                 self.route()
             except (BrokenPipeError, ConnectionResetError):
@@ -255,6 +286,8 @@ def handler(dashboard):
                 self.reply(502, {"error": str(error)})
 
         def do_POST(self):
+            if self.foreign_host():
+                return self.reply(403, {"error": "unexpected Host: open this page at 127.0.0.1 or localhost"})
             try:
                 # Commands remain an explicit connection to the owning speech service.
                 origin = self.headers.get("Origin")

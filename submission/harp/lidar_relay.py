@@ -10,8 +10,8 @@ through Unitree's SDK (its own CycloneDDS beside ROS's Fast DDS) and publishes
 it with two changes. The time: the robot stamps it with its own clock, and Nav2
 needs stamps that match /tf, so each cloud gets its arrival time (at most about
 50-100 ms late). The robot's own body: harp/self_filter.py cuts out the shoulders,
-arms and hands, posed by /joint_states over the cloud's last 0.15 s (the lidar's
-100 ms, smeared over a moving arm: self_filter.scan_poses); with none for
+arms and hands, posed by /joint_states over the cloud's last 0.2 s (the lidar's
+100 ms, smeared over a moving arm, and its delay: self_filter.scan_poses); with none for
 JOINT_TIMEOUT s (harp_node isn't running) clouds go out whole. Every other field of a
 kept point is unchanged. It also publishes the cloud turned 180 deg about the lidar's z
 (lidar_mount.REAR_FRAME, +x pointing back), which Nav2's clearing reads so that its
@@ -49,9 +49,13 @@ QUIET = 5.0   # s without a cloud before warning
 JOINT_TIMEOUT = 0.5   # s without /joint_states before clouds go out with the body in them
 
 
-def point_rows(data, point_step):
-    """A cloud's point bytes as one row of point_step bytes per point."""
+def point_rows(data, point_step, width=None, height=1, row_step=None):
+    """A cloud's point bytes as one row of point_step bytes per point. With the cloud's
+    width, height and row_step, each of its rows' padding past width points is left out;
+    without them (or if the data is too short for them), the bytes are taken as packed."""
     points = np.frombuffer(bytes(data), np.uint8)
+    if width is not None and row_step and len(points) >= height * row_step >= height * width * point_step:
+        return points[:height * row_step].reshape(height, row_step)[:, :width * point_step].reshape(-1, point_step)
     return points[:len(points) - len(points) % point_step].reshape(-1, point_step)
 
 
@@ -138,7 +142,7 @@ class LidarRelay(Node):
         out.fields = [PointField(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count)
                       for f in msg.fields]
         out.is_bigendian, out.is_dense = msg.is_bigendian, msg.is_dense
-        data = self.without_body(out, point_rows(msg.data, msg.point_step)).tobytes()
+        data = self.without_body(out, point_rows(msg.data, msg.point_step, msg.width, msg.height, msg.row_step)).tobytes()
         out.height, out.width = 1, len(data) // msg.point_step
         out.point_step, out.row_step = msg.point_step, len(data)
         # array.array, not bytes: Foxy's rclpy checks bytes one by one (about 70 ms a cloud)

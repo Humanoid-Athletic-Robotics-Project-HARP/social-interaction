@@ -183,7 +183,7 @@ class Source:
     def request(self, path, data=None):
         """Fixed paths on configured origins only. Share short-lived binary snapshots."""
         parsed = urllib.parse.urlsplit(path)
-        commands = {"api/start", "api/stop", "api/say", "api/llm/start", "api/llm/stop"}
+        commands = {"api/start", "api/stop", "api/say", "api/end_turn", "api/llm/start", "api/llm/stop"}
         if parsed.scheme or parsed.netloc or parsed.fragment or parsed.path not in (commands if data is not None else self.paths()):
             return 404, "application/json", b'{"error":"unknown feed endpoint"}'
         if data is not None and (self.kind != "speech" or not self.config.get("controls", False)):
@@ -280,6 +280,11 @@ class Source:
                     self.event_id_set.discard(self.event_ids[0])
                 self.event_ids.append(identity)
                 self.event_id_set.add(identity)
+            # speech/web.py sends the voice level about 10 times a second and keeps it out of
+            # its own history. Keep only the newest between other events (a page draws only
+            # the newest anyway), or levels push a long conversation out of the history.
+            if message.get("event") == "level" and len(self.events) > 1 and self.events[-1][1].get("event") == "level":
+                self.events.pop()
             self.serial += 1
             self.events.append((self.serial, message))
 

@@ -1,5 +1,6 @@
 """Exercise independent sources and the HTTP boundary without robot or model packages."""
 import contextlib
+import http.client
 import json
 from pathlib import Path
 import sys
@@ -7,6 +8,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -156,6 +158,18 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(len(a.events), 0)
         self.assertEqual(len(b.events), 1)
 
+    def test_voice_levels_do_not_push_a_conversation_out_of_history(self):
+        a = Source({"id": "a", "kind": "speech", "url": "http://localhost"})
+        for turn in range(3):
+            a.append({"source": "listen", "event": "turn", "text": str(turn)})
+            for n in range(1000):   # about 100 s of levels
+                a.append({"source": "listen", "event": "level", "rms": n})
+        gap, events = a.since(None)
+        self.assertEqual([e["text"] for _, e in events if e["event"] == "turn"], ["0", "1", "2"])
+        self.assertEqual(len(events), 6)
+        self.assertEqual(events[-1][1]["rms"], 999)    # the newest level
+        self.assertEqual(a.since(events[-2][0]), (False, events[-1:]))   # a page following along
+
     def test_sensor_endpoint_failure_does_not_hide_other_sensor(self):
         source = Source({"id": "a", "kind": "sensors", "url": "http://localhost"})
         def metadata(url):
@@ -206,6 +220,21 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('/source/mac/api/status', html)
         self.assertIn('/source/mac/events', html)
         self.assertNotIn('new EventSource("/events")', html)
+        self.assertIn("#end-turn{display:none", html)
+        source.config["controls"] = True
+        self.assertNotIn("display:none!important", page(source, "speech"))
+
+    def test_a_page_reaching_the_hub_under_another_name_is_refused(self):
+        with serving(handler(Dashboard({"sources": []}))) as url:
+            port = urllib.parse.urlsplit(url).port
+            for host, code in (("evil.example:%d" % port, 403), ("localhost:%d" % port, 200),
+                               ("127.0.0.1:%d" % port, 200), ("[::1]:%d" % port, 200)):
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                connection.putrequest("GET", "/api/state", skip_host=True)
+                connection.putheader("Host", host)
+                connection.endheaders()
+                self.assertEqual(connection.getresponse().status, code, host)
+                connection.close()
 
     def test_commands_require_enabled_source_and_same_origin(self):
         with serving(Producer) as upstream:
@@ -219,6 +248,8 @@ class DashboardTests(unittest.TestCase):
                 self.assertEqual(denied.exception.code, 403)
                 dashboard.sources["a"].config["controls"] = True
                 self.assertEqual(json.load(urllib.request.urlopen(request))["accepted"]["text"], "hello")
+                end_turn = urllib.request.Request(url + "/source/a/api/end_turn", data=b"{}", headers={"Content-Type": "application/json"})
+                self.assertEqual(json.load(urllib.request.urlopen(end_turn)), {"accepted": {}})
                 request.add_header("Origin", "https://elsewhere.example")
                 with self.assertRaises(urllib.error.HTTPError) as denied:
                     urllib.request.urlopen(request)
