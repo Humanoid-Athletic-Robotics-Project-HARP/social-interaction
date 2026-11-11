@@ -3,11 +3,11 @@ name: submission-image
 description: Read before changing submission/ (the image, entrypoint, Dockerfile, worlds) or debugging what runs inside a run
 metadata:
   type: project
-  updated: 2026-11-11T01:15:36Z
+  updated: 2026-11-11T01:21:57Z
   covers: [submission/**]
 ---
 
-`submission/` is our code on top of him-sim2real-management ([[him-sim2real]]): one image, `harp-submission:local` (`build.sh`), plus a thin layer per world (`harp-submission:NAME`, `Dockerfile.world`); a git worktree has its own image names ([[worktrees]]). `HARP_PLATFORM=linux/amd64` builds a sim-only x86 image, never saved as `submission.tar` ([[cloud-sessions]]). Running and scoring it: [[course-runs]].
+`submission/` is our code on top of him-sim2real-management ([[him-sim2real]]): one image, `harp-submission:local` (`build.sh`), plus a thin layer per world (`harp-submission:NAME`, `Dockerfile.world`); a git worktree has its own image names ([[worktrees]]). Running and scoring it: [[course-runs]].
 
 **How it fits:** `build.sh` runs HIM's own `containers/examples/prepare.py walker` into `submission/.build/` (ignored) and builds on it, so the walker, its client and its joint profile are HIM's, unchanged. `harp_node.py` subclasses HIM's `client.PolicyNode`: the task velocity is the latest `/cmd_vel` (clipped to 0.6/0.4 m/s, 1 rad/s; zero after 0.5 s); a velocity task (`G1_TASK_COMMAND='[vx, vy, yaw]'`) is clipped the same way (unclipped before Nov 4) and a malformed one stands. HIM's `--command FILE` schedule still bypasses both, and each state is republished by `harp/state.py` (`/odom`, `/tf`, `/joint_states`, `/imu`). Leg odometry runs on HIM's G1 model (`/harp/model`, MuJoCo 3.2.3, the newest for Python 3.8). The lidar and depth camera mounts are the rev 1.0 URDF's (`harp/lidar_mount.py`, `harp/camera_mount.py`). A `{"wave": {}}` task wraps HIM's walker policy object (`WavingPolicy`), so only the right arm's `q`/`dq` (indices 22–28) change ([[wave]]).
 

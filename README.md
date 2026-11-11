@@ -212,17 +212,6 @@ SSL_CERT_FILE="$(.venv-policy-safety/bin/python -m certifi)" .venv-policy-safety
 
 The speech models also go in `models/` ([speech/README.md](speech/README.md)).
 
-In a Claude Code cloud session (x86 Ubuntu, with access to the harness repo),
-one script does all of the above beside the cloned repo and starts Docker:
-
-```bash
-bash submission/cloud_setup.sh
-```
-
-Build the image there with `HARP_PLATFORM=linux/amd64 submission/build.sh`.
-That image runs only in the sim, so it isn't saved as `submission.tar`. Run
-courses with `--no-view` there.
-
 ## Unified viewer
 
 Start the dashboard on the laptop or PC2, then open http://127.0.0.1:28734. For the robot's battery,
