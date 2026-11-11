@@ -200,6 +200,52 @@ else:
             finally:
                 source.close()
 
+    def fake_docker(self, folder, first_lines=()):
+        """A docker CLI whose one container runs and logs first_lines, then frames."""
+        cli = folder/'docker'
+        body = ("import json,sys,time\n"
+                "if sys.argv[1]=='inspect':\n"
+                " print(json.dumps([{'Id':'c','State':{'Running':True,'StartedAt':'1'}}]))\n"
+                "else:\n"
+                " for line in FIRST: print(json.dumps(line),flush=True)\n"
+                " while True:\n"
+                "  print(json.dumps({'source':'view','event':'frame','sim_time':time.time()}),flush=True)\n"
+                "  time.sleep(.05)\n").replace('FIRST', repr(list(first_lines)))
+        cli.write_text('#!'+sys.executable+'\n'+body)
+        cli.chmod(0o755)
+        return Simulation({'id':'sim','kind':'simulation','docker':str(cli),'python':'/missing/python'})
+
+    def test_a_malformed_event_does_not_stop_following(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bad = {'source':'policy','event':'late_state','age':[1]}
+            source = self.fake_docker(Path(temp), [bad, {'source':'policy','event':'late_state','age':.05}])
+            source.start()
+            try:
+                eventually(lambda: source.status()['feeds']['diagnostics']['online'])
+                detail = source.status()['detail']
+                self.assertEqual((detail['late_states'], detail['max_late_s']), (2, .05))
+            finally:
+                source.close()
+
+    def test_a_failed_log_follow_is_retried(self):
+        import simulation
+        real, failed = simulation.subprocess.Popen, []
+        def popen(args, *rest, **kwargs):
+            if 'logs' in args and not failed:   # the follow, not docker inspect
+                failed.append(args)
+                raise OSError('docker logs failed once')
+            return real(args, *rest, **kwargs)
+        with tempfile.TemporaryDirectory() as temp:
+            source = self.fake_docker(Path(temp))
+            with patch.object(simulation.subprocess, 'Popen', side_effect=popen):
+                source.start()
+                try:
+                    # A 1 s retry wait and three fake docker starts: more than the usual 4 s.
+                    eventually(lambda: source.status()['feeds']['diagnostics']['online'], timeout=10)
+                    self.assertTrue(failed)
+                finally:
+                    source.close()
+
 
 if __name__=='__main__':
     unittest.main()

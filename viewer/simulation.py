@@ -91,7 +91,9 @@ class Simulation(Source):
         if value.get("source") == "policy" and value.get("event") == "late_state":
             # A state our node got late: HIM stops the run past 0.2 s (sim-deadline-stops).
             self.late += 1
-            self.late_max = max(self.late_max, float(value.get("age") or 0))
+            age = value.get("age")
+            if isinstance(age, (int, float)) and not isinstance(age, bool):
+                self.late_max = max(self.late_max, float(age))
         piece = piece_of(value)
         if piece:
             self.pieces[piece[0]] = piece[1]
@@ -217,7 +219,10 @@ class Simulation(Source):
                         continue
                     value = record(line)
                     if value:
-                        self.ingest(value)
+                        try:
+                            self.ingest(value)
+                        except (TypeError, ValueError, KeyError, AttributeError):
+                            continue   # one malformed event must not stop following the run
                     elif "Policy abort:" in line:   # HIM stopped the run (plain text, not JSON)
                         with self.lock:
                             self.stopped = line.split("Policy abort:", 1)[1].strip()[:80]
@@ -231,6 +236,14 @@ class Simulation(Source):
                 self.seen = None
             except (OSError, ValueError, KeyError, IndexError, subprocess.TimeoutExpired) as error:
                 self.failed(error)
+                # Follow this container again on the next pass, not wait on it for good.
+                if self.logs and self.logs.poll() is None:
+                    self.logs.terminate()
+                    try:
+                        self.logs.wait(2)
+                    except subprocess.TimeoutExpired:
+                        self.logs.kill()
+                self.seen = None
             self.stop.wait(1)
 
     def replay(self):
