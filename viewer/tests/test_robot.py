@@ -1,5 +1,6 @@
 """Robot status: testground/robot/status_server.py's readings and the hub's robot source."""
 import json
+import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import sys
@@ -7,6 +8,7 @@ import threading
 import time
 from types import SimpleNamespace as NS
 import unittest
+import unittest.mock
 import urllib.request
 
 HERE = Path(__file__).resolve().parents[1]
@@ -21,6 +23,20 @@ def low(casing=40.0, winding=50.0):
 
 
 class Readings(unittest.TestCase):
+    def test_the_harness_reader_joins_the_harness_network_whatever_the_shell_set(self):
+        class FailingInit:   # stands in for rclpy: stop right after the network is chosen
+            @staticmethod
+            def init(args):
+                raise RuntimeError("stop here")
+        shell = {"ROS_DOMAIN_ID": "0", "ROS_LOCALHOST_ONLY": "0", "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp"}
+        with unittest.mock.patch.dict("os.environ", shell), \
+                unittest.mock.patch.dict(sys.modules, {"rclpy": FailingInit, "std_msgs": NS(), "std_msgs.msg": NS(String=str)}):
+            latest = status_server.Latest()
+            status_server.read_harness(latest, threading.Event())
+            self.assertEqual({k: os.environ[k] for k in shell},
+                             {"ROS_DOMAIN_ID": "97", "ROS_LOCALHOST_ONLY": "1", "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp"})
+        self.assertIn("stop here", latest.harness_error)
+
     def test_summary_names_29_motors_and_keeps_the_harness_fields_shown(self):
         harness = {"armed": True, "startup_phase": "balance", "abort_reason": None, "q": [0.1] * 29}
         value = status_server.summary(low(), NS(soc=61), harness, [0.01, 0.5, 0.2], 980)

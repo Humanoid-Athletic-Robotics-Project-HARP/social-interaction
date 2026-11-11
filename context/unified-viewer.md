@@ -3,7 +3,7 @@ name: unified-viewer
 description: Use whenever the user wants to see simulator activity, a replay, lidar, camera, speech, or any other data source; also read before changing the dashboard
 metadata:
   type: project
-  updated: 2026-11-11T18:23:16Z
+  updated: 2026-11-11T18:23:52Z
   covers: [viewer/**]
 ---
 
