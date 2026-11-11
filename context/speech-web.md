@@ -3,7 +3,7 @@ name: speech-web
 description: Read before changing the speech supervisor, its embedded UI, event stream or listen.py/talk.py handshake; use unified-viewer for viewing
 metadata:
   type: project
-  updated: 2026-11-11T18:36:15Z
+  updated: 2026-11-11T18:49:48Z
   covers: [speech/web.py, speech/web.html]
 ---
 
@@ -18,7 +18,7 @@ Use [[unified-viewer]] to show speech and listening. `speech/web.py` is the unde
 - Stop lets `talk.py` finish its line (up to `STOP_S`). Start answers 409 until that session is `done` (its programs ended and their exit events published, then `stopped`), whether it was stopped or its programs ended by themselves, or two would speak at once and the old events would land in the new history. `speech/tests/test_web.py` checks this with a stand-in `talk.py`.
 - **Done talking** posts `/api/end_turn`: web.py writes a line to `listen.py`'s stdin (it gets a pipe), which ends the turn being heard at once (`ended_early` on its line).
 - `/api/status` has a process instance ID for dashboard history resets. SSE provides live updates and bounded history for late subscribers; level events are not kept in history. Preserve these contracts when editing the programs' output.
-- Its LLM Start uses the documented llama-server command. Exit stops only an LLM it started itself. A person's separately launched LLM remains theirs.
+- Its LLM Start uses the documented llama-server command. Exit (Ctrl-C, or SIGTERM or SIGHUP, as when its terminal or SSH session closes; further ones are ignored during clean-up) waits for a Stop under way and stops only an LLM it started itself. A person's separately launched LLM remains theirs.
 
 The supervisor binds loopback by default; explicit network binding enables a remote source. Bound to loopback, it refuses a request whose Host is not loopback (`loopback_host`: localhost or a loopback IP), which stops a page on another site that re-resolves its own name to 127.0.0.1 (DNS rebinding) from reading transcripts or starting the mic; with a network binding it accepts any Host, so keep it on a trusted network. Commands require JSON. It uses the existing LLM and mute ports; the authoritative defaults are in the scripts and README. The page is self-contained for offline robot networks.
 

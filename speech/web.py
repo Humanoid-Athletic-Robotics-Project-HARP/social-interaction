@@ -428,6 +428,8 @@ class Server:
     def close(self):
         if self.session:
             self.session.stop()
+            if self.session.readers:   # a Stop already under way returned at once: wait for it
+                self.session.done.wait(3 * STOP_S)
         self.stop_llm()
 
 
@@ -537,6 +539,14 @@ def main():
     server = Server(args.llm, args.mute_port)
     httpd = ThreadingHTTPServer((args.host, args.port), handler(server))
     httpd.daemon_threads = True
+
+    def interrupt(*_):
+        raise KeyboardInterrupt
+    # A closed terminal or SSH session (SIGHUP) or a kill (SIGTERM) ends it like Ctrl-C, so
+    # its session and an LLM it started stop too, not stay holding the mic and the LLM's port.
+    hangups = [getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    for sig in hangups:   # Windows has no SIGHUP
+        signal.signal(sig, interrupt)
     log(f"speech page at http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}"
         " (Ctrl-C to stop)")
     try:
@@ -544,6 +554,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        for sig in hangups:   # a second one mustn't cut the clean-up short
+            signal.signal(sig, signal.SIG_IGN)
         server.close()
         httpd.server_close()
 

@@ -45,6 +45,18 @@ class Sessions(unittest.TestCase):
         self.server.stop()
         self.assertTrue(self.server.session.done.wait(5))
 
+    def test_closing_during_a_stop_waits_for_it(self):
+        import threading
+        import time
+        self.server.start({"listen": False})
+        session = self.server.session
+        threading.Thread(target=session.stop, daemon=True).start()   # Stop pressed
+        while not session.over:
+            time.sleep(0.01)
+        self.server.close()                                          # then the terminal closed
+        self.assertTrue(session.done.is_set())
+        self.assertIsNotNone(session.talk.poll())
+
     def test_a_stopped_session_publishes_its_exit_before_stopped(self):
         self.server.start({"listen": False})
         self.server.stop()
@@ -74,6 +86,19 @@ class Hosts(unittest.TestCase):
             self.assertTrue(web.loopback_host(host), host)
         for host in ("evil.example", "127.0.0.1.evil.example", "10.0.0.2:28733", ""):
             self.assertFalse(web.loopback_host(host), host)
+
+
+class Signals(unittest.TestCase):
+    def test_hangup_and_terminate_end_it_like_ctrl_c(self):
+        import signal
+        import subprocess
+        for sig in (signal.SIGHUP, signal.SIGTERM):
+            process = subprocess.Popen([sys.executable, "-u", str(Path(web.__file__)), "--port", "0"],
+                                       stderr=subprocess.PIPE, text=True)
+            self.assertIn("speech page at", process.stderr.readline())   # serving
+            process.send_signal(sig)
+            self.assertEqual(process.wait(10), 0, sig)   # its finally ran: not killed by the signal
+            process.stderr.close()
 
 
 if __name__ == "__main__":
