@@ -161,6 +161,8 @@ class Session:
         self.ready = False   # talk.py has said its greeting, so it's reading turns
         self.later = None    # listen.py's command, held back until the greeting has played
         self.over = False
+        self.readers = []    # the threads reading each program's output
+        self.done = threading.Event()   # stopped: programs ended, their last events published
 
     def command(self, script, *args):
         return [sys.executable, "-u", str(HERE / script)] + [str(a) for a in args]
@@ -204,8 +206,10 @@ class Session:
         process = subprocess.Popen(command, cwd=str(HERE), stdin=subprocess.PIPE if stdin else
                                    subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, universal_newlines=True, bufsize=1)
-        threading.Thread(target=self.read_out, args=(name, process), daemon=True).start()
-        threading.Thread(target=self.read_err, args=(name, process), daemon=True).start()
+        for read in (self.read_out, self.read_err):
+            reader = threading.Thread(target=read, args=(name, process), daemon=True)
+            reader.start()
+            self.readers.append(reader)
         return process
 
     def read_err(self, name, process):
@@ -305,7 +309,11 @@ class Session:
                 self.talk.wait(STOP_S)
             except subprocess.TimeoutExpired:
                 end(self.talk, interrupt=False)
+        for reader in self.readers:   # their exit events before "stopped", not in the next session
+            if reader is not threading.current_thread():
+                reader.join(STOP_S)
         self.hub.publish("web", "session", state="stopped")
+        self.done.set()
 
     @property
     def running(self):
@@ -356,6 +364,10 @@ class Server:
         with self.lock:
             if self.session and self.session.running:
                 return 409, {"error": "Already running: stop it first."}
+            if self.session and not self.session.done.is_set() and (self.session.over or self.session.readers):
+                # Stopping (asked to, or its programs ended): its talk.py may still be
+                # finishing a line, and two would speak at once.
+                return 409, {"error": "Still stopping: HARP is finishing what it was saying."}
             self.hub.clear()
             self.session = Session(self.hub, config, self.llm_url, self.mute_port)
             self.session.start()
