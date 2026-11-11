@@ -3,7 +3,7 @@ name: behavior-loop
 description: Read before changing the autonomous loop (harp/behavior.py, the stand-in detector harp/sim_people.py, the people world) or replacing its placeholders with a real detector or speech
 metadata:
   type: project
-  updated: 2026-11-09T08:51:48Z
+  updated: 2026-11-11T23:31:24Z
   covers: [submission/harp/behavior.py, submission/harp/sim_people.py, submission/worlds/people*, submission/worlds/decoys*]
 ---
 
@@ -11,7 +11,7 @@ The robot on its own, once put down (the maintainer's design): find a person; if
 
 **Placeholders** (the maintainer asked for the full loop before the detector and speech exist, 2026-10-30)
 - **Person detection:** `harp/sim_people.py`, sim only, the shape of a real detector: the lidar finds person *candidates* by their shape, the camera confirms a *person* by their legs. Candidates are every mover (all people) and every fixed upright cylinder or box 0.2–0.7 m across and 1.0–2.1 m tall on the floor (a decoy, such as a pillar, which the camera never confirms). Each is found only where the robot's real sensors could (coverage from [[g1-head-camera]] and [[seeing-ahead-research]]): by the lidar where its head leaves it a view (`harp/lidar_mount.py`'s visor setting, [[g1-face-visor]]; design for the visor off: ahead and past about 60° to the sides, not in the wedges between) out to 11 m, and by the pitched-down camera only by the legs, in its colour view and within 2 m. Each needs a clear ray (lidar at 0.6/1.0/1.4 m above the floor, camera to the legs); ±5 cm; JSON on `/harp/people` in `base_link`, with a stable id (a tracker's) and `seen_by`, the sensors that see it now. A real lidar-and-camera detector should publish the same message; `behavior.py` then needs no change.
-- **Talk:** a `talk` event with the line it would say, then standing until the person leaves (2 s out of sight or 2 m away) or 30 s pass, the stand-in for them saying goodbye (the maintainer's numbers, 2026-10-30). Speech replaces it ([[talking]]: a handshake on `/harp/talk`).
+- **Talk:** through speech when its bridge answers (`speech/bridge.py`, the handshake on `/harp/talk`: [[talking]], built 2026-11-11). A `prepare` goes out once the camera confirms the person it walks up to (the final goal), `start` on arriving; it then stands until speech's `talk_done` (`source` speech), the person leaving, or 240 s (`LONGEST`), sending `stop` with the reason, and a failed walk up sends `stop` (`cancelled`). Until speech sends `talk_start`, and always in the sim (no speech there), the placeholder: standing until the person leaves (2 s out of sight or 2 m away) or 30 s pass, the stand-in for them saying goodbye (the maintainer's numbers, 2026-10-30). Its `talk_done` says `speech` (whether speech had it) and `ended`: speech's reason (`bye`, `goodbye`, `time`, `misses`, `stopped`, `failed`) or `left`/`time`, with speech's `error` if it failed.
 
 **Design reasons**
 - Only people standing still are walked up to (under 0.3 m/s over 1 s): someone walking past is busy, and `approach_stop.py` stands the robot while they come at it. A person who moves 0.5 m from where it aims gets a new goal, up to 3 times.

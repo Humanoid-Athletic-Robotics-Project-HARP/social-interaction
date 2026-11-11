@@ -26,10 +26,17 @@ then loops until the container stops:
     candidate never confirmed is not a person (a pillar, say): left alone for REGREET s.
     If they move over REAIM m from where it aims, it aims again (at most REAIMS times),
     then gives up on them.
-  - Talk: a placeholder until there is speech: a talk event with the line it would
-    say, then standing (Nav2 has no goal, so our node gets no /cmd_vel) until the person
-    leaves (out of sight for GONE s, or over LEFT m away) or TALK s have passed, which
-    stands in for them saying goodbye.
+  - Talk, standing (Nav2 has no goal, so our node gets no /cmd_vel), through speech's
+    bridge (speech/bridge.py, context/talking.md) on /harp/talk: once the camera has
+    confirmed someone it walks up to, {"prepare": person, "talk": id} (speech loads its
+    voice and LLM); on arriving, {"start": person, "talk": id, "distance": m}. Until speech
+    takes it (a talk_start event, source speech; never with no bridge, as in the sim), the
+    placeholder: stand until the person leaves (out of sight for GONE s, or over LEFT m
+    away) or TALK s pass, which stands in for them saying goodbye. Once speech has it, it
+    stands until speech's talk_done (the conversation's end), or until the person leaves or
+    LONGEST s pass. A talk that didn't end in speech's talk_done gets {"stop": person,
+    "talk": id, "reason": left or time} (and up to STOP_WAIT s for that talk_done if speech
+    had it); a walk up that fails after a prepare gets one with reason cancelled.
   - Turn away: right after the talk, a turn in place to face the other way (a Nav2 goal
     where it stands, which the Graceful Controller only turns to), then the loop again.
 
@@ -40,8 +47,9 @@ Events on /harp/events (source "behavior"): loop_start (radius, seed, home),
 wander_goal (x, y, yaw), wander_result (status, seconds), noticed (person, x, y,
 distance, confirmed), approach_goal (person, stage: check or final, x, y, yaw),
 approach_result (person, status, seconds), confirmed (person, distance), not_a_person
-(person), talk (person, line, distance), talk_done (person, ended: left or time,
-seconds), turn_away (yaw), turn_result (status, seconds); resend (x, y, yaw, off, turn) when
+(person), talk (person, line, distance, talk), talk_done (person, ended, seconds,
+speech: whether speech had it; ended is speech's reason, such as bye, goodbye, misses,
+failed, or left or time; error from speech if it failed), turn_away (yaw), turn_result (status, seconds); resend (x, y, yaw, off, turn) when
 Nav2 called a goal reached with the robot off m and turn deg from it; error
 (message) if it stops.
 """
@@ -52,6 +60,7 @@ import os
 import random
 import sys
 import time
+import uuid
 from collections import deque
 
 import rclpy
@@ -86,6 +95,9 @@ TURN_TIME = 30.0  # s for the turn away after a talk
 ARRIVED = 0.4     # m from a goal Nav2 calls reached beyond which it's sent again (the goal
 ARRIVED_DEG = 30.0   # checker's 0.25 m and 20 deg, with room for the robot settling)
 TALK = 30.0       # s at most it talks with someone (placeholder for them saying goodbye)
+TALK_TOPIC = "/harp/talk"   # to speech's bridge (speech/bridge.py)
+LONGEST = 240.0   # s at most it stands talking (talk.py says goodbye itself after 180 s)
+STOP_WAIT = 12.0  # s for speech to finish after a stop (web.py gives talk.py 8 s)
 GONE = 2.0        # s out of sight after which the person has left
 LEFT = 2.0        # m away after which the person has left
 LINE = "Hi, I'm HARP, Stanford's humanoid. Nice to meet you!"
@@ -100,6 +112,9 @@ class Behavior:
         node.create_subscription(String, events.TOPIC, self.on_event, events.latched())
         node.create_subscription(Odometry, "/odom", self.on_odom, 10)
         node.create_subscription(String, "/harp/people", self.on_people, 10)
+        self.talk_pub = node.create_publisher(String, TALK_TOPIC, 10)
+        self.speech = {}          # talk id -> {speech's event name: its fields}
+        self.talk_id = None       # the talk a walk up has prepared
         self.pose = None          # x, y, yaw in odom
         self.tracks = {}          # person id -> deque of (monotonic s, x, y in odom)
         self.talked = {}          # person id -> monotonic s of the last talk
@@ -108,6 +123,20 @@ class Behavior:
 
     def on_event(self, msg):
         self.ready = self.ready or is_control_ready(msg.data)
+        try:
+            record = json.loads(msg.data)
+        except ValueError:
+            return
+        if (isinstance(record, dict) and record.get("source") == "speech"
+                and record.get("talk") in self.speech):   # only the talks it is running
+            heard = self.speech[record["talk"]]
+            if record.get("event") == "talk_start":
+                heard.pop("talk_done", None)   # its prepared session's end, before this start
+            heard[record.get("event")] = record
+
+    def tell(self, what, person, talk, **fields):
+        """A message to speech's bridge on /harp/talk."""
+        self.talk_pub.publish(String(data=json.dumps({what: person, "talk": talk, **fields})))
 
     def on_odom(self, msg):
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
@@ -208,6 +237,10 @@ class Behavior:
         reaims = 0
         while True:
             final = person in self.people
+            if final and self.talk_id is None:   # speech loads while it walks the rest
+                self.talk_id = uuid.uuid4().hex[:12]
+                self.speech[self.talk_id] = {}
+                self.tell("prepare", person, self.talk_id)
             x, y = self.pose[:2]
             away = max(self.distance(aim), 1e-3)
             off = STAND_OFF if final else CHECK
@@ -242,6 +275,10 @@ class Behavior:
             break
         if status != "SUCCEEDED":
             self.talked[person] = time.monotonic()   # leave them be for a while
+            if self.talk_id is not None:
+                self.tell("stop", person, self.talk_id, reason="cancelled")
+                self.speech.pop(self.talk_id, None)
+                self.talk_id = None
         return status == "SUCCEEDED"
 
     def left(self, person):
@@ -251,17 +288,32 @@ class Behavior:
                 or self.distance(track[-1][1:]) > LEFT)
 
     def talk(self, person):
-        """Placeholder until there is speech: say what it would say, and stand until the
-        person leaves or TALK s have passed."""
+        """Stand and talk with the person through speech; until speech takes it (never, with
+        no bridge: the sim), the placeholder: stand until they leave or TALK s have passed."""
+        talk, self.talk_id = self.talk_id or uuid.uuid4().hex[:12], None
+        heard = self.speech.setdefault(talk, {})
         where = self.where(person)
-        self.event("talk", person=person, line=LINE,
-                   distance=where and round(self.distance(where), 2))
+        distance = where and round(self.distance(where), 2)
+        self.tell("start", person, talk, distance=distance)
+        self.event("talk", person=person, line=LINE, distance=distance, talk=talk)
         began = time.monotonic()
-        spin_until(self.node, lambda: self.left(person), TALK)
+        spin_until(self.node, lambda: "talk_start" in heard or self.left(person), TALK)
+        if "talk_start" in heard:
+            spin_until(self.node, lambda: "talk_done" in heard or self.left(person),
+                       LONGEST - (time.monotonic() - began))
+        if "talk_start" in heard and "talk_done" in heard:
+            ended = heard["talk_done"].get("reason", "stopped")
+        else:
+            ended = "left" if self.left(person) else "time"
+            self.tell("stop", person, talk, reason=ended)   # also a speech that answers late
+            if "talk_start" in heard:
+                spin_until(self.node, lambda: "talk_done" in heard, STOP_WAIT)
+        failed = heard.get("talk_done", {}).get("error")
         self.talked[person] = time.monotonic()
-        self.event("talk_done", person=person, ended="left" if self.left(person) else "time",
-                   seconds=round(time.monotonic() - began, 1))
-
+        self.speech.pop(talk, None)
+        self.event("talk_done", person=person, ended=ended,
+                   seconds=round(time.monotonic() - began, 1), speech="talk_start" in heard,
+                   **({"error": failed} if failed else {}))
 
     def turn_away(self):
         """Turn in place to face away from where it faces now."""
