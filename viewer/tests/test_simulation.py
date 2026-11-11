@@ -246,6 +246,42 @@ else:
                 finally:
                     source.close()
 
+    def test_a_run_closed_while_its_renderer_starts_stops_the_renderer(self):
+        import simulation
+        real, started = simulation.subprocess.Popen, []
+        with tempfile.TemporaryDirectory() as temp:
+            python = Path(temp)/'python'
+            python.write_text('#!/bin/sh\ncat >/dev/null\n')   # a renderer that waits on stdin
+            python.chmod(0o755)
+            source = Simulation({'id':'sim','kind':'recording','python':str(python)})
+            def popen(*args, **kwargs):
+                process = real(*args, **kwargs)
+                started.append(process)
+                source.stop.set()   # closed meanwhile: close() saw no worker yet
+                return process
+            with patch.object(simulation.subprocess, 'Popen', side_effect=popen):
+                source.render_queue.put({'source':'view','event':'frame'})
+                source.render()
+            self.assertEqual(len(started), 1)
+            self.assertIsNotNone(started[0].poll())
+
+    def test_the_renderer_is_stopped_once_when_close_and_render_both_stop_it(self):
+        import subprocess
+        source = Simulation({'id':'sim','kind':'recording'})
+        worker = subprocess.Popen(['/bin/sh', '-c', 'cat >/dev/null'], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, text=True, start_new_session=True)
+        source.worker = worker
+        closed = []
+        real_close = worker.stdin.close
+        worker.stdin.close = lambda: (closed.append(1), real_close())
+        threads = [threading.Thread(target=source.end_worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(5)
+        self.assertIsNotNone(worker.poll())
+        self.assertEqual((closed, source.worker), ([1], None))
+
 
 if __name__=='__main__':
     unittest.main()

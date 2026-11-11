@@ -3,7 +3,7 @@ name: viewer-implementation
 description: Read before changing dashboard collectors, source configuration, embedded pages, Rerun routing or process cleanup
 metadata:
   type: reference
-  updated: 2026-11-11T18:51:18Z
+  updated: 2026-11-11T18:50:57Z
   covers: [viewer/**]
 ---
 
