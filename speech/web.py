@@ -19,6 +19,7 @@ another site can't send here without the browser asking first.
 
 import argparse
 import collections
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -430,6 +431,18 @@ class Server:
         self.stop_llm()
 
 
+def loopback_host(host):
+    """Whether a request's Host header names this computer's loopback. A page on another
+    site whose name it re-resolves to 127.0.0.1 (DNS rebinding) sends its own name here."""
+    name = urllib.parse.urlsplit("//" + host).hostname or ""
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
 def handler(server):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -446,7 +459,21 @@ def handler(server):
             self.end_headers()
             self.wfile.write(data)
 
+        def foreign_host(self):
+            """Bound to loopback (the default), a request must name it: see loopback_host."""
+            host = self.headers.get("Host")
+            try:
+                bound = ipaddress.ip_address(self.server.server_address[0]).is_loopback
+            except ValueError:
+                bound = False
+            foreign = bound and host is not None and not loopback_host(host)
+            if foreign:
+                self.close_connection = True   # its body, if any, is left unread
+            return foreign
+
         def do_GET(self):
+            if self.foreign_host():
+                return self.reply(403, {"error": "unexpected Host: open this page at 127.0.0.1 or localhost"})
             path = self.path.split("?")[0]
             if path == "/":
                 self.reply(200, (HERE / "web.html").read_bytes(), "text/html; charset=utf-8")
@@ -460,6 +487,8 @@ def handler(server):
                 self.reply(404, {"error": "not found"})
 
         def do_POST(self):
+            if self.foreign_host():
+                return self.reply(403, {"error": "unexpected Host: open this page at 127.0.0.1 or localhost"})
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 return self.reply(415, {"error": "send JSON"})   # so other sites' forms can't
             try:

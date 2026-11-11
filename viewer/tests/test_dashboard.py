@@ -1,5 +1,6 @@
 """Exercise independent sources and the HTTP boundary without robot or model packages."""
 import contextlib
+import http.client
 import json
 from pathlib import Path
 import sys
@@ -7,6 +8,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -221,6 +223,18 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("#end-turn{display:none", html)
         source.config["controls"] = True
         self.assertNotIn("display:none!important", page(source, "speech"))
+
+    def test_a_page_reaching_the_hub_under_another_name_is_refused(self):
+        with serving(handler(Dashboard({"sources": []}))) as url:
+            port = urllib.parse.urlsplit(url).port
+            for host, code in (("evil.example:%d" % port, 403), ("localhost:%d" % port, 200),
+                               ("127.0.0.1:%d" % port, 200), ("[::1]:%d" % port, 200)):
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                connection.putrequest("GET", "/api/state", skip_host=True)
+                connection.putheader("Host", host)
+                connection.endheaders()
+                self.assertEqual(connection.getresponse().status, code, host)
+                connection.close()
 
     def test_commands_require_enabled_source_and_same_origin(self):
         with serving(Producer) as upstream:

@@ -3,7 +3,7 @@ name: speech-web
 description: Read before changing the speech supervisor, its embedded UI, event stream or listen.py/talk.py handshake; use unified-viewer for viewing
 metadata:
   type: project
-  updated: 2026-11-11T18:49:12Z
+  updated: 2026-11-11T18:36:15Z
   covers: [speech/web.py, speech/web.html]
 ---
 
@@ -20,6 +20,6 @@ Use [[unified-viewer]] to show speech and listening. `speech/web.py` is the unde
 - `/api/status` has a process instance ID for dashboard history resets. SSE provides live updates and bounded history for late subscribers; level events are not kept in history. Preserve these contracts when editing the programs' output.
 - Its LLM Start uses the documented llama-server command. Exit stops only an LLM it started itself. A person's separately launched LLM remains theirs.
 
-The supervisor binds loopback by default; explicit network binding enables a remote source. Commands require JSON. It uses the existing LLM and mute ports; the authoritative defaults are in the scripts and README. The page is self-contained for offline robot networks.
+The supervisor binds loopback by default; explicit network binding enables a remote source. Bound to loopback, it refuses a request whose Host is not loopback (`loopback_host`: localhost or a loopback IP), which stops a page on another site that re-resolves its own name to 127.0.0.1 (DNS rebinding) from reading transcripts or starting the mic; with a network binding it accepts any Host, so keep it on a trusted network. Commands require JSON. It uses the existing LLM and mute ports; the authoritative defaults are in the scripts and README. The page is self-contained for offline robot networks.
 
 Validated with recordings and typed conversations on an M1 Mac, including dashboard embedding, and live mic and speaker conversations through it (2026-11-09). Deployment on PC2 remains unverified.

@@ -1,8 +1,11 @@
 """speech/web.py's sessions, with a stand-in for talk.py (no models, LLM or sound)."""
+import http.client
 import json
 import sys
+import threading
 import tempfile
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -48,6 +51,29 @@ class Sessions(unittest.TestCase):
         self.assertTrue(self.server.session.done.wait(5))
         order = [(e["source"], e["event"], e.get("state")) for e in self.events()]
         self.assertLess(order.index(("talk", "exit", None)), order.index(("web", "session", "stopped")))
+
+
+class Hosts(unittest.TestCase):
+    def test_a_page_reaching_it_under_another_name_is_refused(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.handler(web.Server()))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        port = httpd.server_port
+        for method, host, code in (("GET", "evil.example", 403), ("POST", "evil.example", 403),
+                                   ("GET", "localhost", 200), ("POST", "127.0.0.1", 200)):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            body = b"{}" if method == "POST" else None
+            connection.request(method, "/api/stop" if body else "/api/status", body,
+                               {"Host": "%s:%d" % (host, port), "Content-Type": "application/json"})
+            self.assertEqual(connection.getresponse().status, code, (method, host))
+            connection.close()
+
+    def test_loopback_names(self):
+        for host in ("127.0.0.1:1", "localhost", "[::1]:28733", "app.localhost:8", "127.5.0.1"):
+            self.assertTrue(web.loopback_host(host), host)
+        for host in ("evil.example", "127.0.0.1.evil.example", "10.0.0.2:28733", ""):
+            self.assertFalse(web.loopback_host(host), host)
 
 
 if __name__ == "__main__":
