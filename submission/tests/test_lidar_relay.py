@@ -97,6 +97,14 @@ class WithoutBody(unittest.TestCase):
         self.assertEqual(poses[0][0], 14.0)                       # the newest
         self.assertGreaterEqual(min(p[0] for p in poses), 15 - JOINT_WINDOW / 0.02 - 1)
 
+    def test_poses_reach_back_over_a_late_cloud_scan(self):
+        # A cloud 100 ms late was scanned 0.1-0.2 s ago: a pose from then must be checked.
+        now = time.monotonic()
+        joints = [(now - 0.3 + 0.02 * i, np.full(29, 0.3 - 0.02 * i)) for i in range(16)]   # value: age
+        ages = [p[0] for p in relay(joints).poses()]
+        self.assertGreaterEqual(max(ages), 0.17)
+        self.assertLessEqual(max(np.diff(sorted(ages))), 0.041)   # as close as with 0.15 s and 4
+
     def test_xyz_reads_the_layout(self):
         points = xyz(point_rows(self.cloud().tobytes(), 22), FIELDS, False)
         np.testing.assert_allclose(points[:, 0], self.cloud()["x"])

@@ -10,8 +10,8 @@ through Unitree's SDK (its own CycloneDDS beside ROS's Fast DDS) and publishes
 it with two changes. The time: the robot stamps it with its own clock, and Nav2
 needs stamps that match /tf, so each cloud gets its arrival time (at most about
 50-100 ms late). The robot's own body: harp/self_filter.py cuts out the shoulders,
-arms and hands, posed by /joint_states over the cloud's last 0.15 s (the lidar's
-100 ms, smeared over a moving arm: self_filter.scan_poses); with none for
+arms and hands, posed by /joint_states over the cloud's last 0.2 s (the lidar's
+100 ms, smeared over a moving arm, and its delay: self_filter.scan_poses); with none for
 JOINT_TIMEOUT s (harp_node isn't running) clouds go out whole. Every other field of a
 kept point is unchanged. It also publishes the cloud turned 180 deg about the lidar's z
 (lidar_mount.REAR_FRAME, +x pointing back), which Nav2's clearing reads so that its

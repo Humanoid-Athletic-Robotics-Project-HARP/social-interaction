@@ -15,8 +15,6 @@ scan's last JOINT_WINDOW (a scan is smeared over 100 ms, and so is a moving arm:
 scan_poses). testground/lidar/self_filter_check.py checks it on a real capture.
 """
 
-import math
-
 import mujoco
 import numpy as np
 
@@ -28,8 +26,10 @@ NUM_MOTORS = 29
 # m around each geom's box: about 3 sigma of the lidar's range noise (2 cm), which can
 # put a body point in front of the surface it hit, along the ray.
 MARGIN = 0.06
-JOINT_WINDOW = 0.15   # s of joint states a whole scan is checked against: its 100 ms and its delay
-MAX_POSES = 4         # joint states a scan is checked against at most, spread over the window
+SCAN = 0.1            # s a scan is smeared over (the MID-360's 10 Hz)
+DELAY = 0.1           # s at most a cloud reaches the relay after its scan ends (lidar_relay.py)
+JOINT_WINDOW = SCAN + DELAY   # s of joint states a whole scan is checked against
+MAX_POSES = 6         # joint states a scan is checked against at most: 40 ms apart at 50 Hz
 
 
 def half_extents(model, g):
@@ -57,13 +57,16 @@ def half_extents(model, g):
 def scan_poses(times, poses, arrival):
     """The joint angles to check a scan that arrived at `arrival` against: those of the
     joint states (times, rising, same clock) within JOINT_WINDOW before it, at most
-    MAX_POSES of them, the newest first and always included; the newest before it if none."""
+    MAX_POSES of them evenly spread, the newest first and the oldest (the scan's start)
+    last, both always included; the newest before it if none."""
     recent = [q for t, q in zip(times, poses) if arrival - JOINT_WINDOW <= t <= arrival]
     if not recent:
         before = [q for t, q in zip(times, poses) if t <= arrival]
         return before[-1:]
-    step = math.ceil(len(recent) / MAX_POSES)
-    return recent[::-1][::step]
+    if len(recent) > MAX_POSES:
+        picks = sorted({round(i * (len(recent) - 1) / (MAX_POSES - 1)) for i in range(MAX_POSES)})
+        recent = [recent[i] for i in picks]
+    return recent[::-1]
 
 
 class SelfFilter:
