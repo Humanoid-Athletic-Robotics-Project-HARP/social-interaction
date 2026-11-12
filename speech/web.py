@@ -9,7 +9,9 @@ person.
 It runs listen.py --events and talk.py --heard as its own child processes, in place of
 the shell pipe `listen.py --mic | talk.py --heard`: listening's turns go on to talking
 (once talking has said its greeting), and everything both print goes to the page as
-server-sent events. It can also start llama-server with the README's command, and stops
+server-sent events. A start with "wait" runs talk.py --wait: it loads and then holds its
+greeting until POST /api/go (bridge.py starts one as the robot walks up to someone, and
+sends go when it arrives). It can also start llama-server with the README's command, and stops
 it again on exit if it started it. Plain stdlib Python that also runs on 3.8 (PC2's).
 
 Anyone who can reach the page can start the mic and the speakers, so it listens only on
@@ -160,6 +162,9 @@ class Session:
         self.lock = threading.Lock()
         self.listen = self.talk = None
         self.ready = False   # talk.py has said its greeting, so it's reading turns
+        self.loaded = False  # talk.py --wait has loaded and waits for go
+        self.go_asked = False   # go came before it had loaded: sent once it has
+        self.went = False    # the go line has been sent
         self.later = None    # listen.py's command, held back until the greeting has played
         self.over = False
         self.readers = []    # the threads reading each program's output
@@ -177,6 +182,8 @@ class Session:
                 args.append("--no-play")
             if c.get("output_device") is not None:
                 args += ["--output-device", c["output_device"]]
+            if c.get("wait"):
+                args.append("--wait")
             self.talk = self.spawn("talk", self.command("talk.py", *args), stdin=True)
         if c["listen"]:
             args = ["--events", "--mute-port", self.mute_port]
@@ -252,6 +259,11 @@ class Session:
             timer.daemon = True
             timer.start()
         self.hub.publish("talk", event, **message)
+        if event == "loaded":   # after its event, so a held go's event comes after it
+            with self.lock:
+                self.loaded = True
+                if self.go_asked:
+                    self.write_go()
 
     def start_later(self, command):
         with self.lock:
@@ -269,6 +281,31 @@ class Session:
                 return True
             except (OSError, ValueError):
                 return False
+
+    def go(self):
+        """Lets talk.py --wait greet: now if it has loaded, else as soon as it has. False if
+        this session doesn't wait for go or its talk.py has ended."""
+        with self.lock:
+            if (self.over or not self.config.get("wait") or self.talk is None
+                    or self.talk.poll() is not None):
+                return False
+            if self.loaded:
+                return self.write_go()
+            self.go_asked = True
+            return True
+
+    def write_go(self):
+        """The go line to talk.py, once (under self.lock); True if written."""
+        if self.went:
+            return True
+        try:
+            self.talk.stdin.write(json.dumps({"go": True}) + "\n")
+            self.talk.stdin.flush()
+        except (OSError, ValueError):
+            return False
+        self.went = True
+        self.hub.publish("web", "go")
+        return True
 
     def end_turn(self):
         """Ends the turn listen.py is hearing now (a line on its stdin); False if it isn't running."""
@@ -336,6 +373,7 @@ class Server:
         ours = bool(s and s.listen and s.listen.poll() is None)
         return {"other_listen": not ours and port_taken(self.mute_port), "mute_port": self.mute_port,"llm": llm_status(self.llm_url), "llm_url": self.llm_url, "llm_started_here": self.llm is not None and self.llm.poll() is None,
                 "running": bool(s and s.running), "talk_ready": bool(s and s.ready),
+                "waiting": bool(s and s.running and s.config.get("wait") and not s.went),
                 "config": s.config if s else None,
                 "models": str(models_dir()), "limits": LIMITS, "host": socket.gethostname(),
                 "instance": self.instance}
@@ -346,9 +384,11 @@ class Server:
                   "wav": body.get("wav", ""), "realtime": bool(body.get("realtime", True)),
                   "iface": body.get("iface") or None, "fixed_turn": bool(body.get("fixed_turn")),
                   "voice": body.get("voice", "kokoro"), "play": bool(body.get("play", True)),
-                  "output_device": body.get("output_device")}
+                  "output_device": body.get("output_device"), "wait": bool(body.get("wait"))}
         if not (config["listen"] or config["talk"]):
             return 400, {"error": "Pick listening, talking or both."}
+        if config["wait"] and not config["talk"]:
+            return 400, {"error": "Only talking can wait for go."}
         if config["source"] not in ("mic", "robot", "wav") or config["voice"] not in ("kokoro", "piper"):
             return 400, {"error": "Unknown source or voice."}
         if config["listen"] and config["source"] == "wav":
@@ -368,7 +408,8 @@ class Server:
             if self.session and not self.session.done.is_set() and (self.session.over or self.session.readers):
                 # Stopping (asked to, or its programs ended): its talk.py may still be
                 # finishing a line, and two would speak at once.
-                return 409, {"error": "Still stopping: HARP is finishing what it was saying."}
+                return 409, {"error": "Still stopping: HARP is finishing what it was saying.",
+                             "stopping": True}
             self.hub.clear()
             self.session = Session(self.hub, config, self.llm_url, self.mute_port)
             self.session.start()
@@ -387,6 +428,11 @@ class Server:
             return 409, {"error": "Talking isn't running."}
         if not self.session.typed(text):
             return 409, {"error": "HARP isn't ready yet: wait for the greeting."}
+        return 200, {"ok": True}
+
+    def go(self):
+        if not (self.session and self.session.go()):
+            return 409, {"error": "No session is waiting to greet."}
         return 200, {"ok": True}
 
     def end_turn(self):
@@ -499,6 +545,7 @@ def handler(server):
                 return self.reply(400, {"error": "bad JSON"})
             routes = {"/api/start": lambda: server.start(body), "/api/stop": server.stop,
                       "/api/say": lambda: server.say(body), "/api/end_turn": server.end_turn,
+                      "/api/go": server.go,
                       "/api/llm/start": server.start_llm,
                       "/api/llm/stop": server.stop_llm}
             route = routes.get(self.path)

@@ -138,6 +138,10 @@ the robot.
 - 🟡 Listening, an LLM and a voice working together on a laptop
   (`listen.py --mic | talk.py --heard`). Tested with recorded voices, not yet
   with a person.
+- 🟡 Talking with the person it walked up to: `speech/bridge.py` joins the
+  behavior loop to speech, which loads on the way and greets on arrival.
+  Tested with stand-in speech programs; not yet with the real models or on
+  the robot.
 
 ### Run safely on the real robot
 

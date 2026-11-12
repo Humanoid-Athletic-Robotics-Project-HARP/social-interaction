@@ -33,7 +33,10 @@ first piece), guessed_words ({word: sounds} from the G2P model), unknown_words (
 no G2P model), ignored_bye (a <bye> on a reply that wasn't a goodbye), filler (at_s after
 the turn's end: the line said, or why none: unfit, soon or playing), echo, and done
 (reason). --save DIR keeps everything said as WAVs; --no-play stays silent;
---output-device picks the speaker.
+--output-device picks the speaker. --wait loads the voice and warms the LLM, sends a
+loaded event, then waits for a {"go": true} line on stdin before the greeting, so it greets
+the moment the robot arrives (web.py's prepare, for bridge.py); stdin closing first ends it
+with done (reason not_started).
 
 Models in models/ beside the main checkout, like listen.py's. Plain Python that also runs
 on 3.8 (PC2's).
@@ -827,6 +830,18 @@ class Conversation:
         return reason
 
 
+def wait_for_go(lines):
+    """True at the first {"go": true} line (or a plain "go"), False if the lines end first."""
+    for line in lines:
+        try:
+            if json.loads(line).get("go"):
+                return True
+        except (ValueError, AttributeError):
+            if line.strip() == "go":
+                return True
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--heard", action="store_true",
@@ -840,6 +855,8 @@ def main():
     parser.add_argument("--mute-port", type=int, default=MUTE_PORT, help="where listen.py hears it's speaking")
     parser.add_argument("--json", action="store_true",
                         help="JSON events on stdout even in a terminal (always when piped)")
+    parser.add_argument("--wait", action="store_true",
+                        help='load, then wait for a {"go": true} line on stdin before the greeting')
     args = parser.parse_args()
     if args.output_device and args.output_device.isdigit():
         args.output_device = int(args.output_device)
@@ -848,6 +865,12 @@ def main():
     mute = Mute(args.mute_port)   # first, so listen.py doesn't hear anyone while this loads
     talk = Conversation(args, mute)
     talk.warm()
+    if args.wait:
+        talk.event("loaded")
+        log("loaded: waiting for go")
+        if not wait_for_go(sys.stdin):
+            talk.event("done", reason="not_started", turns=0, seconds=0.0)
+            return
     log("ready" + (": say something after the greeting" if args.heard else
                    ": type what the person says, one line a turn (Ctrl-D to end)"))
     talk.start()

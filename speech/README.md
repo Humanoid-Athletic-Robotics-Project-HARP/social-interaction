@@ -239,6 +239,33 @@ mark, HARP says a short filler. If the LLM sends nothing for 5 s, HARP says a fi
 instead. The line below says which happened. Turns and Time count from HARP's greeting,
 as `talk.py` does, not while the models load.
 
+## With the robot's behavior loop
+
+`bridge.py` lets the robot talk with the person it walked up to. The behavior loop
+(`submission/harp/behavior.py`) asks it to load once the camera confirms the person, to greet
+on arrival, and to stop if they leave; it answers when the conversation is over, and the
+robot turns away. With no bridge running (as in the sim), the loop stands for up to 30 s
+instead. The protocol is in its docstring.
+
+Start the LLM server and `web.py` as above, then the bridge with ROS's own Python (it needs
+`rclpy`, not this venv). On the robot, on PC2, with the harness's ROS settings:
+
+```bash
+source /opt/ros/foxy/setup.bash && ROS_DOMAIN_ID=97 ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp python3 bridge.py
+```
+
+With speech on a laptop instead (its mic and speakers, `web.py --host 0.0.0.0` there), the
+bridge still runs on PC2 and points at the laptop:
+
+```bash
+source /opt/ros/foxy/setup.bash && ROS_DOMAIN_ID=97 ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp python3 bridge.py --web http://LAPTOP_IP:28733
+```
+
+`--source robot` hears the robot's mic (ask the team first, as above), and `--voice`,
+`--device` and `--output-device` pick what the page's Start would. Its events go on
+`/harp/events` (source `speech`) and its stdout. The behavior loop doesn't run on the
+robot yet, so this is tested only with stand-in speech programs (`tests/test_bridge.py`).
+
 ## Bench
 
 Tests on made-up audio and scripted conversations, for tuning without a mic, speakers or

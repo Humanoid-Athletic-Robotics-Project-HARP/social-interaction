@@ -293,5 +293,18 @@ class SpeakerIdle(unittest.TestCase):
         self.assertTrue(speaker.idle.wait(2))
 
 
+class WaitForGo(unittest.TestCase):
+    """--wait: the greeting waits for web.py's go line."""
+
+    def test_go_line(self):
+        lines = iter(['{"text": "early"}\n', '{"go": true}\n', '{"text": "after"}\n'])
+        self.assertTrue(talk.wait_for_go(lines))
+        self.assertEqual(next(lines), '{"text": "after"}\n')   # the rest stays for the turns
+
+    def test_plain_go_and_the_end(self):
+        self.assertTrue(talk.wait_for_go(["go\n"]))
+        self.assertFalse(talk.wait_for_go(['{"go": false}\n', "[1]\n", "nonsense\n"]))
+
+
 if __name__ == "__main__":
     unittest.main()
