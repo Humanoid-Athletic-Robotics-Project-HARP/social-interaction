@@ -51,3 +51,12 @@
 - [Off-robot testing](off-robot-testing.md) — when considering another simulator
 - [RL ideas](rl-ideas.md) — when someone asks about reinforcement learning on the G1
 - [Person perception sources](person-perception-sources.md) — before evaluating or updating the pinned detector/tracker forks
+- [Social behavior research](social-behavior-research.md) — first, when designing how the robot behaves with people; points to the topics below
+- [Approach research](approach-research.md) — before changing stop distance, approach angle, speed or abort rules
+- [Engagement research](engagement-research.md) — before changing whom the loop approaches, when it waits, when it gives up
+- [Groups research](groups-research.md) — before adding groups or choosing among several people
+- [Conversation flow research](conversation-flow-research.md) — before changing how a talk opens, handles refusal, lasts or ends
+- [Nonverbal research](nonverbal-research.md) — before adding gestures, facing rules or LED signals
+- [Field deployments](field-deployments-research.md) — before planning public sessions, crowds, children or obstruction handling
+- [Public sessions ethics](public-sessions-ethics.md) — before talking with or recording anyone outside the team: law, IRB, checklist
+- [Social testing research](social-testing-research.md) — before adding reactive sim people, social scores or a pilot study
